@@ -1,0 +1,397 @@
+标题：Slurm 与 HPC 常见错误知识库
+
+关键词：
+Slurm, HPC, error, failed, OOM, pending, permission denied, invalid partition, CUDA, module not found, timeout, job failed, GPU unavailable, quota exceeded
+
+说明：
+本文件用于存储 HPC 与 Slurm 常见错误的解释、原因、诊断命令和解决方案。
+内容主要用于 RAG 检索与错误诊断系统。
+所有错误信息应尽量保持结构化，避免包含“回答原则”“你应该”等 instruction 风格内容。
+
+---
+
+错误类型：Pending / PD 状态
+
+常见关键词：
+PD, Pending, Resources, Priority, Dependency, ReqNodeNotAvail
+
+现象：
+用户运行 squeue 时，看到作业状态为 PD。
+
+说明：
+PD 表示 Pending，即作业正在等待调度资源。
+Pending 不代表作业失败。
+
+可能原因：
+
+1. 集群资源不足
+2. GPU 或 CPU 资源繁忙
+3. 用户优先级较低
+4. 申请资源过多
+5. partition 当前不可用
+6. 作业依赖未完成
+
+常用诊断命令：
+squeue -j job_id
+scontrol show job job_id
+
+常见解决方法：
+
+1. 等待资源释放
+2. 减少 GPU 或 CPU 数量
+3. 缩短 time limit
+4. 更换 partition
+5. 检查 dependency 设置
+
+补充说明：
+查看当前用户作业：
+squeue -u $USER
+
+---
+
+错误类型：Out Of Memory / OOM
+
+常见关键词：
+oom-kill, out of memory, Killed process, memory exceeded, MaxRSS
+
+现象：
+作业运行中突然终止。
+error 文件中可能出现：
+slurmstepd: error: Detected 1 oom-kill event(s)
+
+说明：
+程序使用的内存超过了 Slurm 分配的内存限制。
+
+可能原因：
+
+1. 数据集过大
+2. batch size 太大
+3. 多进程占用过高
+4. 程序存在内存泄漏
+5. 一次性加载过多数据
+
+常用诊断命令：
+sacct -j job_id --format=JobID,State,MaxRSS,Elapsed
+
+常见解决方法：
+增加内存：
+#SBATCH --mem=16G
+
+或者：
+#SBATCH --mem-per-cpu=4G
+
+其他优化：
+
+1. 减小 batch size
+2. 分批读取数据
+3. 减少 worker 数量
+4. 使用更小模型
+
+补充说明：
+oom-kill 通常由 Linux OOM Killer 触发。
+
+---
+
+错误类型：Time Limit Exceeded
+
+常见关键词：
+TIME LIMIT, DUE TO TIME LIMIT, CANCELLED AT, timeout
+
+现象：
+作业运行后被系统自动取消。
+
+说明：
+作业运行时间超过：
+#SBATCH --time
+
+设置的时间限制。
+
+示例：
+#SBATCH --time=02:00:00
+
+常见解决方法：
+
+1. 增加 time limit
+2. 优化程序性能
+3. 拆分任务
+4. 使用 checkpoint
+
+常用诊断命令：
+sacct -j job_id
+
+补充说明：
+不同 partition 的最长时间限制可能不同。
+
+---
+
+错误类型：Invalid partition specified
+
+常见关键词：
+Invalid partition specified, Batch job submission failed
+
+现象：
+sbatch 提交作业时直接失败。
+
+说明：
+用户指定的 partition 不存在或不可用。
+
+可能原因：
+
+1. partition 拼写错误
+2. partition 不存在
+3. 用户无权限
+4. 集群未开放该 partition
+
+常用诊断命令：
+sinfo
+sinfo -s
+scontrol show partition
+
+常见解决方法：
+
+1. 使用 sinfo 查看可用 partition
+2. 修改：
+   #SBATCH --partition=xxx
+3. 联系管理员确认权限
+
+补充说明：
+不同超算平台的 partition 名称不同。
+
+---
+
+错误类型：Permission Denied
+
+常见关键词：
+Permission denied, access denied, Operation not permitted
+
+现象：
+运行脚本或访问文件时报权限错误。
+
+可能原因：
+
+1. 脚本不可执行
+2. 文件权限不足
+3. 目录不可写
+4. 文件属于其他用户
+
+常用诊断命令：
+ls -l
+whoami
+
+常见解决方法：
+增加执行权限：
+chmod +x script.sh
+
+查看目录权限：
+ls -ld folder_name
+
+补充说明：
+普通用户通常无法修改系统目录权限。
+
+---
+
+错误类型：Command Not Found
+
+常见关键词：
+command not found, No such file or directory
+
+现象：
+系统找不到命令。
+
+可能原因：
+
+1. 软件未安装
+2. module 未加载
+3. conda 环境未激活
+4. PATH 配置错误
+
+常用诊断命令：
+which command_name
+module avail
+
+常见解决方法：
+加载模块：
+module load module_name
+
+激活 conda：
+conda activate env_name
+
+补充说明：
+登录节点和计算节点环境可能不同。
+
+---
+
+错误类型：ModuleNotFoundError
+
+常见关键词：
+No module named, ImportError, ModuleNotFoundError
+
+现象：
+Python 程序无法导入模块。
+
+可能原因：
+
+1. Python 包未安装
+2. 虚拟环境未激活
+3. Slurm 作业未加载环境
+
+常见解决方法：
+安装包：
+pip install package_name
+
+激活环境：
+conda activate env_name
+
+Slurm 脚本中：
+source ~/.bashrc
+
+补充说明：
+交互式终端能运行，不代表 sbatch 中也能运行。
+
+---
+
+错误类型：File Not Found
+
+常见关键词：
+No such file or directory, FileNotFoundError
+
+现象：
+程序无法找到文件或目录。
+
+可能原因：
+
+1. 路径错误
+2. 相对路径问题
+3. 文件未上传
+4. 工作目录错误
+
+常用诊断命令：
+pwd
+ls -l
+
+常见解决方法：
+
+1. 使用绝对路径
+2. 在脚本中：
+   cd /path/to/project
+
+补充说明：
+sbatch 的运行目录可能与终端当前目录不同。
+
+---
+
+错误类型：GPU Unavailable
+
+常见关键词：
+CUDA error, no CUDA-capable device, GPU unavailable, CUDA out of memory
+
+现象：
+程序无法识别 GPU。
+
+可能原因：
+
+1. 未申请 GPU
+2. partition 不是 GPU 分区
+3. GPU 资源不足
+4. CUDA 环境问题
+
+GPU 申请示例：
+#SBATCH --gres=gpu:1
+
+可能需要：
+#SBATCH --partition=gpu
+
+常用诊断命令：
+nvidia-smi
+
+PyTorch 检查：
+import torch
+print(torch.cuda.is_available())
+
+补充说明：
+没有申请 GPU 时，程序通常只能看到 CPU。
+
+---
+
+错误类型：Compilation Error
+
+常见关键词：
+gcc error, make error, undefined reference
+
+现象：
+C/C++/MPI 程序编译失败。
+
+可能原因：
+
+1. 编译器未加载
+2. library 缺失
+3. Makefile 配置错误
+
+常见解决方法：
+加载 gcc：
+module load gcc
+
+MPI 编译：
+mpicc main.c -o main
+
+C++ 编译：
+g++ main.cpp -o main
+
+补充说明：
+MPI 程序通常应使用 mpicc 或 mpicxx。
+
+---
+
+错误类型：Disk Quota Exceeded
+
+常见关键词：
+No space left on device, quota exceeded
+
+现象：
+程序无法写文件。
+
+可能原因：
+
+1. 用户空间已满
+2. 输出文件过大
+3. scratch 空间不足
+
+常用诊断命令：
+df -h
+quota -s
+
+常见解决方法：
+
+1. 删除无用文件
+2. 清理日志
+3. 使用 scratch 目录
+
+补充说明：
+模型训练日志和 checkpoint 通常会快速占满空间。
+
+---
+
+错误类型：Job Failed
+
+常见关键词：
+FAILED, ExitCode, NonZeroExitCode
+
+现象：
+作业失败，但没有明显报错。
+
+可能原因：
+
+1. 程序异常退出
+2. 环境未加载
+3. 内存不足
+4. 文件路径错误
+
+常用诊断命令：
+sacct -j job_id --format=JobID,State,ExitCode
+
+查看日志：
+cat output.txt
+cat error.txt
+
+补充说明：
+ExitCode 不同通常代表不同失败原因。

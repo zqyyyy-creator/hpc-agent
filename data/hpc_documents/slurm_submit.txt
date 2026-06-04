@@ -1,0 +1,53 @@
+标题：提交 Slurm 作业
+
+关键词：
+Slurm, sbatch, submit job, batch job, 作业提交, 提交任务, HPC job, job script, 作业脚本
+
+说明：
+Slurm 使用 sbatch 命令提交批处理作业。用户通常需要先编写一个作业脚本，例如 job.sh，然后使用 sbatch job.sh 提交。
+
+基本命令：
+sbatch job.sh
+
+提交成功示例：
+Submitted batch job 12345
+
+最小作业脚本示例：
+#!/bin/bash
+#SBATCH --job-name=test_job
+#SBATCH --output=output.txt
+#SBATCH --error=error.txt
+#SBATCH --time=00:10:00
+#SBATCH --ntasks=1
+
+srun hostname
+
+常见参数：
+--job-name        设置作业名称
+--output          设置标准输出文件
+--error           设置错误输出文件
+--time            设置最长运行时间
+--ntasks          设置任务数量
+--cpus-per-task   设置每个任务使用的 CPU 数量
+--mem             设置内存大小
+--partition       指定分区或队列
+
+常见问题：
+如果 sbatch job.sh 后没有成功提交，需要检查：
+1. job.sh 文件是否存在
+2. 脚本是否在当前目录
+3. #SBATCH 参数是否正确
+4. partition 是否存在
+5. 资源申请是否超过限制
+
+补充说明：
+提交 Slurm 作业时，最常用的命令是 sbatch job.sh。
+用户通常需要先编写一个 job.sh 作业脚本。
+最小脚本一般需要包含：
+1. job-name
+2. output/error 文件
+3. time
+4. ntasks
+5. 实际运行命令
+
+如果用户不知道如何编写脚本，应优先提供一个最小可运行示例。

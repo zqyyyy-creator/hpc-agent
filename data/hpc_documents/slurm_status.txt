@@ -1,0 +1,54 @@
+标题：查看 Slurm 作业状态
+
+关键词：
+Slurm, squeue, sacct, scontrol, job status, queue, Pending, Running, PD, R, 查看作业状态, 查看队列, 作业排队
+
+说明：
+Slurm 使用 squeue 命令查看当前作业队列和作业状态。
+
+基本命令：
+squeue
+
+查看当前用户的作业：
+squeue -u $USER
+
+查看指定作业：
+squeue -j job_id
+
+示例：
+squeue -j 12345
+
+常见状态：
+R  = Running，作业正在运行
+PD = Pending，作业正在等待资源
+CG = Completing，作业正在完成
+CD = Completed，作业已完成
+F  = Failed，作业失败
+TO = Timeout，作业超时
+
+查看作业详细信息：
+scontrol show job job_id
+
+查看历史作业：
+sacct
+
+常见问题：
+如果作业长时间处于 PD 状态，可能原因包括：
+1. 集群资源不足
+2. 队列繁忙
+3. 用户优先级较低
+4. partition 限制
+5. 申请的 CPU、GPU、内存或时间过多
+
+补充说明：
+查看作业状态最常用的命令是：
+squeue -u $USER
+
+如果用户想查看单个作业：
+squeue -j job_id
+
+PD 表示 Pending，即作业正在等待资源。
+PD 不一定表示作业失败。
+
+如果需要查看 Pending 原因，可使用：
+scontrol show job job_id

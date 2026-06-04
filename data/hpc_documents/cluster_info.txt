@@ -1,0 +1,119 @@
+标题：查看 Slurm 集群、节点和分区信息
+
+关键词：
+Slurm, sinfo, cluster info, node status, partition, queue, nodes, GPU node, CPU node, 查看集群, 查看节点, 查看分区, 队列信息
+
+说明：
+在 Slurm 中，使用 sinfo 命令查看集群整体状态，包括分区 partition、节点 node、节点状态和可用资源情况。
+
+基本命令：
+sinfo
+
+查看节点级别信息：
+sinfo -N
+
+查看简洁分区信息：
+sinfo -s
+
+查看指定分区：
+sinfo -p partition_name
+
+示例：
+sinfo -p gpu
+
+查看节点详细信息：
+scontrol show nodes
+
+查看分区详细信息：
+scontrol show partition
+
+常见字段：
+PARTITION 表示分区名称
+AVAIL 表示分区是否可用
+TIMELIMIT 表示该分区最长运行时间限制
+NODES 表示节点数量
+STATE 表示节点状态
+NODELIST 表示节点列表
+
+常见节点状态：
+idle = 空闲节点，可以调度新作业
+alloc = 已分配节点，正在被作业使用
+mix = 部分资源被使用，仍可能有剩余资源
+down = 节点故障，不可用
+drain = 节点正在维护或被管理员设置为不可调度
+drng = drain 中，节点正在退出可调度状态
+resv = 节点被 reservation 预留
+
+partition 的含义：
+partition 可以理解为 Slurm 中的队列或资源分区。不同 partition 可能对应不同硬件、时间限制、用户权限或作业类型。
+
+常见 partition 类型：
+1. CPU partition：适合普通 CPU 作业
+2. GPU partition：适合深度学习、CUDA、PyTorch、TensorFlow 等 GPU 作业
+3. debug partition：适合短时间测试
+4. long partition：适合长时间任务
+5. highmem partition：适合大内存任务
+
+常见使用场景：
+1. 查看当前哪些节点空闲
+2. 查看 GPU 分区是否存在
+3. 查看作业应该提交到哪个 partition
+4. 排查作业为什么一直 pending
+5. 检查指定 partition 是否可用
+
+示例问题：
+如果用户想知道有哪些分区：
+使用：
+sinfo -s
+
+如果用户想知道 GPU 节点：
+使用：
+sinfo -p gpu
+或者：
+sinfo -N
+
+如果用户想看节点详细配置：
+使用：
+scontrol show nodes
+
+如果用户想看 partition 的限制：
+使用：
+scontrol show partition
+
+注意事项：
+1. 不同集群的 partition 名称不同
+2. 不是所有用户都能使用所有 partition
+3. GPU partition 可能需要额外权限
+4. debug partition 通常时间限制较短
+5. 作业 pending 可能和 partition 资源不足有关
+
+常见问题：
+问题：Invalid partition specified
+原因：用户在作业脚本中指定了不存在的 partition，或者该 partition 对当前用户不可用。
+解决：
+先运行 sinfo 查看可用 partition。
+检查脚本中的 #SBATCH --partition=xxx。
+
+问题：作业一直 PD
+原因：
+可能是指定的 partition 当前没有足够资源，或者用户申请的资源超过该 partition 限制。
+解决：
+使用 squeue -j job_id 查看状态。
+使用 scontrol show job job_id 查看 pending reason。
+使用 sinfo 查看分区资源情况。
+
+补充说明：
+查看 Slurm 集群状态最常用的命令是：
+sinfo
+
+查看节点：
+sinfo -N
+
+查看 partition：
+sinfo -s
+
+如果需要更详细信息：
+scontrol show partition
+scontrol show nodes
+
+不同集群的 partition 名称可能不同，应以 sinfo 输出为准。

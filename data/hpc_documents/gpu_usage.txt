@@ -1,0 +1,65 @@
+标题：Slurm GPU 使用与申请
+
+关键词：
+Slurm, GPU, CUDA, nvidia-smi, gres, --gres=gpu, GPU job, 申请GPU, 查看GPU, GPU节点, CUDA_VISIBLE_DEVICES
+
+说明：
+在 Slurm 中申请 GPU 通常需要在作业脚本中使用 #SBATCH --gres=gpu:数量。不同集群可能还需要指定 GPU partition。
+
+申请 1 块 GPU：
+#SBATCH --gres=gpu:1
+
+申请 2 块 GPU：
+#SBATCH --gres=gpu:2
+
+可能需要指定 GPU 分区：
+#SBATCH --partition=gpu
+
+GPU 作业脚本示例：
+#!/bin/bash
+#SBATCH --job-name=gpu_test
+#SBATCH --output=gpu_output.txt
+#SBATCH --error=gpu_error.txt
+#SBATCH --time=00:30:00
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=16G
+#SBATCH --gres=gpu:1
+
+nvidia-smi
+python train.py
+
+查看 GPU 使用情况：
+nvidia-smi
+
+查看集群 GPU 节点或分区：
+sinfo
+sinfo -N
+
+常见问题：
+如果 GPU 作业一直排队，可能原因包括：
+1. GPU 节点资源不足
+2. GPU partition 使用人数较多
+3. 申请的 GPU 数量过多
+4. 作业时间限制过长
+
+如果出现 GPU resource unavailable，说明当前没有足够 GPU 资源，或者用户指定的 partition 不支持 GPU。
+
+注意事项：
+不同集群的 GPU 参数可能不同。有些集群使用 --gres=gpu:1，有些集群可能要求指定具体 GPU 类型。
+如果不确定 GPU partition 名称，应先使用 sinfo 查看可用分区。
+
+补充说明：
+GPU 作业通常需要在 Slurm 脚本中加入：
+#SBATCH --gres=gpu:1
+
+部分集群还需要指定 GPU partition，例如：
+#SBATCH --partition=gpu
+
+查看 GPU 状态最常用的命令是：
+nvidia-smi
+
+如果程序检测不到 GPU，应先确认：
+1. 是否申请了 GPU
+2. 是否进入 GPU 节点
+3. 是否使用了 GPU partition
