@@ -1,0 +1,282 @@
+[
+  {
+    "id": "OOM_001",
+    "category": "memory",
+    "name": "Out of Memory",
+    "patterns": ["out of memory", "oom-kill", "killed", "cannot allocate memory"],
+    "reason": "程序使用的内存超过了作业申请的内存限制。",
+    "solution": "增加 Slurm 脚本中的 --mem 或 --mem-per-cpu；减少并行进程数量；检查代码是否一次性加载了过大的数据。",
+    "fix": {
+      "type": "increase_memory",
+      "suggested_directives": ["#SBATCH --mem=16G", "#SBATCH --mem-per-cpu=4G"],
+      "related_commands": ["sacct -j JOBID --format=JobID,State,MaxRSS,Elapsed", "seff JOBID"],
+      "explanation": "这是典型内存不足。优先提高内存申请；如果是多 CPU 作业，可以使用 --mem-per-cpu。也应该检查程序是否一次性读取过大数据。"
+    }
+  },
+  {
+    "id": "PERM_001",
+    "category": "permission",
+    "name": "Permission Denied",
+    "patterns": ["permission denied", "operation not permitted", "access denied"],
+    "reason": "当前用户没有执行、读取或写入某个文件/目录的权限。",
+    "solution": "检查文件权限；如果是脚本不能执行，运行 chmod +x script.sh。",
+    "fix": {
+      "type": "fix_permission",
+      "suggested_directives": [],
+      "related_commands": ["ls -l FILE", "chmod +x script.sh", "chmod u+r FILE", "pwd"],
+      "explanation": "这通常不是 Slurm 参数问题，而是 Linux 文件权限问题。如果是脚本无法执行，使用 chmod +x；如果是无法读取文件，检查文件所有者和路径。"
+    }
+  },
+  {
+    "id": "TIME_001",
+    "category": "slurm",
+    "name": "Time Limit Exceeded",
+    "patterns": ["time limit", "due to time limit", "reached time limit", "cancelled because it reached time limit"],
+    "reason": "作业运行时间超过 Slurm 申请时间。",
+    "solution": "增加 #SBATCH --time；优化程序；把长任务拆成多个短任务。",
+    "fix": {
+      "type": "increase_time",
+      "suggested_directives": ["#SBATCH --time=04:00:00", "#SBATCH --time=08:00:00"],
+      "related_commands": ["sacct -j JOBID --format=JobID,State,Elapsed,Timelimit", "squeue -j JOBID"],
+      "explanation": "作业被时间限制取消，应提高 --time。建议先查看上次实际运行了多久，再设置略高于实际需要的时间。"
+    }
+  },
+  {
+    "id": "TIME_002",
+    "category": "slurm",
+    "name": "Requested Time Limit Invalid",
+    "patterns": ["requested time limit is invalid", "time limit option required", "time requested exceeds the allowed limit"],
+    "reason": "申请的运行时间超过 partition 限制或时间格式错误。",
+    "solution": "检查 #SBATCH --time 格式，例如 02:00:00；用 sinfo 查看该 partition 最大时间。",
+    "fix": {
+      "type": "fix_time_format_or_limit",
+      "suggested_directives": ["#SBATCH --time=02:00:00"],
+      "related_commands": ["sinfo", "sinfo -o \"%P %l\""],
+      "explanation": "这个错误通常发生在 --time 格式写错，或者申请时间超过当前 partition 最大限制。先用 sinfo 查看最大时间，再修改 --time。"
+    }
+  },
+  {
+    "id": "SLURM_001",
+    "category": "slurm",
+    "name": "Invalid Partition",
+    "patterns": ["invalid partition", "invalid partition specified", "invalid partition name specified"],
+    "reason": "SBATCH 脚本里的 partition 不存在或你无权使用。",
+    "solution": "用 sinfo 查看可用 partition；修改 #SBATCH --partition。",
+    "fix": {
+      "type": "fix_partition",
+      "suggested_directives": ["#SBATCH --partition=general", "#SBATCH --partition=gpu"],
+      "related_commands": ["sinfo", "scontrol show partition"],
+      "explanation": "partition 名称必须是集群真实存在且你有权限使用的队列。用 sinfo 查看可用 partition 后，把脚本里的 --partition 改成正确名称。"
+    }
+  },
+  {
+    "id": "SLURM_002",
+    "category": "slurm",
+    "name": "Invalid Account",
+    "patterns": ["invalid account", "invalid account or account/partition combination"],
+    "reason": "Slurm account 配置错误或账户没有该队列权限。",
+    "solution": "检查 #SBATCH --account；确认你的超算账户属于该项目组。",
+    "fix": {
+      "type": "fix_account",
+      "suggested_directives": ["#SBATCH --account=YOUR_PROJECT_ACCOUNT"],
+      "related_commands": ["sacctmgr show assoc user=$USER", "scontrol show job JOBID"],
+      "explanation": "Slurm account 通常对应项目组或课题组。如果 account 写错，作业无法提交。需要确认自己可用的 account 名称。"
+    }
+  },
+  {
+    "id": "SLURM_003",
+    "category": "slurm",
+    "name": "Job Pending Priority",
+    "patterns": ["priority"],
+    "reason": "作业因优先级较低正在排队。",
+    "solution": "等待调度；减少申请资源；使用短队列或低负载 partition。",
+    "fix": {
+      "type": "reduce_queue_wait",
+      "suggested_directives": ["#SBATCH --time=01:00:00", "#SBATCH --nodes=1"],
+      "related_commands": ["squeue -u $USER", "sprio -u $USER"],
+      "explanation": "Priority 不是错误，而是排队原因。可以等待，也可以减少资源和时间申请，让作业更容易被调度。"
+    }
+  },
+  {
+    "id": "SLURM_004",
+    "category": "slurm",
+    "name": "Job Pending Resources",
+    "patterns": ["resources", "reqnodenotavail"],
+    "reason": "当前没有足够节点、CPU、GPU 或内存资源。",
+    "solution": "减少资源申请；换 partition；用 squeue/sinfo 查看资源状态。",
+    "fix": {
+      "type": "reduce_requested_resources",
+      "suggested_directives": ["#SBATCH --nodes=1", "#SBATCH --ntasks=1", "#SBATCH --cpus-per-task=4"],
+      "related_commands": ["sinfo", "squeue", "scontrol show job JOBID"],
+      "explanation": "Resources 表示当前资源不足。可以减少 CPU、GPU、节点或内存申请，也可以换到资源更空闲的 partition。"
+    }
+  },
+  {
+    "id": "SLURM_005",
+    "category": "slurm",
+    "name": "Partition Time Limit",
+    "patterns": ["partitiontimelimit", "partition time limit"],
+    "reason": "申请时间超过该 partition 允许的最大时间。",
+    "solution": "降低 #SBATCH --time；或换支持更长时间的 partition。",
+    "fix": {
+      "type": "fix_partition_time_limit",
+      "suggested_directives": ["#SBATCH --time=02:00:00", "#SBATCH --partition=long"],
+      "related_commands": ["sinfo -o \"%P %l\"", "scontrol show partition"],
+      "explanation": "每个 partition 都有最大运行时间。要么降低 --time，要么换到允许更长运行时间的 partition。"
+    }
+  },
+  {
+    "id": "DISK_001",
+    "category": "storage",
+    "name": "Disk Quota Exceeded",
+    "patterns": ["disk quota exceeded", "quota exceeded"],
+    "reason": "用户磁盘配额已满，可能是空间用完或文件数量超限。",
+    "solution": "删除无用文件；用 du -sh * 找大文件；把大数据放到 scratch。",
+    "fix": {
+      "type": "clean_quota",
+      "suggested_directives": [],
+      "related_commands": ["du -sh *", "du -sh ~/.cache", "quota -s", "rm -rf ~/.cache/pip"],
+      "explanation": "这是存储配额问题，不是 sbatch 参数问题。应清理 home 目录，把大型数据、输出和缓存移动到 scratch 或项目存储。"
+    }
+  },
+  {
+    "id": "DISK_002",
+    "category": "storage",
+    "name": "No Space Left on Device",
+    "patterns": ["no space left on device"],
+    "reason": "当前磁盘或临时目录空间不足。",
+    "solution": "清理输出文件、缓存、临时文件；更换到空间更大的目录；检查 /tmp 是否占满。",
+    "fix": {
+      "type": "fix_storage_path",
+      "suggested_directives": ["#SBATCH --export=TMPDIR=/scratch/$USER/tmp"],
+      "related_commands": ["df -h", "du -sh *", "mkdir -p /scratch/$USER/tmp"],
+      "explanation": "该错误可能来自当前目录或临时目录空间不足。建议把临时文件和输出路径放到 scratch，而不是 home 或 /tmp。"
+    }
+  },
+  {
+    "id": "FILE_001",
+    "category": "file",
+    "name": "No Such File or Directory",
+    "patterns": ["no such file or directory", "file not found", "cannot open file"],
+    "reason": "路径错误、文件不存在，或计算节点无法访问该路径。",
+    "solution": "用 pwd 和 ls 检查当前路径；尽量使用绝对路径；确认文件已上传到共享目录。",
+    "fix": {
+      "type": "fix_file_path",
+      "suggested_directives": ["cd /path/to/your/project"],
+      "related_commands": ["pwd", "ls -l", "realpath FILE"],
+      "explanation": "通常是工作目录不对或文件没有上传。Slurm 脚本中应先 cd 到项目目录，尽量使用绝对路径。"
+    }
+  },
+  {
+    "id": "PYTHON_001",
+    "category": "python",
+    "name": "Module Not Found",
+    "patterns": ["modulenotfounderror", "no module named", "module not found"],
+    "reason": "Python 环境缺少依赖包。",
+    "solution": "激活正确虚拟环境；运行 pip install 包名；或使用 conda/module 加载环境。",
+    "fix": {
+      "type": "install_python_dependency",
+      "suggested_directives": ["source .venv/bin/activate", "pip install PACKAGE_NAME"],
+      "related_commands": ["which python", "python -m pip show PACKAGE_NAME", "pip install PACKAGE_NAME"],
+      "explanation": "该错误说明当前 Python 环境没有对应包。要确认 sbatch 作业和你本地测试使用的是同一个 Python/conda/venv 环境。"
+    }
+  },
+  {
+    "id": "PYTHON_002",
+    "category": "python",
+    "name": "Import Error",
+    "patterns": ["importerror", "cannot import name", "importing the numpy c-extensions failed"],
+    "reason": "包版本不兼容、安装损坏，或导入路径错误。",
+    "solution": "检查包版本；避免文件名和库名重复；重新安装依赖；确认当前 Python 环境正确。",
+    "fix": {
+      "type": "fix_python_import",
+      "suggested_directives": ["pip install --upgrade PACKAGE_NAME", "pip install --force-reinstall PACKAGE_NAME"],
+      "related_commands": ["which python", "python -c \"import sys; print(sys.path)\"", "pip list"],
+      "explanation": "ImportError 通常不是包完全缺失，而是版本、路径或命名冲突。检查是否有同名 .py 文件覆盖了第三方库。"
+    }
+  },
+  {
+    "id": "CMD_001",
+    "category": "environment",
+    "name": "Command Not Found",
+    "patterns": ["command not found", "not recognized as a command"],
+    "reason": "命令不存在、软件未安装、module 未加载，或 PATH 未配置。",
+    "solution": "检查拼写；运行 which 命令名；使用 module avail 和 module load 加载对应软件。",
+    "fix": {
+      "type": "load_missing_command",
+      "suggested_directives": ["module avail", "module load SOFTWARE_NAME"],
+      "related_commands": ["which COMMAND", "echo $PATH", "module list"],
+      "explanation": "超算中很多软件默认不可用，需要先 module load。若 which 找不到命令，说明当前环境没有正确加载软件。"
+    }
+  },
+  {
+    "id": "COMPILE_001",
+    "category": "compile",
+    "name": "Compiler Not Found",
+    "patterns": ["gcc: command not found", "g\\+\\+: command not found", "mpicc: command not found", "compiler not found"],
+    "reason": "编译器没有安装或没有加载。",
+    "solution": "运行 module avail gcc；再运行 module load gcc；如果是 MPI 程序，加载对应 MPI module。",
+    "fix": {
+      "type": "load_compiler",
+      "suggested_directives": ["module load gcc", "module load openmpi"],
+      "related_commands": ["module avail gcc", "module avail mpi", "which gcc", "which mpicc"],
+      "explanation": "编译器找不到通常说明没有加载编译环境。C/C++ 程序加载 gcc，MPI 程序还需要加载 openmpi 或集群指定 MPI。"
+    }
+  },
+  {
+    "id": "COMPILE_002",
+    "category": "compile",
+    "name": "Compilation Failed",
+    "patterns": ["undefined reference", "fatal error", "compilation terminated"],
+    "reason": "编译失败，可能缺少头文件、库文件或链接参数。",
+    "solution": "检查报错行；加载依赖库；确认 include/lib 路径正确；检查 Makefile 或编译命令。",
+    "fix": {
+      "type": "fix_compile_flags",
+      "suggested_directives": ["module load gcc", "module load openmpi"],
+      "related_commands": ["make clean && make", "gcc --version", "mpicc --version"],
+      "explanation": "fatal error 通常是缺少头文件；undefined reference 通常是链接库缺失。需要检查 -I、-L、-l 参数和依赖 module。"
+    }
+  },
+  {
+    "id": "GPU_001",
+    "category": "gpu",
+    "name": "CUDA Out of Memory",
+    "patterns": ["cuda out of memory", "cublas_status_alloc_failed", "tried to allocate"],
+    "reason": "GPU 显存不足。",
+    "solution": "减小 batch size；使用更小模型；清理不必要 tensor；申请更大显存 GPU。",
+    "fix": {
+      "type": "reduce_gpu_memory_usage",
+      "suggested_directives": ["#SBATCH --gres=gpu:1", "#SBATCH --mem=32G"],
+      "related_commands": ["nvidia-smi", "sacct -j JOBID --format=JobID,State,MaxRSS,Elapsed"],
+      "explanation": "CUDA OOM 是 GPU 显存不足。Slurm 层面要确认申请了 GPU；代码层面更重要的是减小 batch size、减少模型大小或释放 tensor。"
+    }
+  },
+  {
+    "id": "GPU_002",
+    "category": "gpu",
+    "name": "No CUDA GPUs Available",
+    "patterns": ["no cuda gpus are available", "cuda is not available", "torch.cuda.is_available\\(\\) is false"],
+    "reason": "作业没有成功使用 GPU，可能没有申请 GPU 或 CUDA 环境不正确。",
+    "solution": "检查是否写了 #SBATCH --gres=gpu:1；确认加载 CUDA module；确认 PyTorch 是 CUDA 版本。",
+    "fix": {
+      "type": "request_gpu_and_cuda",
+      "suggested_directives": ["#SBATCH --gres=gpu:1", "module load cuda"],
+      "related_commands": ["nvidia-smi", "python -c \"import torch; print(torch.cuda.is_available())\""],
+      "explanation": "程序找不到 GPU 时，先确认 sbatch 是否申请 GPU，再确认 CUDA module 和 PyTorch CUDA 版本是否匹配。"
+    }
+  },
+  {
+    "id": "SSH_001",
+    "category": "ssh",
+    "name": "SSH Permission Denied",
+    "patterns": ["permission denied \\(publickey", "permission denied \\(password", "permission denied \\(password,publickey\\)"],
+    "reason": "SSH 认证失败，用户名、密码或密钥错误。",
+    "solution": "确认 SSH 用户名；检查密码或密钥；确认账号已开通超算权限。",
+    "fix": {
+      "type": "fix_ssh_auth",
+      "suggested_directives": [],
+      "related_commands": ["ssh username@hostname", "ssh -v username@hostname", "ls -l ~/.ssh"],
+      "explanation": "SSH 认证失败不是 Slurm 问题。要检查用户名、主机名、密码、公钥配置，以及账号是否已经被超算中心开通。"
+    }
+  }
+]
