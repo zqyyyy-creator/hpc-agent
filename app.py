@@ -1,10 +1,16 @@
 import subprocess
 import sys
+import traceback
 
 
 def start_terminal():
-    from main import main
-    main()
+    try:
+        from main import main as terminal_main
+        terminal_main()
+
+    except Exception:
+        print("\n启动 Terminal CLI 模式失败，完整错误如下：")
+        traceback.print_exc()
 
 
 def start_web():
@@ -12,13 +18,21 @@ def start_web():
     print("打开浏览器访问：http://127.0.0.1:8000")
     print("按 Ctrl+C 退出 Web 服务\n")
 
-    subprocess.run([
-        sys.executable,
-        "-m",
-        "uvicorn",
-        "web_app:app",
-        "--reload"
-    ])
+    try:
+        subprocess.run([
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "web_app:app",
+            "--reload"
+        ])
+
+    except KeyboardInterrupt:
+        print("\n已退出 Web 服务。")
+
+    except Exception:
+        print("\n启动 Web 模式失败，完整错误如下：")
+        traceback.print_exc()
 
 
 def main():

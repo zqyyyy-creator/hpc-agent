@@ -14,10 +14,22 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
 # 初始化 DeepSeek Client
+base_url = os.getenv("PARATERA_BASE_URL")
+api_key = os.getenv("PARATERA_API_KEY")
+
+if not base_url:
+    raise ValueError(
+        "缺少环境变量 PARATERA_BASE_URL。请在项目根目录创建 .env 文件，并填写 PARATERA_BASE_URL。"
+    )
+
+if not api_key:
+    raise ValueError(
+        "缺少环境变量 PARATERA_API_KEY。请在项目根目录创建 .env 文件，并填写 PARATERA_API_KEY。"
+    )
+
 client = OpenAI(
-    api_key=os.getenv("PARATERA_API_KEY"),
-    base_url=os.getenv("PARATERA_BASE_URL") + "/v1",
-    timeout=60,
+    api_key=api_key,
+    base_url=base_url.rstrip("/") + "/v1",
 )
 
 
