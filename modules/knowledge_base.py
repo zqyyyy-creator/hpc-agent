@@ -91,7 +91,6 @@ def retrieve(query, documents, sources, top_k=3, min_score=0.05):
 
 # 调用 LLM
 def ask_llm(question, retrieved_docs):
-
     context = "\n\n".join([
         f"""
 来源：{doc['source']}
@@ -106,23 +105,25 @@ def ask_llm(question, retrieved_docs):
         {
             "role": "system",
             "content": """
-你是一个 HPC / Slurm 技术支持助手。
+你是一个 HPC / Slurm 知识库问答助手。
 
 你的任务：
-基于检索到的资料，回答用户的超算使用问题。
+基于检索到的资料，回答用户的超算和 Slurm 使用问题。
 
 回答要求：
-1. 不要只复述资料
+1. 正常自然回答，不要机械套模板
 2. 不要说“根据资料”开头
-3. 必须把答案组织成技术支持格式
-4. 如果涉及错误诊断，必须包含：
+3. 如果是概念问题，用简洁教学方式解释
+4. 如果是操作问题，给出可执行命令
+5. 如果是脚本问题，可以给出简单示例
+6. 不要编造资料中没有的集群专属信息，例如 partition 名称、节点名、账号规则
+7. 如果资料不足，说明“当前知识库没有提供足够信息”，但可以补充通用 Slurm 经验
+8. 禁止在普通问答中使用以下错误诊断标题：
    - 问题判断
    - 可能原因
    - 诊断命令
    - 解决方法
-5. 如果涉及 Slurm 操作，必须给出可执行命令
-6. 不要编造资料中没有的集群专属信息，例如 partition 名称、节点名、账号规则
-7. 如果资料不足，说明“当前知识库没有提供足够信息”，但仍可给出通用排查方向
+9. 只有用户明确提供错误日志、报错信息、失败信息时，才可以使用诊断格式
 """
         },
         {
@@ -134,22 +135,19 @@ def ask_llm(question, retrieved_docs):
 检索到的资料：
 {context}
 
-请按下面格式回答：
+请直接回答用户问题。
 
-### 问题判断
-用 1-2 句话判断用户遇到的问题。
+如果用户问“什么是 xxx”，请用：
+- 简短定义
+- 基本用途
+- 常用命令或例子
 
-### 可能原因
-用编号列表列出原因。
+如果用户问“怎么做 xxx”，请用：
+- 操作步骤
+- 相关命令
+- 注意事项
 
-### 诊断命令
-给出可以直接复制运行的命令。
-
-### 解决方法
-给出具体修改建议或操作步骤。
-
-### 补充说明
-说明注意事项。如果知识库信息不足，请明确说明。
+不要使用“问题判断 / 可能原因 / 诊断命令 / 解决方法”这种格式。
 """
         }
     ]
@@ -159,49 +157,10 @@ def ask_llm(question, retrieved_docs):
         messages=messages,
         max_tokens=1024,
         stream=False,
+        timeout=30
     )
 
     return response.choices[0].message.content
-
-
-def main():
-
-    # 加载知识库
-    documents, sources = load_documents()
-
-    print("Loaded documents:", len(documents))
-
-    print("HPC RAG Agent 已启动")
-    print()
-
-    while True:
-
-        question = input("请输入问题（输入 quit 退出）： ")
-
-        if question.lower() == "quit":
-            break
-
-        # 检索
-        retrieved_docs = retrieve(question, documents, sources)
-
-        print("\n检索到的文档：")
-
-        if not retrieved_docs:
-            print("没有找到相关资料")
-            continue
-
-        for doc in retrieved_docs:
-            print("=" * 50)
-            print("来源：", doc["source"])
-            print("相似度：", round(doc["score"], 4))
-            print(doc["content"])
-
-        # 调用 LLM
-        answer = ask_llm(question, retrieved_docs)
-
-        print("\nAI回答：")
-        print(answer)
-        print("\n")
 
 
 if __name__ == "__main__":
