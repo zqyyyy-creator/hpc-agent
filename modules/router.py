@@ -1,6 +1,7 @@
 def detect_intent(question: str) -> str:
     q = question.lower()
     q_no_space = q.replace(" ", "")
+    has_job_id = any(char.isdigit() for char in q)
 
     error_keywords = [
         "error", "failed", "traceback", "exception",
@@ -10,11 +11,34 @@ def detect_intent(question: str) -> str:
         "not found"
     ]
 
+    submit_keywords = [
+        "提交作业", "提交一个作业", "帮我提交",
+        "提交到超算", "运行到超算",
+        "submitjob", "submitasbatch", "submittohpc",
+        "runonhpc"
+    ]
+
+    job_status_keywords = [
+        "查看状态", "查询状态", "作业状态",
+        "任务状态", "jobstatus", "checkjob",
+        "squeue"
+    ]
+
+    job_output_keywords = [
+        "读取输出", "查看输出", "标准输出",
+        "输出结果", "stdout", "joboutput"
+    ]
+
+    job_error_keywords = [
+        "读取错误日志", "查看错误日志", "错误日志",
+        "stderr", "joberror"
+    ]
+
     sbatch_keywords = [
         "生成脚本", "写脚本", "写一个sbatch",
         "帮我写sbatch", "sbatch脚本",
         "作业脚本", "帮我生成",
-        "提交一个", "提交作业",
+        "我想提交",
         "createansbatch", "generateansbatch",
         "createsbatch", "generatesbatch",
         "sbatchscript", "slurmscript",
@@ -32,6 +56,27 @@ def detect_intent(question: str) -> str:
         "一直不运行", "一直pending", "pending",
         "卡住", "没有开始", "排队很久"
     ]
+
+    if any(k in q_no_space for k in submit_keywords):
+        return "submit_job"
+
+    if has_job_id and "状态" in q:
+        return "job_status"
+
+    if has_job_id and "输出" in q:
+        return "job_output"
+
+    if has_job_id and "错误日志" in q:
+        return "job_error"
+
+    if any(k in q_no_space for k in job_status_keywords):
+        return "job_status"
+
+    if any(k in q_no_space for k in job_output_keywords):
+        return "job_output"
+
+    if any(k in q_no_space for k in job_error_keywords):
+        return "job_error"
 
     if any(k in q for k in error_keywords):
         return "diagnose_error"

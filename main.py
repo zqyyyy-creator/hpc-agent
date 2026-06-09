@@ -11,6 +11,13 @@ from rich import box
 from modules.knowledge_base import load_documents, retrieve, ask_llm
 from modules.slurm_assistant import generate_sbatch_script, suggest_slurm_parameters
 from modules.error_diagnoser import ErrorDiagnoser
+from modules.job_submitter import prepare_submit_script, submit_prepared_script
+from modules.job_query import (
+    extract_job_id,
+    query_job_error,
+    query_job_output,
+    query_job_status,
+)
 from modules.router import detect_intent
 
 
@@ -46,6 +53,10 @@ def show_intent(intent: str):
         "suggest_params": "Slurm 参数建议",
         "diagnose_error": "错误日志诊断",
         "troubleshoot_job": "作业 Pending / 不运行排查",
+        "submit_job": "提交作业到超算",
+        "job_status": "查询作业状态",
+        "job_output": "读取作业输出",
+        "job_error": "读取作业错误日志",
     }
 
     table.add_row(intent, mapping.get(intent, "未知任务"))
@@ -78,6 +89,40 @@ def handle_suggest_params(question):
         suggestion = suggest_slurm_parameters(question)
 
     console.print(Panel(Markdown(suggestion), title="参数建议", border_style="yellow"))
+
+
+def handle_submit_job(question):
+    with console.status("[bold green]正在生成待提交脚本...[/bold green]"):
+        prepared = prepare_submit_script(question)
+
+    if not prepared["ready"]:
+        console.print(Panel(prepared["message"], title="需要补充信息", border_style="yellow"))
+        return
+
+    console.print(Panel(prepared["script"], title="待提交 Slurm 脚本", border_style="cyan"))
+
+    if not Confirm.ask("确认提交到超算？"):
+        console.print("[yellow]已取消提交。[/yellow]")
+        return
+
+    with console.status("[bold green]正在连接超算并提交作业...[/bold green]"):
+        result = submit_prepared_script(prepared["script"])
+
+    border_style = "green" if result["success"] else "red"
+    console.print(Panel(result["answer"], title="提交结果", border_style=border_style))
+
+
+def handle_job_query(question, query_func, title):
+    job_id = extract_job_id(question)
+
+    if not job_id:
+        console.print(Panel("请提供 job_id，例如：查看 11814709 的状态。", title="缺少 Job ID", border_style="yellow"))
+        return
+
+    with console.status("[bold green]正在连接超算查询作业...[/bold green]"):
+        answer = query_func(job_id)
+
+    console.print(Panel(answer, title=title, border_style="green"))
 
 
 def handle_troubleshoot_job(question, documents, sources):
@@ -180,6 +225,18 @@ def main():
 
             if intent == "diagnose_error":
                 handle_diagnose_error(diagnoser, question)
+
+            elif intent == "submit_job":
+                handle_submit_job(question)
+
+            elif intent == "job_status":
+                handle_job_query(question, query_job_status, "作业状态")
+
+            elif intent == "job_output":
+                handle_job_query(question, query_job_output, "作业输出")
+
+            elif intent == "job_error":
+                handle_job_query(question, query_job_error, "作业错误日志")
 
             elif intent == "generate_sbatch":
                 handle_generate_sbatch(question)
