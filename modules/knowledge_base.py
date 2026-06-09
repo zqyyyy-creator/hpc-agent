@@ -9,6 +9,17 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 
+def _sanitize_text(text: str) -> str:
+    """清除 UTF-8 surrogate 字符，防止序列化时报错。
+
+    在 WSL / Windows 文件系统等场景下，Python 可能通过
+    surrogateescape 错误处理策略将无效字节解码为 surrogate
+    字符（U+D800–U+DFFF），这些字符无法被 UTF-8 编码器处理，
+    会导致 openai SDK 序列化 JSON 时抛出 UnicodeEncodeError。
+    """
+    return text.encode("utf-8", errors="replace").decode("utf-8")
+
+
 # 加载 .env
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -47,7 +58,7 @@ def load_documents():
 
     for path in docs_path.glob("*.txt"):
 
-        text = path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8", errors="replace")
 
         # chunking
         parts = text.split("\n\n")
@@ -103,12 +114,15 @@ def retrieve(query, documents, sources, top_k=3, min_score=0.05):
 
 # 调用 LLM
 def ask_llm(question, retrieved_docs):
+    # 净化输入，防止 surrogate 字符导致序列化失败
+    question = _sanitize_text(question)
+
     context = "\n\n".join([
         f"""
-来源：{doc['source']}
+来源：{_sanitize_text(doc['source'])}
 相似度：{doc['score']:.4f}
 内容：
-{doc['content']}
+{_sanitize_text(doc['content'])}
 """
         for doc in retrieved_docs
     ])
