@@ -1,3 +1,5 @@
+import _bootstrap  # noqa: F401
+
 from modules.error_diagnoser import ErrorDiagnoser
 from modules.router import detect_intent
 

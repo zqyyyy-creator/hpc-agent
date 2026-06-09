@@ -1,9 +1,12 @@
+import _bootstrap
+
 from modules.slurm_tools import submit_job
 
 
-LAST_JOB_FILE = ".last_job_id"
+LAST_JOB_FILE = _bootstrap.PROJECT_ROOT / ".last_job_id"
+SCRIPT_PATH = _bootstrap.PROJECT_ROOT / "job.sh"
 
-result = submit_job("job.sh")
+result = submit_job(SCRIPT_PATH)
 
 print("SUCCESS:")
 print(result["success"])
@@ -23,8 +26,7 @@ if not result["success"]:
 if not result["job_id"]:
     raise SystemExit("作业可能已提交，但没有解析到 job_id，请检查 OUTPUT 输出。")
 
-with open(LAST_JOB_FILE, "w", encoding="utf-8") as f:
-    f.write(result["job_id"])
+LAST_JOB_FILE.write_text(result["job_id"], encoding="utf-8")
 
 print("LAST JOB FILE:")
 print(LAST_JOB_FILE)

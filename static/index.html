@@ -328,7 +328,7 @@
         <section id="chatBox" class="chat-area">
             <div class="hero">
                 <h1>HPC Agent Ready</h1>
-                <p>Ask me about Slurm, sbatch scripts, parameters, or error logs.</p>
+                <p>Generate, submit, monitor, and diagnose Slurm jobs from one chat.</p>
             </div>
 
             <div class="message assistant">
@@ -340,9 +340,17 @@
 
 1. Slurm 知识库问答
 2. sbatch 脚本生成
-3. Slurm 参数建议
-4. 错误日志诊断
-5. Pending / 不运行任务排查
+3. 提交作业到超算
+4. 查询作业状态
+5. 读取作业输出和错误日志
+6. Slurm 参数建议
+7. 错误日志诊断
+8. Pending / 不运行任务排查
+
+示例：
+帮我提交一个作业运行 python train.py，4 核，10 分钟
+查看11814753的状态
+读取11814753的错误日志
                     </div>
                 </div>
             </div>
@@ -459,7 +467,7 @@
         chatBox.innerHTML = `
             <div class="hero">
                 <h1>HPC Agent Ready</h1>
-                <p>Ask me about Slurm, sbatch scripts, parameters, or error logs.</p>
+                <p>Generate, submit, monitor, and diagnose Slurm jobs from one chat.</p>
             </div>
 
             <div class="message assistant">
@@ -471,9 +479,17 @@
 
 1. Slurm 知识库问答
 2. sbatch 脚本生成
-3. Slurm 参数建议
-4. 错误日志诊断
-5. Pending / 不运行任务排查
+3. 提交作业到超算
+4. 查询作业状态
+5. 读取作业输出和错误日志
+6. Slurm 参数建议
+7. 错误日志诊断
+8. Pending / 不运行任务排查
+
+示例：
+帮我提交一个作业运行 python train.py，4 核，10 分钟
+查看11814753的状态
+读取11814753的错误日志
                     </div>
                 </div>
             </div>

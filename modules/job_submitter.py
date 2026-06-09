@@ -1,7 +1,14 @@
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
 from modules.slurm_assistant import generate_sbatch_script
 
 
-DEFAULT_PARTITION = "amd_test"
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+DEFAULT_PARTITION = os.getenv("HPC_DEFAULT_PARTITION", "amd_test")
 
 
 def add_partition(script: str, partition: str = DEFAULT_PARTITION) -> str:

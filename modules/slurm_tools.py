@@ -1,15 +1,18 @@
 import re
 import time
+import os
 from pathlib import Path
 
 import paramiko
+from dotenv import load_dotenv
 
 
-HOST = "ssh.cn-zhongwei-1.paracloud.com"
-USERNAME = "a0s000582@BSCC-A"
-KEY_PATH = "/home/lenovo/.ssh/id_ed25519"
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-REMOTE_WORKDIR = "/public4/home/a0s000582"
+HOST = os.getenv("HPC_HOST", "ssh.cn-zhongwei-1.paracloud.com")
+USERNAME = os.getenv("HPC_USERNAME", "a0s000582@BSCC-A")
+KEY_PATH = os.getenv("HPC_KEY_PATH", "/home/lenovo/.ssh/id_ed25519")
+REMOTE_WORKDIR = os.getenv("HPC_REMOTE_WORKDIR", "/public4/home/a0s000582")
 
 
 def get_ssh_client():

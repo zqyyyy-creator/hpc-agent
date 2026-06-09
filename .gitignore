@@ -9,3 +9,14 @@ wheels/
 # Virtual environments
 .venv
 .env
+
+# Runtime state
+.last_job_id
+
+# Slurm outputs
+slurm-*.out
+slurm-*.err
+agent_*.out
+agent_*.err
+hpc_agent_job_*.out
+hpc_agent_job_*.err

@@ -8,6 +8,8 @@
 * Slurm 作业调度
 * 错误日志诊断
 * sbatch 脚本生成
+* SSH 超算连接
+* Slurm 作业提交、状态查询与日志读取
 * Rich CLI 美化
 * FastAPI Web UI
 
@@ -22,6 +24,9 @@
 * 学习 Slurm
 * 提交超算作业
 * 自动生成 sbatch 脚本
+* 通过对话确认后提交作业到指定超算
+* 查询 Slurm 作业状态
+* 读取作业标准输出和错误日志
 * 分析错误日志
 * 提供资源参数建议
 * 进行 HPC 工作流辅助
@@ -116,6 +121,56 @@ CUDA out of memory
 
 ---
 
+## 6. 提交作业到超算
+
+支持通过 SSH 连接指定超算，并在用户确认后提交 Slurm 作业。
+
+示例：
+
+```text
+帮我提交一个作业运行 python train.py，4 核，10 分钟
+```
+
+系统会先展示待提交的 sbatch 脚本。确认无误后输入：
+
+```text
+确认提交
+```
+
+或在 Terminal CLI 中选择：
+
+```text
+y
+```
+
+提交成功后会返回：
+
+```text
+Job ID: 11814753
+```
+
+---
+
+## 7. 作业状态和日志查询
+
+支持通过对话查询作业状态、标准输出和错误日志。
+
+示例：
+
+```text
+查看11814753的状态
+```
+
+```text
+读取11814753的输出
+```
+
+```text
+读取11814753的错误日志
+```
+
+---
+
 # Terminal CLI 界面
 
 项目使用 Rich 实现：
@@ -140,6 +195,9 @@ CUDA out of memory
 * Intent 显示
 * Web 聊天输入框
 * FastAPI 后端通信
+* 作业提交预览
+* 确认提交到超算
+* 作业状态和日志查询
 
 网页启动后访问：
 
@@ -192,6 +250,9 @@ hpc-agent/
 ├── modules/
 │   ├── knowledge_base.py
 │   ├── slurm_assistant.py
+│   ├── slurm_tools.py
+│   ├── job_submitter.py
+│   ├── job_query.py
 │   ├── error_diagnoser.py
 │   └── router.py
 ├── docs/
@@ -243,6 +304,32 @@ pip install -r requirements.txt
 ```bash
 uv sync
 ```
+
+---
+
+# 环境变量配置
+
+项目需要配置 LLM API 和超算 SSH 信息。
+
+示例：
+
+```env
+PARATERA_BASE_URL=https://your-api-base-url
+PARATERA_API_KEY=your-api-key
+
+HPC_HOST=ssh.cn-zhongwei-1.paracloud.com
+HPC_USERNAME=a0s000582@BSCC-A
+HPC_KEY_PATH=/home/lenovo/.ssh/id_ed25519
+HPC_REMOTE_WORKDIR=/public4/home/a0s000582
+HPC_DEFAULT_PARTITION=amd_test
+```
+
+注意：
+
+* `.env` 不应提交到 Git
+* 当前测试环境使用 `amd_test` partition
+* 提交作业前会先展示 sbatch 脚本并要求确认
+* 如果脚本运行 `python train.py`，需要确保 `train.py` 已存在于远程工作目录或脚本中切换到正确目录
 
 ---
 
@@ -316,6 +403,36 @@ CUDA out of memory
 
 ---
 
+## 提交作业
+
+```text
+帮我提交一个作业运行 python train.py，4 核，10 分钟
+```
+
+确认提交：
+
+```text
+确认提交
+```
+
+---
+
+## 查询作业
+
+```text
+查看11814753的状态
+```
+
+```text
+读取11814753的输出
+```
+
+```text
+读取11814753的错误日志
+```
+
+---
+
 # Intent Router
 
 系统会自动识别用户请求类型。
@@ -329,6 +446,10 @@ CUDA out of memory
 | suggest_params   | 参数建议            |
 | diagnose_error   | 错误日志诊断          |
 | troubleshoot_job | Pending / 不运行排查 |
+| submit_job       | 提交作业到超算        |
+| job_status       | 查询作业状态          |
+| job_output       | 读取作业标准输出      |
+| job_error        | 读取作业错误日志      |
 
 ---
 
@@ -348,6 +469,7 @@ CUDA out of memory
 * sbatch
 * squeue
 * scancel
+* Paramiko SSH
 
 ---
 
@@ -371,6 +493,7 @@ CUDA out of memory
 * Rich
 * Click
 * jieba
+* Paramiko
 
 ---
 
@@ -418,6 +541,16 @@ CUDA out of memory
 * 聊天历史滚动
 * 双模式启动
 * 用户手册
+
+---
+
+## Week 7
+
+* Agent Skill 规范集成
+* SSH 连接超算
+* Slurm 作业真实提交
+* 作业状态查询
+* 作业 stdout/stderr 日志读取
 * 功能整合优化
 
 ---

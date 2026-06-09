@@ -1,3 +1,5 @@
+import _bootstrap  # noqa: F401
+
 from modules.router import detect_intent
 from modules.slurm_assistant import generate_sbatch_script
 

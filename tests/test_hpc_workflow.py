@@ -1,6 +1,8 @@
 import time
 from pathlib import Path
 
+import _bootstrap
+
 from modules.slurm_tools import (
     check_job,
     read_job_error,
@@ -9,8 +11,8 @@ from modules.slurm_tools import (
 )
 
 
-LAST_JOB_FILE = Path(".last_job_id")
-SCRIPT_PATH = "job.sh"
+LAST_JOB_FILE = _bootstrap.PROJECT_ROOT / ".last_job_id"
+SCRIPT_PATH = _bootstrap.PROJECT_ROOT / "job.sh"
 POLL_SECONDS = 5
 MAX_POLLS = 12
 
@@ -46,8 +48,13 @@ def main():
         print_section(f"QUEUE CHECK {index + 1}/{MAX_POLLS}", last_queue_result)
 
         queue_output = last_queue_result["output"].strip()
+        queue_lines = [
+            line
+            for line in queue_output.splitlines()
+            if line.strip()
+        ]
 
-        if not queue_output or "JOBID" not in queue_output:
+        if len(queue_lines) <= 1:
             job_left_queue = True
             break
 
@@ -58,7 +65,7 @@ def main():
             "WORKFLOW",
             (
                 "Job submitted successfully, but it is still in the queue. "
-                "Run python3 test_tools.py later to read status and logs."
+                "Run python3 tests/test_tools.py later to read status and logs."
             ),
         )
         return

@@ -1,13 +1,15 @@
 import sys
 from pathlib import Path
 
+import _bootstrap
+
 from modules.slurm_tools import (
     check_job,
     read_job_output,
     read_job_error,
 )
 
-LAST_JOB_FILE = Path(".last_job_id")
+LAST_JOB_FILE = _bootstrap.PROJECT_ROOT / ".last_job_id"
 
 
 def get_job_id():
