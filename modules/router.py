@@ -13,7 +13,12 @@ def detect_intent(question: str) -> str:
     sbatch_keywords = [
         "生成脚本", "写脚本", "写一个sbatch",
         "帮我写sbatch", "sbatch脚本",
-        "作业脚本", "帮我生成"
+        "作业脚本", "帮我生成",
+        "提交一个", "提交作业",
+        "createansbatch", "generateansbatch",
+        "createsbatch", "generatesbatch",
+        "sbatchscript", "slurmscript",
+        "jobscript"
     ]
 
     param_keywords = [

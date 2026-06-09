@@ -88,10 +88,48 @@ def handle_troubleshoot_job(question, documents, sources):
     console.print(Panel(Markdown(answer), title="作业排查建议", border_style="yellow"))
 
 
-def handle_diagnose_error(diagnoser):
+def diagnose_and_show(log_text, diagnoser):
+    results = diagnoser.diagnose(log_text)
+
+    console.print()
+    console.print(Panel(diagnoser.format_results(results), title="诊断结果", border_style="red"))
+
+    if results:
+        choice = Confirm.ask("是否要根据该错误自动修复 sbatch 脚本？")
+
+        if choice:
+            console.print("\n请粘贴 sbatch 脚本。粘贴完成后输入 END：")
+
+            script_lines = []
+
+            while True:
+                line = input()
+
+                if line.strip() == "END":
+                    break
+
+                script_lines.append(line)
+
+            if script_lines:
+                original_script = "\n".join(script_lines)
+                fixed_script = diagnoser.fix_sbatch_script(original_script, results)
+
+                console.print(
+                    Panel(
+                        fixed_script,
+                        title="修复后的 sbatch 脚本",
+                        border_style="green",
+                    )
+                )
+
+
+def handle_diagnose_error(diagnoser, initial_log=None):
+    if initial_log:
+        diagnose_and_show(initial_log, diagnoser)
+
     console.print(
         Panel(
-            "请粘贴完整错误日志。\n输入 [bold]quit[/bold] 返回主菜单。",
+            "可以继续粘贴完整错误日志。\n输入 [bold]quit[/bold] 返回主菜单。",
             title="错误日志诊断模式",
             border_style="red",
         )
@@ -108,38 +146,7 @@ def handle_diagnose_error(diagnoser):
             if not log_text:
                 continue
 
-            results = diagnoser.diagnose(log_text)
-
-            console.print()
-            console.print(Panel(diagnoser.format_results(results), title="诊断结果", border_style="red"))
-
-            if results:
-                choice = Confirm.ask("是否要根据该错误自动修复 sbatch 脚本？")
-
-                if choice:
-                    console.print("\n请粘贴 sbatch 脚本。粘贴完成后输入 END：")
-
-                    script_lines = []
-
-                    while True:
-                        line = input()
-
-                        if line.strip() == "END":
-                            break
-
-                        script_lines.append(line)
-
-                    if script_lines:
-                        original_script = "\n".join(script_lines)
-                        fixed_script = diagnoser.fix_sbatch_script(original_script, results)
-
-                        console.print(
-                            Panel(
-                                fixed_script,
-                                title="修复后的 sbatch 脚本",
-                                border_style="green",
-                            )
-                        )
+            diagnose_and_show(log_text, diagnoser)
 
         except KeyboardInterrupt:
             console.print("\n[yellow]已中断当前错误诊断。[/yellow]")
@@ -172,7 +179,7 @@ def main():
             show_intent(intent)
 
             if intent == "diagnose_error":
-                handle_diagnose_error(diagnoser)
+                handle_diagnose_error(diagnoser, question)
 
             elif intent == "generate_sbatch":
                 handle_generate_sbatch(question)

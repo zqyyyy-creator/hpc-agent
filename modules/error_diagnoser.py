@@ -50,10 +50,22 @@ class ErrorDiagnoser:
             log_text = f.read()
 
         return self.diagnose(log_text)
+
+    def _is_unsafe_related_command(self, command: str):
+        return re.search(r"\brm\s+-[^\n;]*r[^\n;]*f\b", command, re.IGNORECASE)
+
+    def _is_cluster_specific_directive(self, directive: str):
+        return (
+            "#SBATCH --partition" in directive
+            or "#SBATCH --account" in directive
+        )
+
+    def _is_slurm_directive(self, directive: str):
+        return directive.strip().startswith("#SBATCH")
     
     def format_results(self, results):
         if not results:
-            return "没有匹配到已知错误。请检查日志里是否有 Error、Failed、Killed、Denied、OOM 等关键词。"
+            return "没有匹配到已知错误。请提供更完整的日志，并检查是否包含 Error、Failed、Killed、Denied、OOM 等关键词。"
 
         lines = ["诊断结果："]
 
@@ -70,16 +82,54 @@ class ErrorDiagnoser:
                 lines.append("   自动修复建议:")
 
                 if fix.get("suggested_directives"):
-                    lines.append("     推荐 Slurm 参数/配置:")
+                    safe_items = [
+                        directive
+                        for directive in fix["suggested_directives"]
+                        if not self._is_cluster_specific_directive(directive)
+                    ]
+                    slurm_directives = [
+                        item
+                        for item in safe_items
+                        if self._is_slurm_directive(item)
+                    ]
+                    environment_fixes = [
+                        item
+                        for item in safe_items
+                        if not self._is_slurm_directive(item)
+                    ]
 
-                    for directive in fix["suggested_directives"]:
-                        lines.append(f"       - {directive}")
+                    if slurm_directives:
+                        lines.append("     推荐 Slurm 参数/配置:")
+
+                        for directive in slurm_directives:
+                            lines.append(f"       - {directive}")
+
+                    if environment_fixes:
+                        lines.append("     推荐环境修复:")
+
+                        for command in environment_fixes:
+                            lines.append(f"       - {command}")
+
+                    if len(safe_items) < len(fix["suggested_directives"]):
+                        lines.append("     集群相关参数:")
+                        lines.append("       - partition/account 需要以当前超算的 sinfo 或管理员说明为准，不要直接套用示例名称。")
 
                 if fix.get("related_commands"):
-                    lines.append("     推荐排查命令:")
+                    safe_commands = [
+                        command
+                        for command in fix["related_commands"]
+                        if not self._is_unsafe_related_command(command)
+                    ]
 
-                    for command in fix["related_commands"]:
-                        lines.append(f"       - {command}")
+                    if safe_commands:
+                        lines.append("     推荐排查命令:")
+
+                        for command in safe_commands:
+                            lines.append(f"       - {command}")
+
+                    if len(safe_commands) < len(fix["related_commands"]):
+                        lines.append("     清理建议:")
+                        lines.append("       - 检查并确认无用文件后再清理，避免直接执行危险删除命令。")
 
                 if fix.get("explanation"):
                     lines.append(f"     修复说明: {fix['explanation']}")
