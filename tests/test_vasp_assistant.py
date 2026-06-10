@@ -19,6 +19,13 @@ from modules.router import detect_intent
 from modules.vasp_assistant import generate_vasp_sbatch_script
 
 
+DEFAULT_VASP_SETUP = (
+    "source /public1/soft/intel/2020u4/compilers_and_libraries_2020.4.304/"
+    "linux/bin/compilervars.sh intel64"
+)
+DEFAULT_VASP_RUN = "mpirun /public1/soft/vasp > vasp.out"
+
+
 def assert_contains(text: str, expected: str):
     if expected not in text:
         raise AssertionError(f"Expected to find {expected!r} in:\n{text}")
@@ -37,22 +44,23 @@ def test_generate_vasp_script_defaults():
     assert_contains(script, "test -f POSCAR")
     assert_contains(script, "test -f POTCAR")
     assert_contains(script, "test -f KPOINTS")
-    assert_contains(script, "vasp_std > vasp.out")
+    assert_contains(script, DEFAULT_VASP_SETUP)
+    assert_contains(script, DEFAULT_VASP_RUN)
 
 
 def test_generate_vasp_script_extracts_resources():
-    request = "帮我生成 VASP 脚本，2 个节点，每节点 64 核，运行 48 小时，命令是 mpirun vasp_std"
+    request = "帮我生成 VASP 脚本，2 个节点，每节点 64 核，运行 48 小时，命令是 mpirun /public1/soft/vasp"
     script = generate_vasp_sbatch_script(request)
 
     assert detect_intent(request) == "generate_vasp_job"
     assert_contains(script, "#SBATCH --nodes=2")
     assert_contains(script, "#SBATCH --ntasks-per-node=64")
     assert_contains(script, "#SBATCH --time=48:00:00")
-    assert_contains(script, "mpirun vasp_std > vasp.out")
+    assert_contains(script, DEFAULT_VASP_RUN)
 
 
 def test_submit_vasp_job_preview_adds_partition():
-    request = "帮我提交一个 VASP 结构优化任务，1 个节点 32 核，运行 24 小时，命令是 vasp_std"
+    request = "帮我提交一个 VASP 结构优化任务，1 个节点 32 核，运行 24 小时"
     prepared = prepare_vasp_submit_script(request)
 
     if not prepared["ready"]:
@@ -62,7 +70,8 @@ def test_submit_vasp_job_preview_adds_partition():
     assert_contains(prepared["script"], f"#SBATCH --partition={VASP_PARTITION}")
     assert_contains(prepared["script"], "#SBATCH --nodes=1")
     assert_contains(prepared["script"], "#SBATCH --ntasks-per-node=32")
-    assert_contains(prepared["script"], "vasp_std > vasp.out")
+    assert_contains(prepared["script"], DEFAULT_VASP_SETUP)
+    assert_contains(prepared["script"], DEFAULT_VASP_RUN)
 
 
 def test_dangerous_vasp_request_is_rejected():
@@ -85,7 +94,10 @@ def test_vasp_input_validation_requires_all_files():
 
 def test_vasp_submit_stops_when_local_inputs_missing():
     with TemporaryDirectory() as tmpdir:
-        result = submit_prepared_vasp_script("#!/bin/bash\nvasp_std > vasp.out\n", tmpdir)
+        result = submit_prepared_vasp_script(
+            f"#!/bin/bash\n{DEFAULT_VASP_SETUP}\n{DEFAULT_VASP_RUN}\n",
+            tmpdir,
+        )
 
         if result["success"]:
             raise AssertionError("VASP submission should fail before SSH when inputs are missing.")
@@ -96,7 +108,7 @@ def test_vasp_submit_stops_when_local_inputs_missing():
 
 
 def test_create_vasp_local_job_dir_archives_inputs_and_job_script():
-    script = "#!/bin/bash\n#SBATCH --job-name=vasp_relax\nvasp_std > vasp.out\n"
+    script = f"#!/bin/bash\n#SBATCH --job-name=vasp_relax\n{DEFAULT_VASP_SETUP}\n{DEFAULT_VASP_RUN}\n"
 
     with TemporaryDirectory() as input_dir, TemporaryDirectory() as jobs_dir:
         for name in ["INCAR", "POSCAR", "POTCAR", "KPOINTS"]:
@@ -113,7 +125,7 @@ def test_create_vasp_local_job_dir_archives_inputs_and_job_script():
             if not path.is_file():
                 raise AssertionError(f"Expected archived file to exist: {path}")
 
-        assert_contains((local_job_dir / "job.sh").read_text(encoding="utf-8"), "vasp_std > vasp.out")
+        assert_contains((local_job_dir / "job.sh").read_text(encoding="utf-8"), DEFAULT_VASP_RUN)
 
 
 def test_parse_vasp_input_blocks():

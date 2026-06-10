@@ -84,19 +84,41 @@ def prepare_vasp_submit_script(user_request: str):
     }
 
 
-def submit_prepared_script(script: str):
+def submit_prepared_script(script: str, uploaded_files=None):
     from modules.slurm_tools import submit_script_text
 
-    result = submit_script_text(script)
+    uploaded_files = uploaded_files or []
+    result = submit_script_text(script, uploaded_files=uploaded_files)
 
     if result["success"] and result["job_id"]:
+        from modules.job_registry import register_job
+
+        remote_uploaded_files = result.get("uploaded_files", [])
+
+        register_job(
+            result["job_id"],
+            {
+                "type": "slurm",
+                "job_id": result["job_id"],
+                "remote_workdir": result["remote_workdir"],
+                "remote_script": result["remote_script"],
+                "uploaded_files": remote_uploaded_files,
+            },
+        )
+
+        uploaded_summary = "\n".join(f"- {path}" for path in remote_uploaded_files)
+
         return {
             "success": True,
             "job_id": result["job_id"],
             "answer": (
                 "作业已提交成功。\n\n"
                 f"Job ID: {result['job_id']}\n"
+                f"远程作业目录: {result['remote_workdir']}\n"
                 f"远程脚本: {result['remote_script']}\n\n"
+                "脚本、标准输出和错误日志会保存在这个远程作业目录中。\n\n"
+                "已上传文件:\n"
+                f"{uploaded_summary}\n\n"
                 f"Slurm 输出:\n{result['output']}"
             ),
             "raw": result,

@@ -114,6 +114,9 @@ def run_router_checks():
         "请从目录导入 VASP 输入文件": "import_vasp_inputs",
         "请 Agent 辅助生成 Si 结构优化 VASP 输入模板": "assist_vasp_inputs",
         "登记 VASP 作业 11817144，目录名 vasp_imported_20260610_131601": "register_vasp_job",
+        "列出远端 hpc-agent-jobs 里的任务编号": "list_remote_jobs",
+        "清理远端作业 11817627 的文件": "cleanup_remote_job",
+        "清理远端 hpc-agent-jobs 下所有作业文件": "cleanup_all_remote_jobs",
     }
 
     for request, expected_intent in cases.items():

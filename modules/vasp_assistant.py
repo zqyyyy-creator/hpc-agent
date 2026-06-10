@@ -13,8 +13,12 @@ DEFAULT_VASP_TASKS_PER_NODE = 32
 DEFAULT_VASP_TIME_LIMIT = "24:00:00"
 DEFAULT_VASP_OUTPUT_FILE = "%x_%j.out"
 DEFAULT_VASP_ERROR_FILE = "%x_%j.err"
-DEFAULT_VASP_COMMAND = os.getenv("HPC_VASP_COMMAND", "vasp_std")
-DEFAULT_VASP_MODULE = os.getenv("HPC_VASP_MODULE", "vasp")
+DEFAULT_VASP_SETUP_COMMAND = os.getenv(
+    "HPC_VASP_SETUP_COMMAND",
+    "source /public1/soft/intel/2020u4/compilers_and_libraries_2020.4.304/linux/bin/compilervars.sh intel64",
+)
+DEFAULT_VASP_COMMAND = os.getenv("HPC_VASP_COMMAND", "mpirun /public1/soft/vasp")
+DEFAULT_VASP_MODULE = os.getenv("HPC_VASP_MODULE", "")
 
 DANGEROUS_COMMAND_PATTERNS = [
     r"\brm\s+-[^\n;]*r[^\n;]*f\b",
@@ -89,7 +93,9 @@ def extract_vasp_time_limit(text: str) -> str:
 
 def extract_vasp_command(text: str) -> str:
     command_patterns = [
+        r"((?:srun|mpirun|mpiexec)(?:\s+-[A-Za-z0-9_.=-]+(?:\s+\d+)?)?\s+/[^\s;|&]*vasp[^\s;|&]*)",
         r"((?:srun|mpirun|mpiexec)(?:\s+-[A-Za-z0-9_.=-]+(?:\s+\d+)?)?\s+vasp_(?:std|gam|ncl))",
+        r"\b(/[^\s;|&]*vasp[^\s;|&]*)\b",
         r"\b(vasp_(?:std|gam|ncl))\b",
     ]
 
@@ -132,6 +138,8 @@ def generate_vasp_sbatch_script(user_request: str) -> str:
     ]
 
     setup_lines = []
+    if DEFAULT_VASP_SETUP_COMMAND:
+        setup_lines.append(DEFAULT_VASP_SETUP_COMMAND)
     if DEFAULT_VASP_MODULE:
         setup_lines.append(f"module load {DEFAULT_VASP_MODULE}")
 

@@ -3,7 +3,7 @@ name = "hpc-agent"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
     "anthropic>=0.105.2",
     "click>=8.4.1",
@@ -11,6 +11,7 @@ dependencies = [
     "jieba>=0.42.1",
     "openai>=2.40.0",
     "paramiko>=5.0.0",
+    "python-multipart>=0.0.20",
     "python-dotenv>=1.2.2",
     "requests>=2.34.2",
     "rich>=15.0.0",

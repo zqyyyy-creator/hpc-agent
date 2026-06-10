@@ -237,6 +237,42 @@
             gap: 12px;
         }
 
+        .file-btn {
+            width: 46px;
+            height: 46px;
+            border: 1px solid #cbd5e1;
+            border-radius: 12px;
+            background: #f8fafc;
+            color: #0f3f9c;
+            font-size: 24px;
+            line-height: 1;
+            cursor: pointer;
+        }
+
+        .file-btn:hover {
+            background: #eef4ff;
+        }
+
+        .file-list {
+            display: none;
+            gap: 8px;
+            flex-wrap: wrap;
+            padding: 0 16px 12px;
+            color: #374151;
+            font-size: 13px;
+        }
+
+        .file-chip {
+            max-width: 220px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            background: #f8fafc;
+            padding: 5px 8px;
+        }
+
         textarea {
             flex: 1;
             height: 54px;
@@ -328,7 +364,7 @@
         <section id="chatBox" class="chat-area">
             <div class="hero">
                 <h1>HPC Agent Ready</h1>
-                <p>Generate, submit, monitor, and diagnose Slurm jobs from one chat.</p>
+                <p>Generate, submit, monitor, and diagnose Slurm and VASP jobs from one chat.</p>
             </div>
 
             <div class="message assistant">
@@ -346,11 +382,15 @@
 6. Slurm 参数建议
 7. 错误日志诊断
 8. Pending / 不运行任务排查
+9. VASP 脚本生成、输入文件导入和确认提交
+10. 普通任务附件上传、远端编号列表和作业文件清理
 
 示例：
-帮我提交一个作业运行 python train.py，4 核，10 分钟
-查看11814753的状态
-读取11814753的错误日志
+点左侧 + 上传 train.py 后：帮我提交一个作业运行 python train.py，4 核，10 分钟
+列出远端 hpc-agent-jobs 里的任务编号
+清理远端作业 11817627 的文件
+帮我提交 VASP 作业，1 个节点 32 核，运行 10 分钟
+从目录导入 VASP 输入文件: /home/qyz/vasp-jobs-input
                     </div>
                 </div>
             </div>
@@ -358,9 +398,12 @@
 
         <div class="input-wrapper">
             <div class="input-row">
+                <input id="fileInput" type="file" multiple hidden>
+                <button class="file-btn" type="button" onclick="selectFiles()" title="选择随普通任务提交的文件">+</button>
                 <textarea id="message" placeholder="Command HPC Agent..."></textarea>
                 <button id="sendBtn" class="send-btn" onclick="sendMessage()">➤</button>
             </div>
+            <div id="fileList" class="file-list"></div>
         </div>
     </main>
 </div>
@@ -369,6 +412,8 @@
     const chatBox = document.getElementById("chatBox");
     const messageInput = document.getElementById("message");
     const sendBtn = document.getElementById("sendBtn");
+    const fileInput = document.getElementById("fileInput");
+    const fileList = document.getElementById("fileList");
 
     function newChat() {
         window.location.href = "/?new=" + Date.now();
@@ -381,6 +426,31 @@
 
     function scrollToBottom() {
         chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function selectFiles() {
+        fileInput.click();
+    }
+
+    function renderSelectedFiles() {
+        const files = Array.from(fileInput.files);
+
+        if (!files.length) {
+            fileList.style.display = "none";
+            fileList.innerHTML = "";
+            return;
+        }
+
+        fileList.style.display = "flex";
+        fileList.innerHTML = "";
+
+        files.forEach(function(file) {
+            const chip = document.createElement("div");
+            chip.className = "file-chip";
+            chip.title = file.name;
+            chip.innerText = file.name;
+            fileList.appendChild(chip);
+        });
     }
 
     function addUserMessage(text) {
@@ -431,28 +501,38 @@
 
     async function sendMessage() {
         const message = messageInput.value.trim();
+        const files = Array.from(fileInput.files);
 
         if (!message) return;
 
-        addUserMessage(message);
+        const fileSummary = files.length
+            ? "\n\n附件:\n" + files.map(file => "- " + file.name).join("\n")
+            : "";
+
+        addUserMessage(message + fileSummary);
         messageInput.value = "";
 
         sendBtn.disabled = true;
         const loading = addAssistantMessage("正在处理请求...");
 
         try {
+            const formData = new FormData();
+            formData.append("message", message);
+            files.forEach(function(file) {
+                formData.append("files", file);
+            });
+
             const response = await fetch("/chat", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({ message })
+                body: formData
             });
 
             const data = await response.json();
 
             loading.remove();
             addAssistantMessage(data.answer, data.intent);
+            fileInput.value = "";
+            renderSelectedFiles();
 
         } catch (error) {
             loading.remove();
@@ -467,7 +547,7 @@
         chatBox.innerHTML = `
             <div class="hero">
                 <h1>HPC Agent Ready</h1>
-                <p>Generate, submit, monitor, and diagnose Slurm jobs from one chat.</p>
+                <p>Generate, submit, monitor, and diagnose Slurm and VASP jobs from one chat.</p>
             </div>
 
             <div class="message assistant">
@@ -485,11 +565,15 @@
 6. Slurm 参数建议
 7. 错误日志诊断
 8. Pending / 不运行任务排查
+9. VASP 脚本生成、输入文件导入和确认提交
+10. 普通任务附件上传、远端编号列表和作业文件清理
 
 示例：
-帮我提交一个作业运行 python train.py，4 核，10 分钟
-查看11814753的状态
-读取11814753的错误日志
+点左侧 + 上传 train.py 后：帮我提交一个作业运行 python train.py，4 核，10 分钟
+列出远端 hpc-agent-jobs 里的任务编号
+清理远端作业 11817627 的文件
+帮我提交 VASP 作业，1 个节点 32 核，运行 10 分钟
+从目录导入 VASP 输入文件: /home/qyz/vasp-jobs-input
                     </div>
                 </div>
             </div>
@@ -502,6 +586,8 @@
             sendMessage();
         }
     });
+
+    fileInput.addEventListener("change", renderSelectedFiles);
 </script>
 </body>
 </html>

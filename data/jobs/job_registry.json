@@ -5,5 +5,45 @@
     "local_job_dir": "/home/lenovo/vasp-jobs/vasp_imported_20260610_131601",
     "remote_workdir": "/public4/home/a0s000582/vasp-hpc-jobs/vasp_imported_20260610_131601",
     "remote_script": "/public4/home/a0s000582/vasp-hpc-jobs/vasp_imported_20260610_131601/job.sh"
+  },
+  "11817440": {
+    "type": "vasp",
+    "job_id": "11817440",
+    "local_job_dir": "/home/qyz/vasp-jobs/vasp_imported_20260610_150601",
+    "remote_workdir": "/public4/home/a0s000582/vasp-hpc-jobs/vasp_imported_20260610_150601",
+    "remote_script": "/public4/home/a0s000582/vasp-hpc-jobs/vasp_imported_20260610_150601/job.sh",
+    "uploaded_files": [
+      "/public4/home/a0s000582/vasp-hpc-jobs/vasp_imported_20260610_150601/INCAR",
+      "/public4/home/a0s000582/vasp-hpc-jobs/vasp_imported_20260610_150601/POSCAR",
+      "/public4/home/a0s000582/vasp-hpc-jobs/vasp_imported_20260610_150601/POTCAR",
+      "/public4/home/a0s000582/vasp-hpc-jobs/vasp_imported_20260610_150601/KPOINTS",
+      "/public4/home/a0s000582/vasp-hpc-jobs/vasp_imported_20260610_150601/job.sh"
+    ]
+  },
+  "11817580": {
+    "type": "slurm",
+    "job_id": "11817580",
+    "remote_workdir": "/public4/home/a0s000582/hpc-agent-jobs/agent_test_20260610_154217_948967",
+    "remote_script": "/public4/home/a0s000582/hpc-agent-jobs/agent_test_20260610_154217_948967/job.sh"
+  },
+  "11817627": {
+    "type": "slurm",
+    "job_id": "11817627",
+    "remote_workdir": "/public4/home/a0s000582/hpc-agent-jobs/hpc_agent_job_20260610_155558_751602",
+    "remote_script": "/public4/home/a0s000582/hpc-agent-jobs/hpc_agent_job_20260610_155558_751602/job.sh",
+    "uploaded_files": [
+      "/public4/home/a0s000582/hpc-agent-jobs/hpc_agent_job_20260610_155558_751602/job.sh",
+      "/public4/home/a0s000582/hpc-agent-jobs/hpc_agent_job_20260610_155558_751602/train.py"
+    ]
+  },
+  "11817642": {
+    "type": "slurm",
+    "job_id": "11817642",
+    "remote_workdir": "/public4/home/a0s000582/hpc-agent-jobs/hpc_agent_job_20260610_155918_339922",
+    "remote_script": "/public4/home/a0s000582/hpc-agent-jobs/hpc_agent_job_20260610_155918_339922/job.sh",
+    "uploaded_files": [
+      "/public4/home/a0s000582/hpc-agent-jobs/hpc_agent_job_20260610_155918_339922/job.sh",
+      "/public4/home/a0s000582/hpc-agent-jobs/hpc_agent_job_20260610_155918_339922/train.py"
+    ]
   }
 }

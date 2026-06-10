@@ -18,14 +18,14 @@ Use this skill when the user asks to:
 - run or submit a VASP job
 - generate a VASP `sbatch` script
 - run calculations that mention `INCAR`, `POSCAR`, `POTCAR`, `KPOINTS`
-- run `vasp_std`, `vasp_gam`, or `vasp_ncl`
+- run VASP through the configured cluster command
 - run structure optimization, static calculation, band structure, or DOS jobs
 
 Example user requests:
 
 - "帮我提交一个 VASP 结构优化任务，1 个节点 32 核，运行 24 小时"
-- "Generate a Slurm script for vasp_std using 64 cores"
-- "我想运行 VASP 静态计算，命令是 mpirun vasp_std"
+- "Generate a Slurm script for VASP using 64 cores"
+- "我想运行 VASP 静态计算，命令是 mpirun /public1/soft/vasp"
 
 ## Inputs to Extract
 
@@ -36,8 +36,9 @@ Identify these parameters from the user request:
 - `ntasks_per_node`: MPI tasks per node
 - `time`: runtime limit
 - `partition`: only if the user or cluster config provides it
-- `vasp_module`: software module to load, if configured
-- `command`: VASP command, such as `vasp_std`, `srun vasp_std`, or `mpirun vasp_std`
+- `vasp_setup_command`: environment setup command, if configured
+- `vasp_module`: software module to load, only if configured
+- `command`: VASP command, such as `mpirun /public1/soft/vasp`
 - `calculation_type`: structure optimization, static, band, DOS, or unknown
 
 ## Default Values
@@ -48,7 +49,8 @@ Use conservative defaults when the user does not provide values:
 - `nodes`: `1`
 - `ntasks_per_node`: `32`
 - `time`: `24:00:00`
-- `command`: configured default VASP command, otherwise `vasp_std`
+- `vasp_setup_command`: configured setup command, defaulting to Intel 2020u4 `compilervars.sh`
+- `command`: configured default VASP command, otherwise `mpirun /public1/soft/vasp`
 - `output_file`: `%x_%j.out`
 - `error_file`: `%x_%j.err`
 

@@ -64,6 +64,35 @@ def detect_intent(question: str) -> str:
         "卡住", "没有开始", "排队很久"
     ]
 
+    list_remote_job_keywords = [
+        "列出任务编号", "列出作业编号",
+        "查看任务编号", "查看作业编号",
+        "有哪些任务编号", "有哪些作业编号",
+        "远端任务编号", "远端作业编号",
+        "远程任务编号", "远程作业编号",
+        "hpc-agent-jobs", "hpcagentjobs",
+        "listjobs", "listremotejobs",
+    ]
+
+    cleanup_keywords = [
+        "清理", "删除", "移除", "cleanup", "clean",
+        "remove", "delete",
+    ]
+    cleanup_all_keywords = [
+        "全部", "所有", "一键", "清空", "全部清理",
+        "清理全部", "所有作业", "all",
+    ]
+
+    if any(k in q_no_space for k in cleanup_keywords):
+        if any(k in q_no_space for k in cleanup_all_keywords):
+            return "cleanup_all_remote_jobs"
+
+        if has_job_id:
+            return "cleanup_remote_job"
+
+    if any(k in q_no_space for k in list_remote_job_keywords):
+        return "list_remote_jobs"
+
     is_vasp_request = any(k in q_no_space for k in vasp_keywords)
     create_vasp_input_keywords = [
         "生成vasp输入文件", "创建vasp输入文件",

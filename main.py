@@ -13,6 +13,7 @@ from modules.slurm_assistant import generate_sbatch_script, suggest_slurm_parame
 from modules.error_diagnoser import ErrorDiagnoser
 from modules.job_submitter import (
     create_vasp_inputs_from_text,
+    extract_vasp_job_selector,
     generate_vasp_template_inputs,
     import_vasp_inputs_from_text,
     write_vasp_input_files,
@@ -24,7 +25,11 @@ from modules.job_submitter import (
 )
 from modules.vasp_assistant import generate_vasp_sbatch_script
 from modules.job_query import (
+    execute_cleanup_remote_jobs,
     extract_job_id,
+    prepare_cleanup_all_remote_jobs,
+    prepare_cleanup_remote_job,
+    query_remote_agent_jobs,
     query_job_error,
     query_job_output,
     query_job_status,
@@ -74,6 +79,9 @@ def show_intent(intent: str):
         "job_status": "查询作业状态",
         "job_output": "读取作业输出",
         "job_error": "读取作业错误日志",
+        "list_remote_jobs": "列出远端 Agent 作业编号",
+        "cleanup_remote_job": "按 Job ID 清理远端普通作业文件",
+        "cleanup_all_remote_jobs": "清理全部远端普通作业文件",
     }
 
     table.add_row(intent, mapping.get(intent, "未知任务"))
@@ -136,7 +144,100 @@ def handle_generate_vasp_job(question):
     console.print(Panel(script, title="生成的 VASP Slurm 脚本", border_style="cyan"))
 
 
+def should_ask_vasp_input_source(question: str):
+    if extract_vasp_job_selector(question):
+        return False
+
+    normalized = question.lower().replace(" ", "")
+    return not any(keyword in normalized for keyword in ["最近", "latest", "existing", "已有", "现有"])
+
+
+def prompt_vasp_input_source(question: str):
+    console.print(
+        Panel(
+            (
+                "请选择 VASP 输入文件来源：\n\n"
+                "1. 使用已有本地 VASP 作业目录\n"
+                "2. 从导入目录导入四个 VASP 文件\n"
+                "3. 在对话中粘贴四个 VASP 输入文件\n"
+                "4. 让 Agent 辅助生成 VASP 输入模板\n\n"
+                "输入 1 / 2 / 3 / 4，或输入 cancel 取消。"
+            ),
+            title="VASP 输入来源",
+            border_style="yellow",
+        )
+    )
+
+    choice = Prompt.ask("请选择").strip().lower()
+
+    if choice in {"cancel", "取消", "n", "no"}:
+        console.print("[yellow]已取消 VASP 提交。[/yellow]")
+        return None
+
+    if choice == "1":
+        return question
+
+    if choice == "2":
+        result = import_vasp_inputs_from_text(question)
+        border_style = "green" if result["success"] else "yellow"
+        console.print(Panel(result["message"], title="VASP 输入文件导入结果", border_style=border_style))
+
+        if not result["success"]:
+            return None
+
+        return f"{question} 目录名 {result['local_input_dir'].name}"
+
+    if choice == "3":
+        console.print(Panel("请按提示依次粘贴四个 VASP 输入文件。每个文件粘贴完成后输入 END。", title="手动粘贴模式", border_style="cyan"))
+        inputs = {}
+
+        for name in ["INCAR", "POSCAR", "POTCAR", "KPOINTS"]:
+            console.print(f"\n[cyan]请粘贴 {name}，完成后输入 END：[/cyan]")
+            lines = []
+
+            while True:
+                line = input()
+
+                if line.strip() == "END":
+                    break
+
+                lines.append(line)
+
+            inputs[name] = "\n".join(lines)
+
+        result = write_vasp_input_files(inputs)
+        border_style = "green" if result["success"] else "yellow"
+        console.print(Panel(result["message"], title="VASP 输入文件生成结果", border_style=border_style))
+
+        if not result["success"]:
+            return None
+
+        return f"{question} 目录名 {result['local_input_dir'].name}"
+
+    if choice == "4":
+        result = generate_vasp_template_inputs(question)
+        border_style = "green" if result["success"] else "yellow"
+        console.print(Panel(result["message"], title="VASP 输入模板生成结果", border_style=border_style))
+
+        if result.get("missing_files"):
+            console.print("[yellow]模板目录还不完整，暂不进入提交预览。请补齐缺失文件后再提交。[/yellow]")
+            return None
+
+        return f"{question} 目录名 {result['local_input_dir'].name}"
+
+    console.print("[yellow]无效选择，已取消 VASP 提交。[/yellow]")
+    return None
+
+
 def handle_submit_vasp_job(question):
+    selector_text = question
+
+    if should_ask_vasp_input_source(question):
+        selector_text = prompt_vasp_input_source(question)
+
+        if selector_text is None:
+            return
+
     with console.status("[bold green]正在生成待提交 VASP 脚本...[/bold green]"):
         prepared = prepare_vasp_submit_script(question)
 
@@ -162,7 +263,7 @@ def handle_submit_vasp_job(question):
         return
 
     with console.status("[bold green]正在连接超算并提交 VASP 作业...[/bold green]"):
-        result = submit_prepared_vasp_script(prepared["script"], question)
+        result = submit_prepared_vasp_script(prepared["script"], selector_text)
 
     border_style = "green" if result["success"] else "red"
     console.print(Panel(result["answer"], title="VASP 提交结果", border_style=border_style))
@@ -224,6 +325,61 @@ def handle_job_query(question, query_func, title):
         answer = query_func(job_id)
 
     console.print(Panel(answer, title=title, border_style="green"))
+
+
+def handle_list_remote_jobs():
+    with console.status("[bold green]正在扫描远端 Agent 作业目录...[/bold green]"):
+        answer = query_remote_agent_jobs()
+
+    console.print(Panel(answer, title="远端 Agent 作业编号", border_style="green"))
+
+
+def handle_cleanup_remote_job(question):
+    job_id = extract_job_id(question)
+
+    if not job_id:
+        console.print(Panel("请提供要清理的 Job ID，例如：清理远端作业 11817627 的文件。", title="缺少 Job ID", border_style="yellow"))
+        return
+
+    with console.status("[bold green]正在扫描远端普通作业文件...[/bold green]"):
+        prepared = prepare_cleanup_remote_job(job_id)
+
+    border_style = "red" if prepared["ready"] else "yellow"
+    console.print(Panel(prepared["message"], title="清理预览", border_style=border_style))
+
+    if not prepared["ready"]:
+        return
+
+    if not Confirm.ask("确认清理这些远端普通作业文件？"):
+        console.print("[yellow]已取消清理。[/yellow]")
+        return
+
+    with console.status("[bold green]正在清理远端普通作业文件...[/bold green]"):
+        answer = execute_cleanup_remote_jobs(prepared["targets"])
+
+    console.print(Panel(answer, title="清理结果", border_style="green"))
+
+
+def handle_cleanup_all_remote_jobs():
+    with console.status("[bold green]正在扫描远端普通作业根目录...[/bold green]"):
+        prepared = prepare_cleanup_all_remote_jobs()
+
+    border_style = "red" if prepared["ready"] else "yellow"
+    console.print(Panel(prepared["message"], title="清理全部预览", border_style=border_style))
+
+    if not prepared["ready"]:
+        return
+
+    confirmation = Prompt.ask("这是高风险操作。请输入“确认清理全部”继续")
+
+    if confirmation.strip() != "确认清理全部":
+        console.print("[yellow]已取消清理。[/yellow]")
+        return
+
+    with console.status("[bold green]正在清理全部远端普通作业文件...[/bold green]"):
+        answer = execute_cleanup_remote_jobs(prepared["targets"])
+
+    console.print(Panel(answer, title="清理结果", border_style="green"))
 
 
 def handle_troubleshoot_job(question, documents, sources):
@@ -353,6 +509,15 @@ def main():
 
             elif intent == "job_error":
                 handle_job_query(question, query_job_error, "作业错误日志")
+
+            elif intent == "list_remote_jobs":
+                handle_list_remote_jobs()
+
+            elif intent == "cleanup_remote_job":
+                handle_cleanup_remote_job(question)
+
+            elif intent == "cleanup_all_remote_jobs":
+                handle_cleanup_all_remote_jobs()
 
             elif intent == "generate_sbatch":
                 handle_generate_sbatch(question)
