@@ -1,0 +1,9 @@
+{
+  "11817144": {
+    "type": "vasp",
+    "job_id": "11817144",
+    "local_job_dir": "/home/lenovo/vasp-jobs/vasp_imported_20260610_131601",
+    "remote_workdir": "/public4/home/a0s000582/vasp-hpc-jobs/vasp_imported_20260610_131601",
+    "remote_script": "/public4/home/a0s000582/vasp-hpc-jobs/vasp_imported_20260610_131601/job.sh"
+  }
+}

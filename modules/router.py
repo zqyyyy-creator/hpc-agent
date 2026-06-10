@@ -45,6 +45,13 @@ def detect_intent(question: str) -> str:
         "jobscript"
     ]
 
+    vasp_keywords = [
+        "vasp", "incar", "poscar", "potcar", "kpoints",
+        "outcar", "oszicar", "contcar", "vasprun.xml",
+        "vasp_std", "vasp_gam", "vasp_ncl",
+        "结构优化", "静态计算", "能带", "态密度"
+    ]
+
     param_keywords = [
         "参数建议", "资源建议",
         "多少内存", "多少cpu", "多少gpu",
@@ -56,6 +63,53 @@ def detect_intent(question: str) -> str:
         "一直不运行", "一直pending", "pending",
         "卡住", "没有开始", "排队很久"
     ]
+
+    is_vasp_request = any(k in q_no_space for k in vasp_keywords)
+    create_vasp_input_keywords = [
+        "生成vasp输入文件", "创建vasp输入文件",
+        "写入vasp输入文件", "保存vasp输入文件",
+        "生成四个文件", "创建四个文件",
+        "写这四个文件", "保存这四个文件",
+        "createvaspinputs", "writevaspinputs",
+        "savevaspinputs"
+    ]
+    import_vasp_input_keywords = [
+        "导入vasp输入文件", "从目录导入",
+        "导入四个文件", "复制vasp输入文件",
+        "importvaspinputs"
+    ]
+    assist_vasp_input_keywords = [
+        "辅助生成vasp输入文件", "agent辅助生成",
+        "自动生成vasp输入模板", "生成vasp模板",
+        "生成incar", "生成kpoints",
+        "generatevasptemplate"
+    ]
+    register_vasp_job_keywords = [
+        "登记vasp作业", "记录vasp作业",
+        "注册vasp作业", "关联vasp作业",
+        "registervaspjob"
+    ]
+
+    if is_vasp_request and any(k in q_no_space for k in register_vasp_job_keywords):
+        return "register_vasp_job"
+
+    if is_vasp_request and any(k in q_no_space for k in import_vasp_input_keywords):
+        return "import_vasp_inputs"
+
+    if is_vasp_request and any(k in q_no_space for k in assist_vasp_input_keywords):
+        return "assist_vasp_inputs"
+
+    if is_vasp_request and any(k in q_no_space for k in create_vasp_input_keywords):
+        return "create_vasp_inputs"
+
+    if is_vasp_request and any(k in q_no_space for k in submit_keywords):
+        return "submit_vasp_job"
+
+    if is_vasp_request and any(k in q_no_space for k in sbatch_keywords):
+        return "generate_vasp_job"
+
+    if is_vasp_request:
+        return "generate_vasp_job"
 
     if any(k in q_no_space for k in submit_keywords):
         return "submit_job"

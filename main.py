@@ -11,7 +11,18 @@ from rich import box
 from modules.knowledge_base import load_documents, retrieve, ask_llm
 from modules.slurm_assistant import generate_sbatch_script, suggest_slurm_parameters
 from modules.error_diagnoser import ErrorDiagnoser
-from modules.job_submitter import prepare_submit_script, submit_prepared_script
+from modules.job_submitter import (
+    create_vasp_inputs_from_text,
+    generate_vasp_template_inputs,
+    import_vasp_inputs_from_text,
+    write_vasp_input_files,
+    register_existing_vasp_job_from_text,
+    prepare_submit_script,
+    prepare_vasp_submit_script,
+    submit_prepared_script,
+    submit_prepared_vasp_script,
+)
+from modules.vasp_assistant import generate_vasp_sbatch_script
 from modules.job_query import (
     extract_job_id,
     query_job_error,
@@ -54,6 +65,12 @@ def show_intent(intent: str):
         "diagnose_error": "错误日志诊断",
         "troubleshoot_job": "作业 Pending / 不运行排查",
         "submit_job": "提交作业到超算",
+        "generate_vasp_job": "生成 VASP 作业脚本",
+        "submit_vasp_job": "提交 VASP 作业到超算",
+        "create_vasp_inputs": "生成 VASP 输入文件",
+        "import_vasp_inputs": "导入 VASP 输入文件",
+        "assist_vasp_inputs": "Agent 辅助生成 VASP 输入模板",
+        "register_vasp_job": "登记已有 VASP 作业",
         "job_status": "查询作业状态",
         "job_output": "读取作业输出",
         "job_error": "读取作业错误日志",
@@ -110,6 +127,90 @@ def handle_submit_job(question):
 
     border_style = "green" if result["success"] else "red"
     console.print(Panel(result["answer"], title="提交结果", border_style=border_style))
+
+
+def handle_generate_vasp_job(question):
+    with console.status("[bold green]正在生成 VASP sbatch 脚本...[/bold green]"):
+        script = generate_vasp_sbatch_script(question)
+
+    console.print(Panel(script, title="生成的 VASP Slurm 脚本", border_style="cyan"))
+
+
+def handle_submit_vasp_job(question):
+    with console.status("[bold green]正在生成待提交 VASP 脚本...[/bold green]"):
+        prepared = prepare_vasp_submit_script(question)
+
+    if not prepared["ready"]:
+        console.print(Panel(prepared["message"], title="需要补充信息", border_style="yellow"))
+        return
+
+    console.print(
+        Panel(
+            (
+                f"本地 VASP 作业目录: {prepared['local_jobs_dir']}\n"
+                "提交时默认选择最近保存的完整 VASP 作业；也可以在请求里写具体子目录名。\n"
+                f"远程 VASP 作业根目录: {prepared['remote_workdir']}"
+            ),
+            title="VASP 作业目录",
+            border_style="yellow",
+        )
+    )
+    console.print(Panel(prepared["script"], title="待提交 VASP Slurm 脚本", border_style="cyan"))
+
+    if not Confirm.ask("确认提交 VASP 作业到超算？"):
+        console.print("[yellow]已取消提交。[/yellow]")
+        return
+
+    with console.status("[bold green]正在连接超算并提交 VASP 作业...[/bold green]"):
+        result = submit_prepared_vasp_script(prepared["script"], question)
+
+    border_style = "green" if result["success"] else "red"
+    console.print(Panel(result["answer"], title="VASP 提交结果", border_style=border_style))
+
+
+def handle_create_vasp_inputs(question):
+    if "```" in question:
+        result = create_vasp_inputs_from_text(question)
+    else:
+        console.print(Panel("请按提示依次粘贴四个 VASP 输入文件。每个文件粘贴完成后输入 END。", title="手动粘贴模式", border_style="cyan"))
+        inputs = {}
+
+        for name in ["INCAR", "POSCAR", "POTCAR", "KPOINTS"]:
+            console.print(f"\n[cyan]请粘贴 {name}，完成后输入 END：[/cyan]")
+            lines = []
+
+            while True:
+                line = input()
+
+                if line.strip() == "END":
+                    break
+
+                lines.append(line)
+
+            inputs[name] = "\n".join(lines)
+
+        result = write_vasp_input_files(inputs)
+
+    border_style = "green" if result["success"] else "yellow"
+    console.print(Panel(result["message"], title="VASP 输入文件生成结果", border_style=border_style))
+
+
+def handle_import_vasp_inputs(question):
+    result = import_vasp_inputs_from_text(question)
+    border_style = "green" if result["success"] else "yellow"
+    console.print(Panel(result["message"], title="VASP 输入文件导入结果", border_style=border_style))
+
+
+def handle_assist_vasp_inputs(question):
+    result = generate_vasp_template_inputs(question)
+    border_style = "green" if result["success"] else "yellow"
+    console.print(Panel(result["message"], title="VASP 输入模板生成结果", border_style=border_style))
+
+
+def handle_register_vasp_job(question):
+    result = register_existing_vasp_job_from_text(question)
+    border_style = "green" if result["success"] else "yellow"
+    console.print(Panel(result["message"], title="VASP 作业登记结果", border_style=border_style))
 
 
 def handle_job_query(question, query_func, title):
@@ -229,6 +330,21 @@ def main():
             elif intent == "submit_job":
                 handle_submit_job(question)
 
+            elif intent == "submit_vasp_job":
+                handle_submit_vasp_job(question)
+
+            elif intent == "create_vasp_inputs":
+                handle_create_vasp_inputs(question)
+
+            elif intent == "import_vasp_inputs":
+                handle_import_vasp_inputs(question)
+
+            elif intent == "assist_vasp_inputs":
+                handle_assist_vasp_inputs(question)
+
+            elif intent == "register_vasp_job":
+                handle_register_vasp_job(question)
+
             elif intent == "job_status":
                 handle_job_query(question, query_job_status, "作业状态")
 
@@ -240,6 +356,9 @@ def main():
 
             elif intent == "generate_sbatch":
                 handle_generate_sbatch(question)
+
+            elif intent == "generate_vasp_job":
+                handle_generate_vasp_job(question)
 
             elif intent == "suggest_params":
                 handle_suggest_params(question)
