@@ -1,4 +1,8 @@
 import logging
+import shlex
+import atexit
+from pathlib import Path
+
 import jieba
 
 from rich.console import Console
@@ -9,14 +13,10 @@ from rich.markdown import Markdown
 from rich import box
 
 from modules.knowledge_base import load_documents, retrieve, ask_llm
-from modules.slurm_assistant import generate_sbatch_script, suggest_slurm_parameters
+from modules.slurm_assistant import extract_command, generate_sbatch_script, suggest_slurm_parameters
+from modules.slurm_assistant import build_resource_recommendation_text
 from modules.error_diagnoser import ErrorDiagnoser
 from modules.job_submitter import (
-    create_vasp_inputs_from_text,
-    extract_vasp_job_selector,
-    generate_vasp_template_inputs,
-    import_vasp_inputs_from_text,
-    write_vasp_input_files,
     register_existing_vasp_job_from_text,
     prepare_submit_script,
     prepare_vasp_submit_script,
@@ -40,6 +40,29 @@ from modules.router import detect_intent
 jieba.setLogLevel(logging.ERROR)
 
 console = Console()
+HISTORY_PATH = Path(__file__).resolve().parent / "data" / "cli_history.txt"
+
+
+def setup_cli_history():
+    try:
+        import readline
+    except ImportError:
+        return False
+
+    HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        readline.read_history_file(str(HISTORY_PATH))
+    except FileNotFoundError:
+        pass
+
+    readline.set_history_length(1000)
+    atexit.register(readline.write_history_file, str(HISTORY_PATH))
+    return True
+
+
+def ask_main_question():
+    return input("\n请输入问题：")
 
 
 def show_welcome():
@@ -51,7 +74,7 @@ def show_welcome():
             "[green]3.[/green] Slurm 参数建议\n"
             "[green]4.[/green] 错误日志诊断\n"
             "[green]5.[/green] 作业 Pending 排查\n\n"
-            "[yellow]输入 quit 退出，按 Ctrl+C 中断当前操作[/yellow]",
+            "[yellow]输入 quit 退出，按 Ctrl+C 中断当前操作，上下方向键切换历史输入[/yellow]",
             title="HPC Agent",
             border_style="cyan",
         )
@@ -72,9 +95,6 @@ def show_intent(intent: str):
         "submit_job": "提交作业到超算",
         "generate_vasp_job": "生成 VASP 作业脚本",
         "submit_vasp_job": "提交 VASP 作业到超算",
-        "create_vasp_inputs": "生成 VASP 输入文件",
-        "import_vasp_inputs": "导入 VASP 输入文件",
-        "assist_vasp_inputs": "Agent 辅助生成 VASP 输入模板",
         "register_vasp_job": "登记已有 VASP 作业",
         "job_status": "查询作业状态",
         "job_output": "读取作业输出",
@@ -116,9 +136,124 @@ def handle_suggest_params(question):
     console.print(Panel(Markdown(suggestion), title="参数建议", border_style="yellow"))
 
 
+def parse_cli_attachment_paths(raw_paths: str):
+    lexer = shlex.shlex(raw_paths, posix=True)
+    lexer.whitespace += ",，"
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    return [item for item in lexer if item]
+
+
+def collect_cli_uploaded_files():
+    if not Confirm.ask("是否先选择本地作业文件/附件？", default=True):
+        return []
+
+    raw_paths = Prompt.ask("请输入本地文件路径，多个文件可用空格或逗号分隔，也可以拖拽文件到终端").strip()
+    paths = parse_cli_attachment_paths(raw_paths)
+
+    if not paths:
+        console.print("[yellow]没有提供附件路径，将不上传附件。[/yellow]")
+        return []
+
+    uploaded_files = []
+    invalid_paths = []
+
+    for raw_path in paths:
+        path = Path(raw_path).expanduser()
+
+        if not path.is_file():
+            invalid_paths.append(str(path))
+            continue
+
+        uploaded_files.append({
+            "name": path.name,
+            "content": path.read_bytes(),
+        })
+
+    if invalid_paths:
+        console.print(
+            Panel(
+                "这些附件路径不是可读取的本地文件，已取消本次提交：\n"
+                + "\n".join(f"- {path}" for path in invalid_paths),
+                title="附件路径无效",
+                border_style="red",
+            )
+        )
+        return None
+
+    summary = "\n".join(
+        f"- {item['name']} ({len(item['content'])} bytes)"
+        for item in uploaded_files
+    )
+    console.print(Panel(summary, title="将上传的附件", border_style="cyan"))
+    return uploaded_files
+
+
+def infer_run_command_from_uploaded_files(uploaded_files):
+    for item in uploaded_files:
+        name = item["name"]
+
+        if name.endswith(".py"):
+            return f"python {name}"
+
+    for item in uploaded_files:
+        name = item["name"]
+
+        if name.endswith(".sh"):
+            return f"bash {name}"
+
+    return None
+
+
+def build_submit_request_with_uploaded_files(question: str, uploaded_files):
+    submit_request = question
+    inferred_command = None
+
+    if uploaded_files and not extract_command(question):
+        inferred_command = infer_run_command_from_uploaded_files(uploaded_files)
+
+    if inferred_command:
+        submit_request = f"{question}\n运行命令: {inferred_command}"
+
+    recommendation_text, recommendation_details = build_resource_recommendation_text(
+        submit_request,
+        uploaded_files,
+    )
+
+    if recommendation_text:
+        submit_request = f"{submit_request}\n{recommendation_text}"
+
+    return submit_request, inferred_command, recommendation_details
+
+
 def handle_submit_job(question):
+    uploaded_files = collect_cli_uploaded_files()
+
+    if uploaded_files is None:
+        return
+
+    submit_request, inferred_command, recommendation_details = build_submit_request_with_uploaded_files(question, uploaded_files)
+
+    if inferred_command:
+        console.print(
+            Panel(
+                f"根据上传文件推断运行命令: {inferred_command}",
+                title="运行命令",
+                border_style="yellow",
+            )
+        )
+
+    if recommendation_details:
+        console.print(
+            Panel(
+                "\n".join(f"- {item}" for item in recommendation_details),
+                title="Agent 推荐资源",
+                border_style="yellow",
+            )
+        )
+
     with console.status("[bold green]正在生成待提交脚本...[/bold green]"):
-        prepared = prepare_submit_script(question)
+        prepared = prepare_submit_script(submit_request)
 
     if not prepared["ready"]:
         console.print(Panel(prepared["message"], title="需要补充信息", border_style="yellow"))
@@ -131,7 +266,7 @@ def handle_submit_job(question):
         return
 
     with console.status("[bold green]正在连接超算并提交作业...[/bold green]"):
-        result = submit_prepared_script(prepared["script"])
+        result = submit_prepared_script(prepared["script"], uploaded_files=uploaded_files)
 
     border_style = "green" if result["success"] else "red"
     console.print(Panel(result["answer"], title="提交结果", border_style=border_style))
@@ -144,99 +279,8 @@ def handle_generate_vasp_job(question):
     console.print(Panel(script, title="生成的 VASP Slurm 脚本", border_style="cyan"))
 
 
-def should_ask_vasp_input_source(question: str):
-    if extract_vasp_job_selector(question):
-        return False
-
-    normalized = question.lower().replace(" ", "")
-    return not any(keyword in normalized for keyword in ["最近", "latest", "existing", "已有", "现有"])
-
-
-def prompt_vasp_input_source(question: str):
-    console.print(
-        Panel(
-            (
-                "请选择 VASP 输入文件来源：\n\n"
-                "1. 使用已有本地 VASP 作业目录\n"
-                "2. 从导入目录导入四个 VASP 文件\n"
-                "3. 在对话中粘贴四个 VASP 输入文件\n"
-                "4. 让 Agent 辅助生成 VASP 输入模板\n\n"
-                "输入 1 / 2 / 3 / 4，或输入 cancel 取消。"
-            ),
-            title="VASP 输入来源",
-            border_style="yellow",
-        )
-    )
-
-    choice = Prompt.ask("请选择").strip().lower()
-
-    if choice in {"cancel", "取消", "n", "no"}:
-        console.print("[yellow]已取消 VASP 提交。[/yellow]")
-        return None
-
-    if choice == "1":
-        return question
-
-    if choice == "2":
-        result = import_vasp_inputs_from_text(question)
-        border_style = "green" if result["success"] else "yellow"
-        console.print(Panel(result["message"], title="VASP 输入文件导入结果", border_style=border_style))
-
-        if not result["success"]:
-            return None
-
-        return f"{question} 目录名 {result['local_input_dir'].name}"
-
-    if choice == "3":
-        console.print(Panel("请按提示依次粘贴四个 VASP 输入文件。每个文件粘贴完成后输入 END。", title="手动粘贴模式", border_style="cyan"))
-        inputs = {}
-
-        for name in ["INCAR", "POSCAR", "POTCAR", "KPOINTS"]:
-            console.print(f"\n[cyan]请粘贴 {name}，完成后输入 END：[/cyan]")
-            lines = []
-
-            while True:
-                line = input()
-
-                if line.strip() == "END":
-                    break
-
-                lines.append(line)
-
-            inputs[name] = "\n".join(lines)
-
-        result = write_vasp_input_files(inputs)
-        border_style = "green" if result["success"] else "yellow"
-        console.print(Panel(result["message"], title="VASP 输入文件生成结果", border_style=border_style))
-
-        if not result["success"]:
-            return None
-
-        return f"{question} 目录名 {result['local_input_dir'].name}"
-
-    if choice == "4":
-        result = generate_vasp_template_inputs(question)
-        border_style = "green" if result["success"] else "yellow"
-        console.print(Panel(result["message"], title="VASP 输入模板生成结果", border_style=border_style))
-
-        if result.get("missing_files"):
-            console.print("[yellow]模板目录还不完整，暂不进入提交预览。请补齐缺失文件后再提交。[/yellow]")
-            return None
-
-        return f"{question} 目录名 {result['local_input_dir'].name}"
-
-    console.print("[yellow]无效选择，已取消 VASP 提交。[/yellow]")
-    return None
-
-
 def handle_submit_vasp_job(question):
     selector_text = question
-
-    if should_ask_vasp_input_source(question):
-        selector_text = prompt_vasp_input_source(question)
-
-        if selector_text is None:
-            return
 
     with console.status("[bold green]正在生成待提交 VASP 脚本...[/bold green]"):
         prepared = prepare_vasp_submit_script(question)
@@ -250,7 +294,8 @@ def handle_submit_vasp_job(question):
             (
                 f"本地 VASP 作业目录: {prepared['local_jobs_dir']}\n"
                 "提交时默认选择最近保存的完整 VASP 作业；也可以在请求里写具体子目录名。\n"
-                f"远程 VASP 作业根目录: {prepared['remote_workdir']}"
+                f"远程 VASP 输入根目录: {prepared['remote_input_dir']}\n"
+                f"远程 VASP 输出根目录: {prepared['remote_output_dir']}"
             ),
             title="VASP 作业目录",
             border_style="yellow",
@@ -267,45 +312,6 @@ def handle_submit_vasp_job(question):
 
     border_style = "green" if result["success"] else "red"
     console.print(Panel(result["answer"], title="VASP 提交结果", border_style=border_style))
-
-
-def handle_create_vasp_inputs(question):
-    if "```" in question:
-        result = create_vasp_inputs_from_text(question)
-    else:
-        console.print(Panel("请按提示依次粘贴四个 VASP 输入文件。每个文件粘贴完成后输入 END。", title="手动粘贴模式", border_style="cyan"))
-        inputs = {}
-
-        for name in ["INCAR", "POSCAR", "POTCAR", "KPOINTS"]:
-            console.print(f"\n[cyan]请粘贴 {name}，完成后输入 END：[/cyan]")
-            lines = []
-
-            while True:
-                line = input()
-
-                if line.strip() == "END":
-                    break
-
-                lines.append(line)
-
-            inputs[name] = "\n".join(lines)
-
-        result = write_vasp_input_files(inputs)
-
-    border_style = "green" if result["success"] else "yellow"
-    console.print(Panel(result["message"], title="VASP 输入文件生成结果", border_style=border_style))
-
-
-def handle_import_vasp_inputs(question):
-    result = import_vasp_inputs_from_text(question)
-    border_style = "green" if result["success"] else "yellow"
-    console.print(Panel(result["message"], title="VASP 输入文件导入结果", border_style=border_style))
-
-
-def handle_assist_vasp_inputs(question):
-    result = generate_vasp_template_inputs(question)
-    border_style = "green" if result["success"] else "yellow"
-    console.print(Panel(result["message"], title="VASP 输入模板生成结果", border_style=border_style))
 
 
 def handle_register_vasp_job(question):
@@ -456,6 +462,8 @@ def handle_diagnose_error(diagnoser, initial_log=None):
 
 
 def main():
+    setup_cli_history()
+
     with console.status("[bold green]正在加载知识库...[/bold green]"):
         documents, sources = load_documents()
 
@@ -466,7 +474,7 @@ def main():
 
     while True:
         try:
-            question = Prompt.ask("\n[bold cyan]请输入问题[/bold cyan]")
+            question = ask_main_question()
 
             if question.lower() == "quit":
                 console.print("[yellow]已退出 HPC Agent。[/yellow]")
@@ -488,15 +496,6 @@ def main():
 
             elif intent == "submit_vasp_job":
                 handle_submit_vasp_job(question)
-
-            elif intent == "create_vasp_inputs":
-                handle_create_vasp_inputs(question)
-
-            elif intent == "import_vasp_inputs":
-                handle_import_vasp_inputs(question)
-
-            elif intent == "assist_vasp_inputs":
-                handle_assist_vasp_inputs(question)
 
             elif intent == "register_vasp_job":
                 handle_register_vasp_job(question)

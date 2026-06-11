@@ -39,7 +39,7 @@ def test_gpu_python_script():
 
 
 def test_memory_shell_script():
-    request = "我想提交一个需要 8GB 内存的作业，运行 bash run.sh"
+    request = "帮我生成一个需要 8GB 内存的作业脚本，运行 bash run.sh"
     script = generate_sbatch_script(request)
 
     assert detect_intent(request) == "generate_sbatch"

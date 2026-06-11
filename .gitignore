@@ -12,6 +12,9 @@ wheels/
 
 # Runtime state
 .last_job_id
+data/cli_history.txt
+data/jobs/job_registry.json
+job.sh
 
 # Slurm outputs
 slurm-*.out

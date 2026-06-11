@@ -43,6 +43,8 @@ client = OpenAI(
     base_url=base_url.rstrip("/") + "/v1",
 )
 
+_RETRIEVAL_CACHE = {}
+
 
 # 读取 data 文件夹里的所有 txt 文档
 def load_documents():
@@ -76,14 +78,19 @@ def load_documents():
 
 # TF-IDF 检索
 def retrieve(query, documents, sources, top_k=3, min_score=0.05):
+    cache_key = tuple(documents)
 
-    vectorizer = TfidfVectorizer(
-        tokenizer=jieba.lcut,
-        token_pattern=None
-    )
+    if cache_key in _RETRIEVAL_CACHE:
+        vectorizer, doc_vectors = _RETRIEVAL_CACHE[cache_key]
+    else:
+        vectorizer = TfidfVectorizer(
+            tokenizer=jieba.lcut,
+            token_pattern=None
+        )
 
-    # 文档向量化
-    doc_vectors = vectorizer.fit_transform(documents)
+        # 文档向量化
+        doc_vectors = vectorizer.fit_transform(documents)
+        _RETRIEVAL_CACHE[cache_key] = (vectorizer, doc_vectors)
 
     # 用户问题向量化
     query_vector = vectorizer.transform([query])

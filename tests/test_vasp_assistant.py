@@ -2,13 +2,11 @@ import _bootstrap  # noqa: F401
 from tempfile import TemporaryDirectory
 
 from modules.job_submitter import (
+    VASP_LOCAL_JOBS_DIR,
+    VASP_REMOTE_INPUT_DIR,
+    VASP_REMOTE_OUTPUT_DIR,
     VASP_PARTITION,
-    create_vasp_local_job_dir,
-    create_vasp_inputs_from_text,
-    generate_vasp_template_inputs,
     extract_source_dir_from_text,
-    import_vasp_inputs_from_dir,
-    parse_vasp_input_blocks,
     prepare_vasp_submit_script,
     register_existing_vasp_job_from_text,
     resolve_vasp_job_input_dir,
@@ -16,6 +14,7 @@ from modules.job_submitter import (
     validate_vasp_input_files,
 )
 from modules.router import detect_intent
+from modules.slurm_tools import _add_vasp_input_sync
 from modules.vasp_assistant import generate_vasp_sbatch_script
 
 
@@ -29,6 +28,11 @@ DEFAULT_VASP_RUN = "mpirun /public1/soft/vasp > vasp.out"
 def assert_contains(text: str, expected: str):
     if expected not in text:
         raise AssertionError(f"Expected to find {expected!r} in:\n{text}")
+
+
+def assert_not_contains(text: str, unexpected: str):
+    if unexpected in text:
+        raise AssertionError(f"Did not expect to find {unexpected!r} in:\n{text}")
 
 
 def test_generate_vasp_script_defaults():
@@ -59,7 +63,7 @@ def test_generate_vasp_script_extracts_resources():
     assert_contains(script, DEFAULT_VASP_RUN)
 
 
-def test_submit_vasp_job_preview_adds_partition():
+def test_submit_vasp_job_preview_handles_partition():
     request = "帮我提交一个 VASP 结构优化任务，1 个节点 32 核，运行 24 小时"
     prepared = prepare_vasp_submit_script(request)
 
@@ -67,11 +71,41 @@ def test_submit_vasp_job_preview_adds_partition():
         raise AssertionError(f"VASP submit script should be ready: {prepared['message']}")
 
     assert detect_intent(request) == "submit_vasp_job"
-    assert_contains(prepared["script"], f"#SBATCH --partition={VASP_PARTITION}")
+    if VASP_PARTITION:
+        assert_contains(prepared["script"], f"#SBATCH --partition={VASP_PARTITION}")
+    else:
+        assert_not_contains(prepared["script"], "#SBATCH --partition")
     assert_contains(prepared["script"], "#SBATCH --nodes=1")
     assert_contains(prepared["script"], "#SBATCH --ntasks-per-node=32")
     assert_contains(prepared["script"], DEFAULT_VASP_SETUP)
     assert_contains(prepared["script"], DEFAULT_VASP_RUN)
+    if prepared["local_jobs_dir"] != str(_bootstrap.Path(VASP_LOCAL_JOBS_DIR).resolve()):
+        raise AssertionError(f"Unexpected VASP local jobs dir: {prepared['local_jobs_dir']}")
+    if prepared["remote_input_dir"] != VASP_REMOTE_INPUT_DIR:
+        raise AssertionError(f"Unexpected VASP remote input dir: {prepared['remote_input_dir']}")
+    if prepared["remote_output_dir"] != VASP_REMOTE_OUTPUT_DIR:
+        raise AssertionError(f"Unexpected VASP remote output dir: {prepared['remote_output_dir']}")
+
+
+def test_vasp_runtime_script_syncs_input_folder_after_sbatch_directives():
+    script = "\n".join([
+        "#!/bin/bash",
+        "#SBATCH --job-name=vasp_relax",
+        "#SBATCH --time=01:00:00",
+        "test -f INCAR",
+        DEFAULT_VASP_RUN,
+    ])
+    synced = _add_vasp_input_sync(script, "/remote/input/job1")
+
+    assert_contains(synced, "VASP_INPUT_DIR=/remote/input/job1")
+    assert_contains(synced, 'find "$VASP_INPUT_DIR" -mindepth 1 -maxdepth 1 ! -name job.sh -exec cp -R {} . \\;')
+
+    sbatch_index = synced.index("#SBATCH --time=01:00:00")
+    sync_index = synced.index("VASP_INPUT_DIR=/remote/input/job1")
+    check_index = synced.index("test -f INCAR")
+
+    if not sbatch_index < sync_index < check_index:
+        raise AssertionError(f"Input sync should be inserted after SBATCH directives:\n{synced}")
 
 
 def test_dangerous_vasp_request_is_rejected():
@@ -105,124 +139,6 @@ def test_vasp_submit_stops_when_local_inputs_missing():
         assert_contains(result["answer"], "没有找到可提交的本地 VASP 作业目录")
         assert_contains(result["answer"], "INCAR")
         assert_contains(result["answer"], "KPOINTS")
-
-
-def test_create_vasp_local_job_dir_archives_inputs_and_job_script():
-    script = f"#!/bin/bash\n#SBATCH --job-name=vasp_relax\n{DEFAULT_VASP_SETUP}\n{DEFAULT_VASP_RUN}\n"
-
-    with TemporaryDirectory() as input_dir, TemporaryDirectory() as jobs_dir:
-        for name in ["INCAR", "POSCAR", "POTCAR", "KPOINTS"]:
-            (_bootstrap.Path(input_dir) / name).write_text(f"{name}\n", encoding="utf-8")
-
-        archive = create_vasp_local_job_dir(script, input_dir, jobs_dir)
-        local_job_dir = archive["local_job_dir"]
-
-        if not local_job_dir.is_dir():
-            raise AssertionError(f"Expected local job dir to exist: {local_job_dir}")
-
-        for name in ["INCAR", "POSCAR", "POTCAR", "KPOINTS", "job.sh"]:
-            path = local_job_dir / name
-            if not path.is_file():
-                raise AssertionError(f"Expected archived file to exist: {path}")
-
-        assert_contains((local_job_dir / "job.sh").read_text(encoding="utf-8"), DEFAULT_VASP_RUN)
-
-
-def test_parse_vasp_input_blocks():
-    text = """
-请生成 VASP 输入文件
-```INCAR
-SYSTEM = test
-ENCUT = 520
-```
-```POSCAR
-Si
-1.0
-```
-```POTCAR
-POTCAR content
-```
-```KPOINTS
-Automatic mesh
-```
-"""
-    inputs = parse_vasp_input_blocks(text)
-
-    if set(inputs) != {"INCAR", "POSCAR", "POTCAR", "KPOINTS"}:
-        raise AssertionError(f"Unexpected parsed files: {inputs.keys()}")
-
-    assert_contains(inputs["INCAR"], "ENCUT = 520")
-    assert_contains(inputs["POTCAR"], "POTCAR content")
-
-
-def test_create_vasp_inputs_from_text_writes_files():
-    text = """
-生成 VASP 输入文件
-```INCAR
-SYSTEM = test
-```
-```POSCAR
-Si
-1.0
-```
-```POTCAR
-POTCAR content
-```
-```KPOINTS
-Automatic mesh
-```
-"""
-
-    with TemporaryDirectory() as jobs_dir:
-        result = create_vasp_inputs_from_text(text, jobs_dir, "si_relax")
-
-        if not result["success"]:
-            raise AssertionError(f"Expected input files to be written: {result}")
-
-        local_input_dir = result["local_input_dir"]
-        if local_input_dir.parent != _bootstrap.Path(jobs_dir):
-            raise AssertionError(f"Expected files under jobs dir, got {local_input_dir}")
-
-        for name in ["INCAR", "POSCAR", "POTCAR", "KPOINTS"]:
-            if not (local_input_dir / name).is_file():
-                raise AssertionError(f"Expected generated file: {local_input_dir / name}")
-
-        assert_contains((local_input_dir / "INCAR").read_text(encoding="utf-8"), "SYSTEM = test")
-
-
-def test_create_vasp_inputs_from_text_requires_all_files():
-    text = """
-```INCAR
-SYSTEM = test
-```
-"""
-
-    with TemporaryDirectory() as jobs_dir:
-        result = create_vasp_inputs_from_text(text, jobs_dir, "missing")
-
-        if result["success"]:
-            raise AssertionError("Expected missing files to fail.")
-
-        if result["missing_files"] != ["POSCAR", "POTCAR", "KPOINTS"]:
-            raise AssertionError(f"Unexpected missing files: {result['missing_files']}")
-
-
-def test_import_vasp_inputs_from_dir_copies_all_files():
-    with TemporaryDirectory() as source_dir, TemporaryDirectory() as jobs_dir:
-        for name in ["INCAR", "POSCAR", "POTCAR", "KPOINTS"]:
-            (_bootstrap.Path(source_dir) / name).write_text(f"{name}\n", encoding="utf-8")
-
-        result = import_vasp_inputs_from_dir(source_dir, jobs_dir, "imported")
-
-        if not result["success"]:
-            raise AssertionError(f"Expected import to succeed: {result}")
-
-        local_input_dir = result["local_input_dir"]
-
-        for name in ["INCAR", "POSCAR", "POTCAR", "KPOINTS"]:
-            path = local_input_dir / name
-            if not path.is_file():
-                raise AssertionError(f"Expected imported file: {path}")
 
 
 def test_resolve_vasp_job_input_dir_selects_latest_complete_job():
@@ -264,31 +180,11 @@ def test_resolve_vasp_job_input_dir_uses_named_child():
 
 
 def test_extract_source_dir_prefers_absolute_path():
-    text = "请从目录导入 VASP 输入文件: /home/lenovo/vasp-jobs-input"
+    text = "帮我提交 VASP 作业，目录 /tmp/vasp-jobs/si_static_test"
     source_dir = extract_source_dir_from_text(text)
 
-    if source_dir != "/home/lenovo/vasp-jobs-input":
+    if source_dir != "/tmp/vasp-jobs/si_static_test":
         raise AssertionError(f"Expected absolute path, got {source_dir!r}")
-
-
-def test_generate_vasp_template_inputs_does_not_fake_potcar():
-    with TemporaryDirectory() as jobs_dir:
-        result = generate_vasp_template_inputs("请 Agent 辅助生成 Si 结构优化 VASP 输入模板", jobs_dir)
-
-        if not result["success"]:
-            raise AssertionError(f"Expected template generation to succeed: {result}")
-
-        local_input_dir = result["local_input_dir"]
-
-        for name in ["INCAR", "POSCAR", "KPOINTS"]:
-            if not (local_input_dir / name).is_file():
-                raise AssertionError(f"Expected generated template file: {name}")
-
-        if (local_input_dir / "POTCAR").exists():
-            raise AssertionError("Agent must not generate fake POTCAR content.")
-
-        if "POTCAR" not in result["missing_files"]:
-            raise AssertionError(f"Expected POTCAR to be missing: {result}")
 
 
 def test_register_existing_vasp_job_from_text_writes_registry():
@@ -321,18 +217,12 @@ def test_register_existing_vasp_job_from_text_writes_registry():
 if __name__ == "__main__":
     test_generate_vasp_script_defaults()
     test_generate_vasp_script_extracts_resources()
-    test_submit_vasp_job_preview_adds_partition()
+    test_submit_vasp_job_preview_handles_partition()
     test_dangerous_vasp_request_is_rejected()
     test_vasp_input_validation_requires_all_files()
     test_vasp_submit_stops_when_local_inputs_missing()
-    test_create_vasp_local_job_dir_archives_inputs_and_job_script()
-    test_parse_vasp_input_blocks()
-    test_create_vasp_inputs_from_text_writes_files()
-    test_create_vasp_inputs_from_text_requires_all_files()
-    test_import_vasp_inputs_from_dir_copies_all_files()
     test_resolve_vasp_job_input_dir_selects_latest_complete_job()
     test_resolve_vasp_job_input_dir_uses_named_child()
     test_extract_source_dir_prefers_absolute_path()
-    test_generate_vasp_template_inputs_does_not_fake_potcar()
     test_register_existing_vasp_job_from_text_writes_registry()
     print("All VASP assistant checks passed.")

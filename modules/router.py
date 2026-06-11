@@ -1,3 +1,6 @@
+import re
+
+
 def detect_intent(question: str) -> str:
     q = question.lower()
     q_no_space = q.replace(" ", "")
@@ -94,25 +97,6 @@ def detect_intent(question: str) -> str:
         return "list_remote_jobs"
 
     is_vasp_request = any(k in q_no_space for k in vasp_keywords)
-    create_vasp_input_keywords = [
-        "生成vasp输入文件", "创建vasp输入文件",
-        "写入vasp输入文件", "保存vasp输入文件",
-        "生成四个文件", "创建四个文件",
-        "写这四个文件", "保存这四个文件",
-        "createvaspinputs", "writevaspinputs",
-        "savevaspinputs"
-    ]
-    import_vasp_input_keywords = [
-        "导入vasp输入文件", "从目录导入",
-        "导入四个文件", "复制vasp输入文件",
-        "importvaspinputs"
-    ]
-    assist_vasp_input_keywords = [
-        "辅助生成vasp输入文件", "agent辅助生成",
-        "自动生成vasp输入模板", "生成vasp模板",
-        "生成incar", "生成kpoints",
-        "generatevasptemplate"
-    ]
     register_vasp_job_keywords = [
         "登记vasp作业", "记录vasp作业",
         "注册vasp作业", "关联vasp作业",
@@ -122,15 +106,6 @@ def detect_intent(question: str) -> str:
     if is_vasp_request and any(k in q_no_space for k in register_vasp_job_keywords):
         return "register_vasp_job"
 
-    if is_vasp_request and any(k in q_no_space for k in import_vasp_input_keywords):
-        return "import_vasp_inputs"
-
-    if is_vasp_request and any(k in q_no_space for k in assist_vasp_input_keywords):
-        return "assist_vasp_inputs"
-
-    if is_vasp_request and any(k in q_no_space for k in create_vasp_input_keywords):
-        return "create_vasp_inputs"
-
     if is_vasp_request and any(k in q_no_space for k in submit_keywords):
         return "submit_vasp_job"
 
@@ -139,6 +114,20 @@ def detect_intent(question: str) -> str:
 
     if is_vasp_request:
         return "generate_vasp_job"
+
+    explicit_sbatch_keywords = [
+        keyword for keyword in sbatch_keywords
+        if keyword != "我想提交"
+    ]
+
+    if any(k in q_no_space for k in explicit_sbatch_keywords):
+        return "generate_sbatch"
+
+    file_run_pattern = r"(跑|运行|执行|提交|submit|run).{0,40}[A-Za-z0-9_./~-]+\.(py|sh|slurm|sbatch)"
+    file_run_pattern_reversed = r"[A-Za-z0-9_./~-]+\.(py|sh|slurm|sbatch).{0,40}(跑|运行|执行|提交|submit|run)"
+
+    if re.search(file_run_pattern, q_no_space) or re.search(file_run_pattern_reversed, q_no_space):
+        return "submit_job"
 
     if any(k in q_no_space for k in submit_keywords):
         return "submit_job"

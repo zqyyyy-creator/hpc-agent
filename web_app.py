@@ -6,10 +6,6 @@ from modules.knowledge_base import load_documents, retrieve, ask_llm
 from modules.slurm_assistant import generate_sbatch_script, suggest_slurm_parameters
 from modules.error_diagnoser import ErrorDiagnoser
 from modules.job_submitter import (
-    create_vasp_inputs_from_text,
-    extract_vasp_job_selector,
-    generate_vasp_template_inputs,
-    import_vasp_inputs_from_text,
     register_existing_vasp_job_from_text,
     prepare_submit_script,
     prepare_vasp_submit_script,
@@ -44,10 +40,6 @@ pending_cleanup = {
     "kind": None,
     "targets": [],
     "job_id": None,
-}
-pending_vasp_input_source = {
-    "active": False,
-    "source_text": None,
 }
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 
@@ -101,47 +93,11 @@ def clear_pending_cleanup():
     pending_cleanup["job_id"] = None
 
 
-def clear_pending_vasp_input_source():
-    pending_vasp_input_source["active"] = False
-    pending_vasp_input_source["source_text"] = None
-
-
 def format_uploaded_files(uploaded_files):
     if not uploaded_files:
         return ""
 
     return "\n".join(f"- {item['name']} ({len(item['content'])} bytes)" for item in uploaded_files)
-
-
-def should_ask_vasp_input_source(question: str):
-    if extract_vasp_job_selector(question):
-        return False
-
-    normalized = question.lower().replace(" ", "")
-    direct_existing_keywords = [
-        "最近",
-        "latest",
-        "existing",
-        "已有",
-        "现有",
-    ]
-
-    return not any(keyword in normalized for keyword in direct_existing_keywords)
-
-
-def vasp_input_source_prompt():
-    return (
-        "请选择 VASP 输入文件来源：\n\n"
-        "1. 使用已有本地 VASP 作业目录\n"
-        "   默认从本地 VASP 作业目录中选择最近保存的完整目录。\n\n"
-        "2. 从导入目录导入四个 VASP 文件\n"
-        "   从 HPC_LOCAL_VASP_IMPORT_DIR 复制 INCAR、POSCAR、POTCAR、KPOINTS。\n\n"
-        "3. 在对话中粘贴四个 VASP 输入文件\n"
-        "   请下一条消息粘贴 INCAR、POSCAR、POTCAR、KPOINTS 四个代码块。\n\n"
-        "4. 让 Agent 辅助生成 VASP 输入模板\n"
-        "   适合快速生成模板；POTCAR 仍需要你自己补齐。\n\n"
-        "请回复 1 / 2 / 3 / 4。回复“取消”可放弃。"
-    )
 
 
 def prepare_vasp_submission_preview(source_text: str, selector_text: str = ""):
@@ -160,69 +116,6 @@ def prepare_vasp_submission_preview(source_text: str, selector_text: str = ""):
         "回复“确认提交”后，我会连接超算执行 sbatch。\n"
         "回复“取消提交”可以放弃本次提交。"
     )
-
-
-def handle_vasp_input_source_choice(choice: str):
-    source_text = pending_vasp_input_source["source_text"] or ""
-    normalized = choice.lower().replace(" ", "")
-
-    if normalized in {"取消", "取消提交", "no", "n", "cancel"}:
-        clear_pending_vasp_input_source()
-        return "已取消 VASP 提交。"
-
-    if normalized in {"1", "已有", "现有", "最近", "existing"}:
-        clear_pending_vasp_input_source()
-        return prepare_vasp_submission_preview(source_text)
-
-    if normalized in {"2", "导入", "import"}:
-        result = import_vasp_inputs_from_text(source_text)
-
-        if not result["success"]:
-            return result["message"]
-
-        selector_text = f"{source_text} 目录名 {result['local_input_dir'].name}"
-        clear_pending_vasp_input_source()
-        return result["message"] + "\n\n" + prepare_vasp_submission_preview(source_text, selector_text)
-
-    if normalized in {"3", "粘贴", "paste"}:
-        pending_vasp_input_source["active"] = "paste"
-        return (
-            "请粘贴四个 VASP 输入文件代码块：\n\n"
-            "```INCAR\n...\n```\n"
-            "```POSCAR\n...\n```\n"
-            "```POTCAR\n...\n```\n"
-            "```KPOINTS\n...\n```"
-        )
-
-    if normalized in {"4", "生成", "模板", "template"}:
-        result = generate_vasp_template_inputs(source_text)
-
-        if result.get("missing_files"):
-            clear_pending_vasp_input_source()
-            return (
-                result["message"]
-                + "\n\n模板目录还不完整，暂不进入提交预览。"
-                + "\n请补齐缺失文件后再说：帮我提交 VASP 作业，目录名 "
-                + result["local_input_dir"].name
-            )
-
-        selector_text = f"{source_text} 目录名 {result['local_input_dir'].name}"
-        clear_pending_vasp_input_source()
-        return result["message"] + "\n\n" + prepare_vasp_submission_preview(source_text, selector_text)
-
-    return vasp_input_source_prompt()
-
-
-def handle_vasp_pasted_inputs(text: str):
-    source_text = pending_vasp_input_source["source_text"] or ""
-    result = create_vasp_inputs_from_text(text)
-
-    if not result["success"]:
-        return result["message"]
-
-    selector_text = f"{source_text} 目录名 {result['local_input_dir'].name}"
-    clear_pending_vasp_input_source()
-    return result["message"] + "\n\n" + prepare_vasp_submission_preview(source_text, selector_text)
 
 
 @app.post("/chat")
@@ -244,17 +137,6 @@ async def chat(request: Request):
         }
 
     normalized_question = question.lower().replace(" ", "")
-
-    if pending_vasp_input_source["active"]:
-        if pending_vasp_input_source["active"] == "paste":
-            answer = handle_vasp_pasted_inputs(question)
-        else:
-            answer = handle_vasp_input_source_choice(question)
-
-        return {
-            "intent": "select_vasp_input_source",
-            "answer": answer,
-        }
 
     if pending_cleanup["kind"]:
         if normalized_question in {"取消", "取消清理", "no", "n", "cancel"}:
@@ -369,24 +251,7 @@ async def chat(request: Request):
         if uploaded_files:
             upload_note = "\n\n提示：VASP 作业仍使用本地 VASP 输入目录流程，本次网页附件不会用于 VASP 提交。"
 
-        if should_ask_vasp_input_source(question):
-            pending_vasp_input_source["active"] = "choice"
-            pending_vasp_input_source["source_text"] = question
-            answer = vasp_input_source_prompt() + upload_note
-        else:
-            answer = prepare_vasp_submission_preview(question) + upload_note
-
-    elif intent == "create_vasp_inputs":
-        result = create_vasp_inputs_from_text(question)
-        answer = result["message"]
-
-    elif intent == "import_vasp_inputs":
-        result = import_vasp_inputs_from_text(question)
-        answer = result["message"]
-
-    elif intent == "assist_vasp_inputs":
-        result = generate_vasp_template_inputs(question)
-        answer = result["message"]
+        answer = prepare_vasp_submission_preview(question) + upload_note
 
     elif intent == "register_vasp_job":
         result = register_existing_vasp_job_from_text(question)

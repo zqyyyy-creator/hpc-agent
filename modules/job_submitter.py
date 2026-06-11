@@ -1,7 +1,5 @@
 import os
 import re
-import shutil
-import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -12,19 +10,43 @@ from modules.vasp_assistant import prepare_vasp_submit_script as prepare_vasp_sc
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-DEFAULT_PARTITION = os.getenv("HPC_DEFAULT_PARTITION", "amd_test")
+DEFAULT_PARTITION = os.getenv("HPC_DEFAULT_PARTITION", "")
 VASP_PARTITION = os.getenv("HPC_VASP_PARTITION", DEFAULT_PARTITION)
-VASP_LOCAL_JOBS_DIR = os.getenv("HPC_LOCAL_VASP_JOBS_DIR", "/home/lenovo/vasp-jobs")
-VASP_LOCAL_IMPORT_DIR = os.getenv("HPC_LOCAL_VASP_IMPORT_DIR", "/home/lenovo/vasp-jobs-input")
-VASP_REMOTE_WORKDIR = os.getenv("HPC_VASP_REMOTE_WORKDIR", os.getenv("HPC_REMOTE_WORKDIR"))
+VASP_LOCAL_JOBS_DIR = os.getenv("HPC_LOCAL_VASP_JOBS_DIR", "~/vasp-jobs")
+
+
+def _derive_vasp_remote_dir(kind: str):
+    explicit = os.getenv(f"HPC_VASP_REMOTE_{kind.upper()}_DIR")
+    if explicit:
+        return explicit
+
+    legacy = os.getenv("HPC_VASP_REMOTE_WORKDIR")
+
+    if legacy:
+        if legacy.endswith("vasp-hpc-jobs"):
+            return f"{legacy}-{kind}"
+
+        return f"{legacy}-{kind}"
+
+    remote_workdir = os.getenv("HPC_REMOTE_WORKDIR")
+    if remote_workdir:
+        return f"{str(Path(remote_workdir).parent)}/vasp-hpc-jobs-{kind}"
+
+    return None
+
+
+VASP_REMOTE_INPUT_DIR = _derive_vasp_remote_dir("input")
+VASP_REMOTE_OUTPUT_DIR = _derive_vasp_remote_dir("output")
+VASP_REMOTE_WORKDIR = VASP_REMOTE_OUTPUT_DIR
 VASP_INPUT_FILES = ["INCAR", "POSCAR", "POTCAR", "KPOINTS"]
-VASP_INPUT_BLOCK_PATTERN = re.compile(
-    r"```[ \t]*(INCAR|POSCAR|POTCAR|KPOINTS)[^\n]*\n(.*?)```",
-    re.IGNORECASE | re.DOTALL,
-)
 
 
 def add_partition(script: str, partition: str = DEFAULT_PARTITION) -> str:
+    partition = (partition or "").strip()
+
+    if not partition:
+        return script
+
     lines = script.splitlines()
 
     if any(line.strip().startswith("#SBATCH --partition") for line in lines):
@@ -52,8 +74,8 @@ def prepare_submit_script(user_request: str):
         "ready": True,
         "script": script,
         "message": (
-            "我将把下面的作业提交到超算 partition："
-            f"{DEFAULT_PARTITION}\n\n{script}\n请确认后再提交。"
+            "我将把下面的作业提交到超算"
+            f"{_partition_message(DEFAULT_PARTITION)}。\n\n{script}\n请确认后再提交。"
         ),
     }
 
@@ -70,18 +92,31 @@ def prepare_vasp_submit_script(user_request: str):
         "ready": True,
         "script": script,
         "local_jobs_dir": str(Path(VASP_LOCAL_JOBS_DIR).resolve()),
-        "remote_workdir": VASP_REMOTE_WORKDIR,
+        "remote_input_dir": VASP_REMOTE_INPUT_DIR,
+        "remote_output_dir": VASP_REMOTE_OUTPUT_DIR,
+        "remote_workdir": VASP_REMOTE_OUTPUT_DIR,
         "message": (
-            "我将把下面的 VASP 作业提交到超算 partition："
-            f"{VASP_PARTITION}\n\n"
+            "我将把下面的 VASP 作业提交到超算"
+            f"{_partition_message(VASP_PARTITION)}。\n\n"
             "确认提交后，我会从本地 VASP 作业目录中选择一个完整作业目录，"
-            "写入 job.sh，然后上传到远端独立目录。\n"
+            "写入 job.sh，并把该目录上传到远端 VASP 输入目录。\n"
             f"本地 VASP 作业目录: {Path(VASP_LOCAL_JOBS_DIR).resolve()}\n"
             "默认选择最近保存的完整 VASP 作业；也可以在请求里写具体子目录名。\n\n"
-            f"远程 VASP 作业根目录: {VASP_REMOTE_WORKDIR}\n\n"
+            f"远程 VASP 输入根目录: {VASP_REMOTE_INPUT_DIR}\n"
+            f"远程 VASP 输出根目录: {VASP_REMOTE_OUTPUT_DIR}\n\n"
+            "运行时会在输出根目录下创建同名作业目录，并从输入目录复制 INCAR/KPOINTS/POSCAR/POTCAR 后执行 VASP。\n\n"
             f"{script}\n请确认后再提交。"
         ),
     }
+
+
+def _partition_message(partition: str) -> str:
+    partition = (partition or "").strip()
+
+    if partition:
+        return f" partition：{partition}"
+
+    return "，不指定 partition，使用集群默认分区"
 
 
 def submit_prepared_script(script: str, uploaded_files=None):
@@ -204,7 +239,7 @@ def register_existing_vasp_job_from_text(text: str):
     if not selector:
         return {
             "success": False,
-            "message": "请提供远端 VASP 作业目录名或绝对路径。",
+            "message": "请提供远端 VASP 输出目录名或绝对路径。",
         }
 
     remote_path = Path(selector)
@@ -224,7 +259,7 @@ def register_existing_vasp_job_from_text(text: str):
             "VASP 作业映射已登记。\n\n"
             f"Job ID: {job_id}\n"
             f"本地作业目录: {local_job_dir}\n"
-            f"远程作业目录: {remote_workdir}\n\n"
+            f"远程输出目录: {remote_workdir}\n\n"
             f"现在可以读取 {job_id} 的输出或错误日志。"
         ),
     }
@@ -284,196 +319,8 @@ def resolve_vasp_job_input_dir(
         "missing_files": VASP_INPUT_FILES,
         "message": (
             "本地 VASP 作业目录中没有找到完整作业。\n"
-            f"请先在 {root.resolve()} 下生成或导入包含 "
+            f"请先在 {root.resolve()} 下手动创建包含 "
             "INCAR、POSCAR、POTCAR、KPOINTS 的子目录。"
-        ),
-    }
-
-
-def parse_vasp_input_blocks(text: str):
-    inputs = {}
-
-    for match in VASP_INPUT_BLOCK_PATTERN.finditer(text):
-        name = match.group(1).upper()
-        content = match.group(2).strip("\n") + "\n"
-        inputs[name] = content
-
-    return inputs
-
-
-def create_vasp_inputs_from_text(
-    text: str,
-    jobs_dir: str = VASP_LOCAL_JOBS_DIR,
-    job_name: str = "vasp_inputs",
-):
-    inputs = parse_vasp_input_blocks(text)
-    missing_files = [
-        name
-        for name in VASP_INPUT_FILES
-        if name not in inputs
-    ]
-
-    if missing_files:
-        return {
-            "success": False,
-            "local_input_dir": None,
-            "written_files": [],
-            "missing_files": missing_files,
-            "message": (
-                "没有生成 VASP 输入文件，因为缺少这些代码块: "
-                + ", ".join(missing_files)
-                + "\n\n请按这种格式提供四个文件内容:\n"
-                "```INCAR\n...\n```\n"
-                "```POSCAR\n...\n```\n"
-                "```POTCAR\n...\n```\n"
-                "```KPOINTS\n...\n```"
-            ),
-        }
-
-    archive_root = Path(jobs_dir)
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    safe_job_name = _safe_job_dir_name(job_name)
-    local_input_dir = archive_root / f"{safe_job_name}_{timestamp}"
-
-    archive_root.mkdir(parents=True, exist_ok=True)
-
-    suffix = 1
-    while local_input_dir.exists():
-        local_input_dir = archive_root / f"{safe_job_name}_{timestamp}_{suffix}"
-        suffix += 1
-
-    local_input_dir.mkdir()
-
-    written_files = []
-    for name in VASP_INPUT_FILES:
-        path = local_input_dir / name
-        path.write_text(inputs[name], encoding="utf-8")
-        written_files.append(str(path))
-
-    return {
-        "success": True,
-        "local_input_dir": local_input_dir,
-        "written_files": written_files,
-        "missing_files": [],
-        "message": (
-            "VASP 输入文件已生成。\n\n"
-            f"本地目录: {local_input_dir}\n"
-            "已写入文件:\n"
-            + "\n".join(f"- {path}" for path in written_files)
-            + "\n\n如果要提交这套输入文件，可以说："
-            f"\n帮我提交 VASP 作业，目录名 {local_input_dir.name}"
-            "\n也可以直接说“提交最近的 VASP 作业”。"
-        ),
-    }
-
-
-def _create_unique_vasp_dir(root_dir: str, job_name: str):
-    archive_root = Path(root_dir)
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    safe_job_name = _safe_job_dir_name(job_name)
-    local_dir = archive_root / f"{safe_job_name}_{timestamp}"
-
-    archive_root.mkdir(parents=True, exist_ok=True)
-
-    suffix = 1
-    while local_dir.exists():
-        local_dir = archive_root / f"{safe_job_name}_{timestamp}_{suffix}"
-        suffix += 1
-
-    local_dir.mkdir()
-    return local_dir
-
-
-def write_vasp_input_files(
-    inputs: dict,
-    jobs_dir: str = VASP_LOCAL_JOBS_DIR,
-    job_name: str = "vasp_inputs",
-    require_all: bool = True,
-):
-    missing_files = [
-        name
-        for name in VASP_INPUT_FILES
-        if name not in inputs
-    ]
-
-    if require_all and missing_files:
-        return {
-            "success": False,
-            "local_input_dir": None,
-            "written_files": [],
-            "missing_files": missing_files,
-            "message": "缺少 VASP 输入文件: " + ", ".join(missing_files),
-        }
-
-    local_input_dir = _create_unique_vasp_dir(jobs_dir, job_name)
-    written_files = []
-
-    for name in VASP_INPUT_FILES:
-        if name not in inputs:
-            continue
-
-        path = local_input_dir / name
-        content = inputs[name].rstrip("\n") + "\n"
-        path.write_text(content, encoding="utf-8")
-        written_files.append(str(path))
-
-    return {
-        "success": True,
-        "local_input_dir": local_input_dir,
-        "written_files": written_files,
-        "missing_files": missing_files,
-        "message": (
-            "VASP 输入文件已写入。\n\n"
-            f"本地目录: {local_input_dir}\n"
-            "已写入文件:\n"
-            + "\n".join(f"- {path}" for path in written_files)
-        ),
-    }
-
-
-def import_vasp_inputs_from_dir(
-    source_dir: str = VASP_LOCAL_IMPORT_DIR,
-    jobs_dir: str = VASP_LOCAL_JOBS_DIR,
-    job_name: str = "vasp_imported",
-):
-    validation = validate_vasp_input_files(source_dir)
-
-    if validation["missing_files"]:
-        return {
-            "success": False,
-            "local_input_dir": None,
-            "written_files": [],
-            "missing_files": validation["missing_files"],
-            "message": (
-                "没有导入 VASP 输入文件，因为源目录不完整。\n\n"
-                f"源目录: {validation['input_dir'].resolve()}\n"
-                f"缺少文件: {', '.join(validation['missing_files'])}"
-            ),
-        }
-
-    local_input_dir = _create_unique_vasp_dir(jobs_dir, job_name)
-    written_files = []
-
-    for name in VASP_INPUT_FILES:
-        source_path = validation["input_dir"] / name
-        target_path = local_input_dir / name
-        shutil.copy2(source_path, target_path)
-        written_files.append(str(target_path))
-
-    return {
-        "success": True,
-        "local_input_dir": local_input_dir,
-        "written_files": written_files,
-        "missing_files": [],
-        "message": (
-            "VASP 输入文件已从目录导入。\n\n"
-            f"源目录: {validation['input_dir'].resolve()}\n"
-            f"本地作业目录: {local_input_dir}\n"
-            "已导入文件:\n"
-            + "\n".join(f"- {path}" for path in written_files)
-            + "\n\n如果要提交这套输入文件，可以说："
-            f"\n帮我提交 VASP 作业，目录名 {local_input_dir.name}"
-            "\n也可以直接说“提交最近的 VASP 作业”。"
         ),
     }
 
@@ -490,159 +337,6 @@ def extract_source_dir_from_text(text: str):
             return match.group(1)
 
     return None
-
-
-def import_vasp_inputs_from_text(text: str):
-    source_dir = extract_source_dir_from_text(text) or VASP_LOCAL_IMPORT_DIR
-    return import_vasp_inputs_from_dir(source_dir)
-
-
-def generate_vasp_template_inputs(
-    user_request: str,
-    jobs_dir: str = VASP_LOCAL_JOBS_DIR,
-    job_name: str = "vasp_template",
-):
-    request = user_request.lower()
-    is_static = "静态" in user_request or "static" in request
-    is_relax = "结构优化" in user_request or "relax" in request or not is_static
-
-    incar_lines = [
-        "SYSTEM = generated_vasp_job",
-        "ENCUT = 520",
-        "EDIFF = 1E-5",
-        "ISMEAR = 0",
-        "SIGMA = 0.05",
-    ]
-
-    if is_static:
-        incar_lines.extend([
-            "IBRION = -1",
-            "NSW = 0",
-        ])
-    elif is_relax:
-        incar_lines.extend([
-            "EDIFFG = -0.02",
-            "IBRION = 2",
-            "NSW = 50",
-            "ISIF = 3",
-        ])
-
-    kpoints = "\n".join([
-        "Automatic mesh",
-        "0",
-        "Gamma",
-        "3 3 3",
-        "0 0 0",
-    ])
-
-    inputs = {
-        "INCAR": "\n".join(incar_lines),
-        "KPOINTS": kpoints,
-    }
-
-    if "si" in request or "硅" in user_request:
-        inputs["POSCAR"] = "\n".join([
-            "Si",
-            "1.0",
-            "3.84 0.00 0.00",
-            "0.00 3.84 0.00",
-            "0.00 0.00 3.84",
-            "Si",
-            "2",
-            "Direct",
-            "0.00 0.00 0.00",
-            "0.25 0.25 0.25",
-        ])
-
-    result = write_vasp_input_files(
-        inputs,
-        jobs_dir=jobs_dir,
-        job_name=job_name,
-        require_all=False,
-    )
-    missing = [
-        name
-        for name in VASP_INPUT_FILES
-        if name not in inputs
-    ]
-    result["missing_files"] = missing
-    result["success"] = True
-    result["message"] = (
-        "Agent 已生成安全的 VASP 输入模板。\n\n"
-        f"本地目录: {result['local_input_dir']}\n"
-        "已生成文件:\n"
-        + "\n".join(f"- {path}" for path in result["written_files"])
-    )
-
-    if missing:
-        result["message"] += (
-            "\n\n仍需你补充这些文件后才能提交: "
-            + ", ".join(missing)
-        )
-
-    result["message"] += (
-        "\n\n注意: Agent 不会伪造 POTCAR。POTCAR 需要来自你有权限使用的 VASP 赝势库。"
-    )
-    return result
-
-
-def _extract_job_name(script: str, default: str = "vasp_job") -> str:
-    match = re.search(r"^#SBATCH\s+--job-name=([A-Za-z0-9_.-]+)\s*$", script, re.MULTILINE)
-    if match:
-        return match.group(1)
-
-    return default
-
-
-def _safe_job_dir_name(name: str) -> str:
-    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("._")
-    return safe_name or "vasp_job"
-
-
-def create_vasp_local_job_dir(
-    script: str,
-    input_dir: str = None,
-    jobs_dir: str = VASP_LOCAL_JOBS_DIR,
-):
-    if input_dir is None:
-        resolved = resolve_vasp_job_input_dir("", jobs_dir)
-
-        if not resolved["success"]:
-            raise ValueError(resolved["message"])
-
-        source_dir = resolved["input_dir"]
-    else:
-        source_dir = Path(input_dir)
-
-    archive_root = Path(jobs_dir)
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    job_name = _safe_job_dir_name(_extract_job_name(script))
-    local_job_dir = archive_root / f"{job_name}_{timestamp}"
-
-    archive_root.mkdir(parents=True, exist_ok=True)
-
-    suffix = 1
-    while local_job_dir.exists():
-        local_job_dir = archive_root / f"{job_name}_{timestamp}_{suffix}"
-        suffix += 1
-
-    local_job_dir.mkdir()
-
-    archived_files = []
-    for name in VASP_INPUT_FILES:
-        source_path = source_dir / name
-        target_path = local_job_dir / name
-        shutil.copy2(source_path, target_path)
-        archived_files.append(str(target_path))
-
-    job_script_path = local_job_dir / "job.sh"
-    job_script_path.write_text(script, encoding="utf-8")
-    archived_files.append(str(job_script_path))
-
-    return {
-        "local_job_dir": local_job_dir,
-        "archived_files": archived_files,
-    }
 
 
 def submit_prepared_vasp_script(script: str, selector_text: str = ""):
@@ -692,6 +386,8 @@ def submit_prepared_vasp_script(script: str, selector_text: str = ""):
                 "job_id": result["job_id"],
                 "local_job_dir": result["local_job_dir"],
                 "remote_workdir": result["remote_workdir"],
+                "remote_input_dir": result.get("remote_input_dir"),
+                "remote_output_dir": result.get("remote_output_dir"),
                 "remote_script": result["remote_script"],
                 "uploaded_files": result.get("uploaded_files", []),
             },
@@ -712,14 +408,15 @@ def submit_prepared_vasp_script(script: str, selector_text: str = ""):
             "answer": (
                 "VASP 作业已提交成功。\n\n"
                 f"Job ID: {result['job_id']}\n"
-                f"本地作业归档目录: {result['local_job_dir']}\n"
-                f"远程作业目录: {result['remote_workdir']}\n"
+                f"本地 VASP 输入目录: {result['local_job_dir']}\n"
+                f"远程 VASP 输入目录: {result.get('remote_input_dir')}\n"
+                f"远程 VASP 输出目录: {result.get('remote_output_dir')}\n"
                 f"远程脚本: {result['remote_script']}\n\n"
-                "本地已归档文件:\n"
+                "本地输入文件:\n"
                 f"{archived_files}\n\n"
-                "已上传文件:\n"
+                "已上传到远端输入/输出目录的文件:\n"
                 f"{uploaded_files}\n\n"
-                "VASP 输出结果也会写入这个远程作业目录。\n\n"
+                "VASP 标准输出、错误日志和运行结果会写入远程输出目录。\n\n"
                 f"Slurm 输出:\n{result['output']}"
             ),
             "raw": result,
@@ -730,8 +427,9 @@ def submit_prepared_vasp_script(script: str, selector_text: str = ""):
         "job_id": result["job_id"],
         "answer": (
             "VASP 作业提交失败。\n\n"
-            f"本地作业归档目录: {result.get('local_job_dir')}\n"
-            f"远程作业目录: {result.get('remote_workdir')}\n"
+            f"本地 VASP 输入目录: {result.get('local_job_dir')}\n"
+            f"远程 VASP 输入目录: {result.get('remote_input_dir')}\n"
+            f"远程 VASP 输出目录: {result.get('remote_output_dir')}\n"
             f"Slurm 输出:\n{result['output']}\n"
             f"错误信息:\n{result['error']}"
         ),

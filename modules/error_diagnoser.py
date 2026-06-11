@@ -40,17 +40,6 @@ class ErrorDiagnoser:
         results.sort(key=lambda item: item["score"], reverse=True)
         return results
 
-    def diagnose_file(self, log_file_path: str):
-        path = Path(log_file_path)
-
-        if not path.exists():
-            return f"日志文件不存在: {path}"
-
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
-            log_text = f.read()
-
-        return self.diagnose(log_text)
-
     def _is_unsafe_related_command(self, command: str):
         return re.search(r"\brm\s+-[^\n;]*r[^\n;]*f\b", command, re.IGNORECASE)
 

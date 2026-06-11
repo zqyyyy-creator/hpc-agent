@@ -8,6 +8,7 @@ import _bootstrap
 PYTHON_FILES = [
     "app.py",
     "main.py",
+    "textual_cli.py",
     "web_app.py",
     "modules/error_diagnoser.py",
     "modules/job_query.py",
@@ -78,18 +79,12 @@ def run_vasp_assistant_checks():
 
     checks.test_generate_vasp_script_defaults()
     checks.test_generate_vasp_script_extracts_resources()
-    checks.test_submit_vasp_job_preview_adds_partition()
+    checks.test_submit_vasp_job_preview_handles_partition()
     checks.test_dangerous_vasp_request_is_rejected()
     checks.test_vasp_input_validation_requires_all_files()
     checks.test_vasp_submit_stops_when_local_inputs_missing()
-    checks.test_create_vasp_local_job_dir_archives_inputs_and_job_script()
-    checks.test_parse_vasp_input_blocks()
-    checks.test_create_vasp_inputs_from_text_writes_files()
-    checks.test_create_vasp_inputs_from_text_requires_all_files()
-    checks.test_import_vasp_inputs_from_dir_copies_all_files()
     checks.test_resolve_vasp_job_input_dir_selects_latest_complete_job()
     checks.test_resolve_vasp_job_input_dir_uses_named_child()
-    checks.test_generate_vasp_template_inputs_does_not_fake_potcar()
     checks.test_register_existing_vasp_job_from_text_writes_registry()
 
     print("OK VASP assistant skill checks passed")
@@ -102,6 +97,9 @@ def run_router_checks():
 
     cases = {
         "帮我提交一个作业运行 python train.py，4 核，10 分钟": "submit_job",
+        "跑 monitor_cpu.py，4核，15分钟": "submit_job",
+        "运行 ./job.sh，2核": "submit_job",
+        "提交 /tmp/train.py，8核，1小时": "submit_job",
         "帮我生成一个 sbatch 脚本运行 python train.py": "generate_sbatch",
         "查看11814753的状态": "job_status",
         "读取11814753的输出": "job_output",
@@ -110,9 +108,6 @@ def run_router_checks():
         "我的任务一直 pending": "troubleshoot_job",
         "帮我生成一个 VASP 结构优化脚本": "generate_vasp_job",
         "帮我提交一个 VASP 结构优化任务，1 个节点 32 核": "submit_vasp_job",
-        "帮我生成 VASP 输入文件": "create_vasp_inputs",
-        "请从目录导入 VASP 输入文件": "import_vasp_inputs",
-        "请 Agent 辅助生成 Si 结构优化 VASP 输入模板": "assist_vasp_inputs",
         "登记 VASP 作业 11817144，目录名 vasp_imported_20260610_131601": "register_vasp_job",
         "列出远端 hpc-agent-jobs 里的任务编号": "list_remote_jobs",
         "清理远端作业 11817627 的文件": "cleanup_remote_job",
@@ -157,6 +152,7 @@ def run_job_query_checks():
 def run_submit_preview_checks():
     print_section("7. Submit preview checks")
 
+    from main import build_submit_request_with_uploaded_files, parse_cli_attachment_paths
     from modules.job_submitter import DEFAULT_PARTITION, prepare_submit_script
 
     prepared = prepare_submit_script("帮我提交一个作业运行 python train.py，4 核，10 分钟")
@@ -167,17 +163,84 @@ def run_submit_preview_checks():
     script = prepared["script"]
     required_lines = [
         "#!/bin/bash",
-        f"#SBATCH --partition={DEFAULT_PARTITION}",
         "#SBATCH --cpus-per-task=4",
         "#SBATCH --time=00:10:00",
         "python train.py",
     ]
 
+    if DEFAULT_PARTITION:
+        required_lines.append(f"#SBATCH --partition={DEFAULT_PARTITION}")
+    elif "#SBATCH --partition" in script:
+        raise AssertionError(f"Did not expect partition directive when DEFAULT_PARTITION is empty:\n{script}")
+
     for line in required_lines:
         if line not in script:
             raise AssertionError(f"Expected {line!r} in generated submit script:\n{script}")
 
-    print(script)
+    parsed_paths = parse_cli_attachment_paths("train.py, input.dat 'data file.txt'")
+    expected_paths = ["train.py", "input.dat", "data file.txt"]
+
+    if parsed_paths != expected_paths:
+        raise AssertionError(
+            f"Expected attachment paths {expected_paths!r}, got {parsed_paths!r}"
+        )
+
+    uploaded_files = [{"name": "train.py", "content": b"print('ok')\n"}]
+    submit_request, inferred_command, recommendation_details = build_submit_request_with_uploaded_files(
+        "我有一个作业，帮我提交上去跑，4 核，10 分钟",
+        uploaded_files,
+    )
+
+    if inferred_command != "python train.py":
+        raise AssertionError(f"Expected inferred command, got {inferred_command!r}")
+
+    prepared_from_upload = prepare_submit_script(submit_request)
+
+    if not prepared_from_upload["ready"]:
+        raise AssertionError(
+            f"Uploaded file submit script should be ready: {prepared_from_upload['message']}"
+        )
+
+    if "python train.py" not in prepared_from_upload["script"]:
+        raise AssertionError(
+            "Expected script generated from uploaded train.py to run python train.py:\n"
+            + prepared_from_upload["script"]
+        )
+
+    if any(item.startswith(("CPU:", "时间:")) for item in recommendation_details):
+        raise AssertionError(
+            "Did not expect recommendations to override explicitly provided CPU/time:\n"
+            + "\n".join(recommendation_details)
+        )
+
+    if "#SBATCH --cpus-per-task=4" not in prepared_from_upload["script"]:
+        raise AssertionError("Expected explicitly provided CPU count to be preserved")
+
+    if "#SBATCH --time=00:10:00" not in prepared_from_upload["script"]:
+        raise AssertionError("Expected explicitly provided time limit to be preserved")
+
+    gpu_files = [{"name": "train.py", "content": b"import torch\nx = x.to('cuda')\n"}]
+    gpu_request, _, gpu_recommendations = build_submit_request_with_uploaded_files(
+        "跑 train.py",
+        gpu_files,
+    )
+    prepared_gpu = prepare_submit_script(gpu_request)
+
+    if "#SBATCH --gres=gpu:1" not in prepared_gpu["script"]:
+        raise AssertionError(
+            "Expected GPU recommendation for CUDA Python file:\n"
+            + prepared_gpu["script"]
+        )
+
+    if "#SBATCH --cpus-per-task=4" not in prepared_gpu["script"]:
+        raise AssertionError(
+            "Expected CPU recommendation for torch Python file:\n"
+            + prepared_gpu["script"]
+        )
+
+    if not gpu_recommendations:
+        raise AssertionError("Expected recommendation details for torch/cuda file")
+
     print("OK submit preview checks passed")
 
 
@@ -185,21 +248,34 @@ def run_env_checks():
     print_section("8. HPC env config checks")
 
     from modules.job_submitter import DEFAULT_PARTITION
-    from modules.slurm_tools import HOST, KEY_PATH, REMOTE_WORKDIR, USERNAME, VASP_REMOTE_WORKDIR
+    from modules.slurm_tools import (
+        HOST,
+        KEY_PATH,
+        REMOTE_WORKDIR,
+        USERNAME,
+        VASP_REMOTE_INPUT_DIR,
+        VASP_REMOTE_OUTPUT_DIR,
+    )
 
-    values = {
+    required_values = {
         "HPC_HOST": HOST,
         "HPC_USERNAME": USERNAME,
         "HPC_KEY_PATH": KEY_PATH,
         "HPC_REMOTE_WORKDIR": REMOTE_WORKDIR,
-        "HPC_VASP_REMOTE_WORKDIR": VASP_REMOTE_WORKDIR,
-        "HPC_DEFAULT_PARTITION": DEFAULT_PARTITION,
+        "HPC_VASP_REMOTE_INPUT_DIR": VASP_REMOTE_INPUT_DIR,
+        "HPC_VASP_REMOTE_OUTPUT_DIR": VASP_REMOTE_OUTPUT_DIR,
     }
 
-    for name, value in values.items():
+    for name, value in required_values.items():
         if not value:
             raise AssertionError(f"{name} is empty")
-        print(f"{name}={value}")
+        print(f"{name}=<set>")
+
+    print(
+        "HPC_DEFAULT_PARTITION=<set>"
+        if DEFAULT_PARTITION
+        else "HPC_DEFAULT_PARTITION=<empty, use cluster default>"
+    )
 
     print("OK HPC env config checks passed")
 

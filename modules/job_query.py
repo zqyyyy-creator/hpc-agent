@@ -1,6 +1,19 @@
 import re
 
 
+def _format_remote_access_error(action: str, error: Exception) -> str:
+    error_type = type(error).__name__
+    return (
+        f"{action}失败，无法访问远端 HPC 环境。\n\n"
+        "请检查本地 .env 中的这些配置是否完整且对当前 Web 服务进程可用:\n"
+        "- HPC_HOST\n"
+        "- HPC_USERNAME\n"
+        "- HPC_KEY_PATH\n"
+        "- HPC_REMOTE_WORKDIR\n\n"
+        f"程序捕获到的错误: {error_type}: {error}"
+    )
+
+
 def extract_job_id(text: str):
     match = re.search(r"(\d{4,})", text)
 
@@ -32,7 +45,10 @@ def format_tool_result(title: str, result: dict) -> str:
 def query_remote_agent_jobs():
     from modules.slurm_tools import list_remote_agent_jobs
 
-    result = list_remote_agent_jobs()
+    try:
+        result = list_remote_agent_jobs()
+    except Exception as error:
+        return _format_remote_access_error("读取远端 hpc-agent-jobs 目录", error)
 
     if result.get("error", "").strip():
         return (

@@ -3,16 +3,15 @@ from pathlib import Path
 
 import _bootstrap
 
+from modules.job_submitter import prepare_submit_script, submit_prepared_script
 from modules.slurm_tools import (
     check_job,
     read_job_error,
     read_job_output,
-    submit_job,
 )
 
 
 LAST_JOB_FILE = _bootstrap.PROJECT_ROOT / ".last_job_id"
-SCRIPT_PATH = _bootstrap.PROJECT_ROOT / "job.sh"
 POLL_SECONDS = 5
 MAX_POLLS = 12
 
@@ -25,7 +24,27 @@ def print_section(title, value):
 
 
 def main():
-    submit_result = submit_job(SCRIPT_PATH)
+    prepared = prepare_submit_script(
+        "帮我提交一个作业运行 bash live_hpc_check.sh，1 核，1 分钟"
+    )
+
+    if not prepared["ready"]:
+        raise SystemExit(f"无法生成 live HPC 测试脚本：{prepared['message']}")
+
+    submit_result = submit_prepared_script(
+        prepared["script"],
+        uploaded_files=[
+            {
+                "name": "live_hpc_check.sh",
+                "content": (
+                    "#!/bin/bash\n"
+                    "echo HPC_AGENT_LIVE_OK\n"
+                    "hostname\n"
+                    "date\n"
+                ).encode("utf-8"),
+            }
+        ],
+    )
 
     print_section("SUBMIT RESULT", submit_result)
 

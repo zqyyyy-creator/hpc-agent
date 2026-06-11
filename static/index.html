@@ -382,15 +382,14 @@
 6. Slurm 参数建议
 7. 错误日志诊断
 8. Pending / 不运行任务排查
-9. VASP 脚本生成、输入文件导入和确认提交
+9. VASP 脚本生成、固定目录提交和日志读取
 10. 普通任务附件上传、远端编号列表和作业文件清理
 
 示例：
 点左侧 + 上传 train.py 后：帮我提交一个作业运行 python train.py，4 核，10 分钟
-列出远端 hpc-agent-jobs 里的任务编号
+列出远端作业编号
 清理远端作业 11817627 的文件
-帮我提交 VASP 作业，1 个节点 32 核，运行 10 分钟
-从目录导入 VASP 输入文件: /home/qyz/vasp-jobs-input
+帮我提交 VASP 作业，目录名 si_static_test，1 个节点 32 核，运行 10 分钟
                     </div>
                 </div>
             </div>
@@ -527,10 +526,23 @@
                 body: formData
             });
 
-            const data = await response.json();
+            const contentType = response.headers.get("content-type") || "";
+            let data;
+
+            if (contentType.includes("application/json")) {
+                data = await response.json();
+            } else {
+                const text = await response.text();
+                data = {
+                    intent: "server_error",
+                    answer: response.ok
+                        ? text
+                        : "服务端请求失败。\n\nHTTP 状态: " + response.status + "\n\n" + text
+                };
+            }
 
             loading.remove();
-            addAssistantMessage(data.answer, data.intent);
+            addAssistantMessage(data.answer || "服务端没有返回 answer 字段。", data.intent);
             fileInput.value = "";
             renderSelectedFiles();
 
@@ -565,15 +577,14 @@
 6. Slurm 参数建议
 7. 错误日志诊断
 8. Pending / 不运行任务排查
-9. VASP 脚本生成、输入文件导入和确认提交
+9. VASP 脚本生成、固定目录提交和日志读取
 10. 普通任务附件上传、远端编号列表和作业文件清理
 
 示例：
 点左侧 + 上传 train.py 后：帮我提交一个作业运行 python train.py，4 核，10 分钟
-列出远端 hpc-agent-jobs 里的任务编号
+列出远端作业编号
 清理远端作业 11817627 的文件
-帮我提交 VASP 作业，1 个节点 32 核，运行 10 分钟
-从目录导入 VASP 输入文件: /home/qyz/vasp-jobs-input
+帮我提交 VASP 作业，目录名 si_static_test，1 个节点 32 核，运行 10 分钟
                     </div>
                 </div>
             </div>
