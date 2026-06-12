@@ -6,26 +6,59 @@
 
 ## 1. 功能总览
 
-HPC Agent 当前支持：
+### Slurm / HPC 知识问答
+* 基于 RAG（TF-IDF + LLM）检索知识库文档
+* 知识库覆盖：集群信息、常见错误、GPU 使用、sbatch 提交、作业状态、作业取消
 
-* Slurm / HPC 知识问答
-* 生成普通 sbatch 脚本
-* 根据普通作业文件自动推荐 CPU、时间、内存、GPU 参数
-* 普通 Slurm 作业确认式提交
+### 普通 Slurm 作业
+* 根据自然语言生成普通 sbatch 脚本
+* 根据普通作业文件自动推荐 CPU、内存、时间、GPU 参数
+* 普通 Slurm 作业确认式提交（生成预览 → 确认 → SSH 上传提交）
 * 普通作业文件上传到远端独立目录
-* 作业状态查询
+* 支持 `.py`、`.sh`、`.slurm`、`.sbatch` 文件
+* 危险命令检测（`rm -rf`、`shutdown`、`reboot`、`mkfs` 等会被拒绝）
+
+### 作业查询与监控
+* 作业状态查询（squeue / sacct）
 * stdout / stderr 读取
-* Textual TUI 右侧 Job Monitor
-* 多 Job 同时监控，并用 Tab 切换
-* 复制上一条 Agent 回复
-* 远端普通作业编号列表
-* 远端普通作业文件清理
-* 错误日志诊断
-* Pending / 不运行任务排查
-* VASP sbatch 脚本生成
-* VASP 固定目录提交
-* 登记已有 VASP 作业，便于继续查询日志
-* Web UI 普通作业附件上传
+* Textual TUI 实时 Job Monitor（右侧面板，15 秒自动刷新）
+* 多 Job 同时监控，Tab 切换
+* 监控面板显示：Job ID、State、Elapsed、Remote Dir、stdout/stderr 尾部摘录
+* VASP 作业监控时附带实时错误诊断
+
+### 远端作业管理
+* 列出远端普通作业编号（扫描 `HPC_REMOTE_WORKDIR` 下 Agent 管理的作业目录）
+* 按 Job ID 清理远端普通作业文件（保留根目录）
+* 清理全部远端普通作业文件（双重确认）
+* 列出远端 VASP 作业（输入/输出目录）
+* 按目录名清理远端 VASP 作业
+* 清理全部远端 VASP 作业文件
+
+### VASP 作业
+* VASP sbatch 脚本生成（结构优化/静态计算/其他计算类型）
+* VASP 固定目录提交：本地 input → 远端 input → 远端 output
+* 登记已有 VASP 作业，便于继续查询和同步
+* VASP 输出同步到本地（按 include/exclude 规则过滤文件）
+* VASP 远程文件探针与错误诊断
+* OUTCAR / OSZICAR 确定性解析
+* Claude Code 报告生成（report.md / paper_methods.md / paper_results.md）
+* 一键分析（同步 + report_context + Claude Code 报告全流程）
+
+### 错误诊断
+* 基于规则匹配的错误日志诊断（18 类错误模式）
+* 自动修复 sbatch 脚本（OOM → 提高内存、TIME → 延长时间等）
+* Pending / 不运行作业排查
+
+### 三种交互界面
+* **Textual TUI**：全屏终端界面，Chat + Job Monitor 双面板
+* **Terminal CLI**：Rich 命令行对话界面，支持 readline 命令历史
+* **Web UI**：浏览器端聊天界面，支持附件上传
+
+### 其他特性
+* Claude Code 集成（通过 `skills/vasp_report/SKILL.md` 定义分析 Skill）
+* 本地 JSON 作业登记（job_registry.json）
+* 系统级剪贴板支持（Ctrl+Y 复制回复）
+* 全面测试体系（本地 + Live HPC）
 
 ---
 
@@ -98,7 +131,7 @@ HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 * `PARATERA_API_KEY`：LLM API Key。
 * `HPC_HOST`：超算 SSH 登录主机。
 * `HPC_USERNAME`：超算用户名，按集群要求填写。
-* `HPC_KEY_PATH`：本机 SSH 私钥绝对路径。
+* `HPC_KEY_PATH`：本机 SSH 私钥绝对路径（Ed25519 格式）。
 * `HPC_REMOTE_WORKDIR`：普通 Slurm 作业远端根目录。
 * `HPC_DEFAULT_PARTITION`：普通作业默认 partition；留空表示不写 `#SBATCH --partition`，使用集群默认分区。
 * `HPC_LOCAL_VASP_JOBS_INPUT_DIR`：本地 VASP 输入作业根目录，每个子目录对应一次 VASP 作业输入。
@@ -113,19 +146,19 @@ HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 * `HPC_CLAUDE_CODE_MODEL`：Claude Code 使用的模型名；留空时使用环境默认，Paratera 网关默认回退到 `DeepSeek-V4-Pro`。
 * `HPC_CLAUDE_CODE_TIMEOUT_SECONDS`：Claude Code 报告生成超时时间，默认 1800 秒。
 
-检查本地路径：
+配置检查：
 
 ```bash
+# 检查本地路径
 realpath -e /path/to/your/private/key
 realpath /path/to/local/vasp-jobs-input
 realpath /path/to/local/vasp-jobs-output
-```
 
-如果本地 VASP 根目录不存在：
-
-```bash
+# 如果本地 VASP 根目录不存在
 mkdir -p /path/to/local/vasp-jobs-input /path/to/local/vasp-jobs-output
 ```
+
+`.env` 不应提交到 Git（已在 `.gitignore` 中排除）。
 
 ---
 
@@ -157,28 +190,28 @@ http://127.0.0.1:8000
 uvicorn web_app:app --reload
 ```
 
-退出：
+退出方式：
 
-* TUI：按 `Ctrl+X`、`F10` 或 `q`。
-* Terminal CLI：输入 `quit`。
-* Web：在启动服务的终端按 `Ctrl+C`。
+* **TUI**：按 `Ctrl+X`、`F10` 或 `q`。
+* **Terminal CLI**：输入 `quit`。
+* **Web**：在启动服务的终端按 `Ctrl+C`。
 
 ---
 
 ## 5. Textual TUI 使用
 
-TUI 布局：
+### 布局
 
-* 顶部：HPC 连接信息、用户、远端普通作业目录、快捷键。
-* 左侧：Chat 对话区。
-* 右侧：Job Monitor。
-* 底部：固定输入框。
+* **顶部**：HPC 连接信息、用户、远端作业目录、快捷键。
+* **左侧**：Chat 对话区（消息气泡 + 面板）。
+* **右侧**：Job Monitor（Job ID、State、Elapsed、Dir、Last Output、VASP 诊断）。
+* **底部**：固定输入框。
 
-快捷键：
+### 快捷键
 
 ```text
 Ctrl+R  手动刷新当前监控 Job
-Ctrl+Y  复制上一条 Agent 回复
+Ctrl+Y  复制上一条 Agent 回复到剪贴板
 Ctrl+S  确认提交等待中的作业
 Tab     切换右侧正在监控的 Job
 Esc     取消等待确认的提交或清理
@@ -187,26 +220,53 @@ F10     退出
 q       退出
 ```
 
-注意：
+### 监控规则
 
-* TUI 未开始监控时不会主动读取日志；输入 `监控 JOBID` 后才会刷新该 Job 的状态和输出摘要。
+* TUI 未开始监控时不会实时读取日志；输入 `监控 JOBID` 后才开始刷新该 Job。
 * 只有输入 `监控 JOBID` 后，右侧才开始显示该 Job。
 * 已完成、失败或不在队列中的 Job 不会被加入监控面板。
 * 运行中的多个 Job 可以同时加入监控，按 `Tab` 切换显示。
 * Job 失败后会从右侧监控列表移除，并提示可诊断错误日志。
 * Job 完成后会停止刷新，保留最终状态和输出摘要。
+* 每 15 秒自动刷新一次（squeue/sacct 状态 + stdout/stderr 尾部 50 行）。
+
+### VASP 实时诊断（TUI）
+
+VASP 作业在监控时会自动进行远程探针诊断：
+* 检查远端 output 目录中的关键文件（INCAR、POSCAR、KPOINTS、OUTCAR、OSZICAR、vasprun.xml、CONTCAR、vasp.out 等）
+* 匹配错误规则：POTCAR 输入转换错误、Fortran 严重错误、OOM、Segfault、磁盘满、Walltime 超限、文件缺失等
+* 匹配警告规则：BRMIX 电荷混合、ZBRENT 电子收敛问题等
+* 诊断结果显示在 Job Monitor 面板中，包含严重级别（ok/warning/error）、具体问题和修复建议
+
+### VASP 长工作流（TUI 特有）
+
+在 TUI 中输入 `运行并分析` 可以触发自动化周期：
+1. 提交 VASP 作业
+2. 监控作业直到完成
+3. 同步输出到本地
+4. 自动生成 Claude Code 报告
+
+### 剪贴板支持
+
+`Ctrl+Y` 依次尝试以下剪贴板工具：
+* `pyperclip`（Python 包）
+* `wl-copy`（Wayland）
+* `xclip`、`xsel`（X11）
+* `pbcopy`（macOS）
+* `clip`（WSL）
+* `powershell.exe`（Windows）
 
 ---
 
 ## 6. 普通 Slurm 作业提交
 
-最短用法：
+### 最短用法
 
 ```text
 跑 train.py
 ```
 
-指定资源：
+### 指定资源
 
 ```text
 跑 train.py，4核，15分钟
@@ -214,7 +274,7 @@ q       退出
 帮我提交一个作业运行 python train.py，8核，1小时，16G内存
 ```
 
-支持的本地文件类型：
+### 支持的文件类型
 
 ```text
 .py
@@ -223,46 +283,51 @@ q       退出
 .sbatch
 ```
 
-普通作业提交流程：
+### 提交流程
 
 1. 用户输入提交请求。
-2. Agent 读取本地文件，推断运行命令。
+2. Agent 读取本地文件，推断运行命令（`.py` → `python file`，`.sh` → `bash file`）。
 3. 如果用户没有指定资源，Agent 根据文件内容补充推荐参数。
-4. Agent 生成并展示 `job.sh`。
-5. 用户回复 `确认提交` 或按 TUI 的 `Ctrl+S`。
+4. Agent 生成并展示 `job.sh` 预览。
+5. 用户回复 `确认提交` 或按 `Ctrl+S`。
 6. Agent 连接超算，把文件上传到远端独立目录，并执行 `sbatch job.sh`。
 
-确认提交：
+### 带附件提交（Terminal CLI）
+
+如果提交时没有显式指定文件路径，Agent 会询问是否上传附件。用户可提供本地文件路径，Agent 会将其作为附件一并上传到远端作业目录。
+
+### 确认与取消
 
 ```text
 确认提交
 ```
 
-取消提交：
-
 ```text
 取消提交
 ```
 
-如果文件在当前项目目录下，可以直接写相对路径：
+### 文件路径说明
+
+相对路径：
 
 ```text
 跑 examples/my_job.py，2核，10分钟
 ```
 
-如果文件不在当前目录，建议写绝对路径：
+绝对路径：
 
 ```text
 提交 /path/to/jobs/train.py，4核，1小时
 ```
 
-普通作业远端目录内容一般包括：
+### 远端目录结构
 
 ```text
-job.sh
-用户上传或读取的作业文件
-hpc_agent_job_<jobid>.out
-hpc_agent_job_<jobid>.err
+HPC_REMOTE_WORKDIR/<jobid>-<jobname>/
+├── job.sh
+├── <上传或读取的作业文件>
+├── hpc_agent_job_<jobid>.out
+└── hpc_agent_job_<jobid>.err
 ```
 
 ---
@@ -291,98 +356,118 @@ hpc_agent_job_<jobid>.err
 跑 monitor_cpu.py，4核，15分钟
 ```
 
-这里会使用用户指定的 `4核` 和 `15分钟`。
+这里会使用用户指定的 `4核` 和 `15分钟`，忽略自动推荐。
+
+### 按命令提取参数
+
+用户可以在自然语言中指定参数：
+
+```text
+帮我提交一个作业运行 python train.py，4核，1小时，16G内存
+job-name:train_job，2张GPU
+```
+
+Agent 会从文本中提取：
+* CPU 核数：`(\d+) 核`
+* 时间限制：`HH:MM:SS`、`(\d+) 分钟`、`(\d+) 小时`
+* 内存：`(\d+)G`、`(\d+)GB内存`
+* GPU 数量：`gpu:(\d+)`、`(\d+)张GPU`
+* Job 名称：`job-name:xxx`
 
 ---
 
 ## 8. 作业查询
 
-查询状态：
+### 查询状态
 
 ```text
 查看 11814753 的状态
 ```
 
-读取标准输出：
+显示 squeue 和 sacct 结果。
+
+### 读取标准输出
 
 ```text
 读取 11814753 的输出
 ```
 
-读取错误日志：
+### 读取错误日志
 
 ```text
 读取 11814753 的错误日志
 ```
 
+### 路径解析规则
+
 对于 Agent 提交并登记过的作业，日志会优先从登记的远端作业目录读取。
 
-普通作业默认读取：
-
-```text
-HPC_REMOTE_WORKDIR/<job-folder>/*.out
-HPC_REMOTE_WORKDIR/<job-folder>/*.err
-```
-
-VASP 作业默认读取：
-
-```text
-HPC_VASP_REMOTE_OUTPUT_DIR/<job-folder>/*.out
-HPC_VASP_REMOTE_OUTPUT_DIR/<job-folder>/*.err
-```
+* 普通作业默认读取：`HPC_REMOTE_WORKDIR/<job-folder>/*.out`、`*.err`
+* VASP 作业默认读取：`HPC_VASP_REMOTE_OUTPUT_DIR/<job-folder>/*.out`、`*.err`
 
 ---
 
 ## 9. TUI Job Monitor
 
-开始监控：
+### 开始监控
 
 ```text
 监控 11814753
 ```
 
-取消监控：
+### 取消监控
 
 ```text
 取消监控 11814753
 ```
 
-右侧 Job Monitor 会显示：
+### 监控面板内容
 
 ```text
-Job
-State
-Elapsed
-Dir
-Last Output
+Job        Slurm Job ID
+State      squeue 状态（RUNNING/PENDING/COMPLETED/FAILED 等）
+Elapsed    运行时间
+Dir        远端作业目录
+Last Output stdout 尾部 50 行
 ```
 
-规则：
+VASP 作业还会显示实时诊断结果。
 
-* 只监控运行中或排队中的 Job。
+### 规则
+
+* 只监控运行中或排队中的 Job（通过 squeue/sacct 验证）。
 * 已完成、失败、不在队列中的 Job 会被阻止加入监控。
 * 多个 Job 同时监控时，按 `Tab` 切换。
 * 切换监控 Job 不会在 Chat 中刷屏。
-* `Ctrl+R` 手动刷新当前监控 Job。
+* `Ctrl+R` 手动刷新当前监控 Job（不等待 15 秒周期）。
 * Job 失败后会从右侧面板移除，并提示可以诊断错误日志。
+* Job 完成后会停止刷新，保留最终状态。
 
 ---
 
-## 10. 远端普通作业编号列表
+## 10. 列出远端作业
 
-列出远端普通作业编号：
+### 列出普通作业编号
 
 ```text
 列出远端作业编号
 ```
 
-这个功能只扫描 `HPC_REMOTE_WORKDIR` 下由 Agent 管理的普通作业目录，不扫描 VASP input/output 目录。
+扫描 `HPC_REMOTE_WORKDIR` 下由 Agent 管理的普通作业目录，提取 Job ID 列表。
+
+### 列出远端 VASP 作业
+
+```text
+列出远端 VASP 作业
+```
+
+分别列出 `HPC_VASP_REMOTE_INPUT_DIR` 和 `HPC_VASP_REMOTE_OUTPUT_DIR` 下的子目录。
 
 ---
 
-## 11. 远端普通作业清理
+## 11. 远端作业清理
 
-按 Job ID 清理：
+### 清理单个普通作业
 
 ```text
 清理远端作业 11817627 的文件
@@ -400,7 +485,7 @@ Agent 会先展示将删除的目录或文件。确认：
 取消清理
 ```
 
-清理全部普通作业文件：
+### 清理全部普通作业
 
 ```text
 清理远端普通作业目录下所有作业文件
@@ -412,11 +497,24 @@ Agent 会先展示将删除的目录或文件。确认：
 确认清理全部
 ```
 
-安全边界：
+### 清理单个 VASP 作业
 
-* 只清理 `HPC_REMOTE_WORKDIR` 下的一级文件和子目录。
+```text
+清理远端 VASP 作业 si_static_test 的文件
+```
+
+### 清理全部 VASP 作业
+
+```text
+清理全部远端 VASP 作业文件
+```
+
+### 安全边界
+
+* 只清理 `HPC_REMOTE_WORKDIR` 下的一级文件和子目录（普通作业）。
 * 保留 `HPC_REMOTE_WORKDIR` 根目录本身。
-* 不清理 VASP input/output 目录。
+* VASP 清理同时作用于 input 和 output 目录。
+* 清理前均需用户确认。
 
 ---
 
@@ -432,7 +530,7 @@ $HPC_LOCAL_VASP_JOBS_INPUT_DIR/<job-folder>/
 └── POTCAR
 ```
 
-可以放额外普通文件，Agent 会一起上传。目录必须包含四个必需文件：
+可以放额外文件，Agent 会一起上传。目录必须包含四个必需文件：
 
 ```text
 INCAR
@@ -451,109 +549,46 @@ POTCAR
 
 ## 13. VASP 作业提交
 
-提交最近保存的完整 VASP 作业：
+### 提交最近保存的完整 VASP 作业
 
 ```text
 帮我提交最近的 VASP 作业，1 个节点 32 核，运行 10 分钟
 ```
 
-提交指定子目录：
+### 提交指定子目录
 
 ```text
 帮我提交 VASP 作业，目录名 si_static_test，1 个节点 32 核，运行 10 分钟
 ```
 
-提交指定绝对路径：
+### 提交指定绝对路径
 
 ```text
 帮我提交 VASP 作业，目录 /path/to/local/vasp-jobs/si_static_test，1 个节点 32 核，运行 10 分钟
 ```
 
-确认：
+### 确认
 
 ```text
 确认提交
 ```
 
+### 提交过程
+
 提交时 Agent 会：
 
 1. 在 `HPC_LOCAL_VASP_JOBS_INPUT_DIR` 中选择完整作业目录。
-2. 校验 `INCAR`、`KPOINTS`、`POSCAR`、`POTCAR`。
-3. 把生成的 `job.sh` 写入本地作业目录。
-4. 上传输入文件到 `HPC_VASP_REMOTE_INPUT_DIR/<job-folder>`。
+2. 校验 `INCAR`、`KPOINTS`、`POSCAR`、`POTCAR` 四个文件都存在。
+3. 生成 `job.sh` 并写入本地作业目录。
+4. 上传全部输入文件到 `HPC_VASP_REMOTE_INPUT_DIR/<job-folder>`。
 5. 在 `HPC_VASP_REMOTE_OUTPUT_DIR/<job-folder>` 写入远端 `job.sh`。
 6. 远端 `job.sh` 运行时从 input 目录复制输入文件到 output 目录。
 7. 在 output 目录执行 VASP。
-8. 登记 Job ID、远端 output 目录和本地 output/analysis 目录。
+8. 登记 Job ID、远端路径和本地 output/analysis 路径到 `job_registry.json`。
 
 VASP 标准输出、错误日志和运行结果都会写入远端 output 目录。
 
-作业完成后，可以把远端 output 同步回本地：
-
-```text
-同步 VASP 作业 11817144 输出到本地
-```
-
-同步后目录结构为：
-
-```text
-$HPC_LOCAL_VASP_JOBS_OUTPUT_DIR/<job-folder>/
-├── raw_output/
-│   ├── INCAR
-│   ├── KPOINTS
-│   ├── POSCAR
-│   ├── OUTCAR
-│   ├── OSZICAR
-│   └── vasprun.xml
-└── analysis/
-    ├── file_manifest.json
-    └── report_context.md
-```
-
-默认不会同步 `WAVECAR`、`CHGCAR`、`AECCAR*`、`POTCAR`，避免把超大文件或赝势文件拉回本地分析目录。原始输出只放在 `raw_output/`，Claude Code 分析产物只放在 `analysis/`。`report_context.md` 是后续 Claude Code 生成报告的受控输入。
-
-生成 Claude Code 报告：
-
-```text
-生成 VASP 作业 si_static_test 报告
-```
-
-也可以使用已登记的 Job ID：
-
-```text
-生成 VASP 作业 11817144 报告
-```
-
-生成后会写入：
-
-```text
-$HPC_LOCAL_VASP_JOBS_OUTPUT_DIR/<job-folder>/analysis/
-├── report.md
-├── paper_methods.md
-└── paper_results.md
-```
-
-一键分析会自动执行同步、`report_context.md` 生成和 Claude Code 报告生成：
-
-```text
-一键分析 VASP 作业 si_static_test
-```
-
-或：
-
-```text
-一键分析 VASP 作业 11817144
-```
-
-Claude Code 调用可能需要几十秒到数分钟。CLI/TUI 会显示等待状态，结果中会包含 Claude Code 实际耗时和超时设置。
-
-报告生成规则来自项目内 skill：
-
-```text
-skills/vasp_report/SKILL.md
-```
-
-该 skill 约束 Claude Code 只使用 `analysis/report_context.md`，不直接读取大体积原始输出，也不编造未在上下文中确认的论文结果。
+### VASP 环境配置
 
 当前默认 VASP 启动方式：
 
@@ -572,29 +607,150 @@ HPC_VASP_MODULE=
 
 ---
 
-## 14. VASP 脚本生成
+## 14. VASP 输出同步
 
-只生成脚本，不提交：
+### 同步命令
+
+```text
+同步 VASP 作业 11817144 输出到本地
+```
+
+或使用目录名：
+
+```text
+同步 VASP 作业 si_static_test 输出到本地
+```
+
+### 同步后目录结构
+
+```text
+$HPC_LOCAL_VASP_JOBS_OUTPUT_DIR/<job-folder>/
+├── raw_output/
+│   ├── INCAR
+│   ├── KPOINTS
+│   ├── POSCAR
+│   ├── OUTCAR
+│   ├── OSZICAR
+│   ├── CONTCAR
+│   ├── vasprun.xml
+│   ├── *.out
+│   └── *.err
+└── analysis/
+    ├── file_manifest.json
+    └── report_context.md
+```
+
+### 同步规则
+
+**包含**（从远端拉取）：
+* INCAR、POSCAR、KPOINTS
+* OUTCAR、OSZICAR、CONTCAR、vasprun.xml
+* *.out、*.err
+
+**排除**（不同步，避免超大文件）：
+* WAVECAR、CHGCAR、AECCAR*、POTCAR
+
+---
+
+## 15. VASP 报告生成
+
+### 一键分析（推荐）
+
+一键分析自动完成同步 + report_context 生成 + Claude Code 报告生成全流程：
+
+```text
+一键分析 VASP 作业 si_static_test
+```
+
+或使用 Job ID：
+
+```text
+一键分析 VASP 作业 11817144
+```
+
+### 分步执行
+
+先同步：
+
+```text
+同步 VASP 作业 11817144 输出到本地
+```
+
+再生成报告：
+
+```text
+生成 VASP 作业 si_static_test 报告
+生成 VASP 作业 11817144 报告
+```
+
+### 报告产物
+
+```text
+$HPC_LOCAL_VASP_JOBS_OUTPUT_DIR/<job-folder>/analysis/
+├── report.md           # 中文用户报告
+├── paper_methods.md    # 英文论文方法描述
+└── paper_results.md    # 英文论文结果描述
+```
+
+### report_context.md 内容
+
+`report_context.md` 是 Claude Code 生成报告的受控输入，包含：
+
+* **VASP 确定性事实**（从 OUTCAR/OSZICAR 解析）：
+  - 收敛状态（达到精度 / EDIFF 中止）
+  - 自由能：TOTEN、energy without entropy、energy sigma→0
+  - E-fermi、ISMEAR、SIGMA、NELECT
+  - 晶胞体积、晶格矢量、ENCUT
+  - 应力张量、外部压强
+  - 力：最大 |force|、平均力范数
+  - 计算耗时：CPU 时间、经历时间、最大内存
+  - 能带结构：VBM、CBM、带隙
+  - 离子种类、数量、原子质量
+  - DAV/RMM 迭代次数、能量路径
+* **文件清单**（raw_output 下文件名和大小）
+* **INCAR 参数摘要**（键值对）
+* **KPOINTS 摘要**（模式、网格、偏移）
+* **POSCAR 摘要**（元素种类、数量、总原子数）
+* **轻量级诊断**（空文件、小文件、POTCAR/收敛问题）
+* **日志摘要**（stderr、stdout、vasp.out 尾部）
+
+### Claude Code 调用
+
+报告生成通过 `modules/claude_code_reporter.py` 调用 `claude` CLI：
+
+* 加载 `skills/vasp_report/SKILL.md` 作为分析指令
+* 该 Skill 严格约束 Claude Code 只使用 `analysis/report_context.md`
+* 不直接读取大体积原始输出文件
+* 不编造未在上下文中确认的科学结果
+* 超时时间由 `HPC_CLAUDE_CODE_TIMEOUT_SECONDS` 控制（默认 1800 秒）
+* 调用结果会显示 Claude Code 实际耗时
+
+---
+
+## 16. VASP 脚本生成
+
+### 结构优化
 
 ```text
 帮我生成一个 VASP 结构优化脚本，1 个节点，每节点 32 核，运行 24 小时
 ```
 
-静态计算：
+### 静态计算
 
 ```text
 帮我生成 VASP 静态计算脚本，1 个节点 32 核，运行 2 小时
 ```
 
-说明：
+### 说明
 
-* 脚本生成不会上传文件。
-* 真正提交仍然走固定目录流程。
+* 脚本生成只生成 `job.sh` 内容预览，不会上传文件或提交。
+* 真正提交必须走固定目录流程（准备输入目录 → 提交）。
 * VASP 请求中如果包含危险命令，Agent 会拒绝生成脚本。
+* 生成的脚本包含输入文件检查、环境设置和 VASP 启动命令。
 
 ---
 
-## 15. 登记已有 VASP 作业
+## 17. 登记已有 VASP 作业
 
 如果某个 VASP 作业已经在超算上提交过，可以把 Job ID 和远端输出目录登记到本地 registry：
 
@@ -608,37 +764,55 @@ HPC_VASP_MODULE=
 登记 VASP 作业 11817144，目录 /path/to/remote/vasp-hpc-jobs-output/si_static_test
 ```
 
-登记后可以继续使用：
+登记后可以继续使用全套功能：
 
 ```text
 查看 11817144 的状态
 读取 11817144 的输出
 读取 11817144 的错误日志
 同步 VASP 作业 11817144 输出到本地
+生成 VASP 作业 11817144 报告
+一键分析 VASP 作业 11817144
 ```
 
 ---
 
-## 16. Web UI
+## 18. Web UI
 
-Web UI 支持：
+### 访问
 
-* 聊天式输入
-* Intent 显示
-* New Chat
-* 普通作业附件上传
-* 普通作业提交预览和确认
+启动后在浏览器中打开：
+
+```text
+http://127.0.0.1:8000
+```
+
+### 界面
+
+* **左侧边栏**：品牌 Logo + "New Chat" 按钮
+* **中央聊天区**：用户和助手消息气泡
+* **底部输入区**：文本输入框 + 文件上传按钮（`+`）
+
+### 支持的操作
+
+* 聊天式文本输入
+* Intent 检测结果展示
+* 普通作业附件上传（多文件，总大小限制 100 MB）
+* 普通作业提交预览和确认/取消
 * 作业状态、输出、错误日志查询
-* 远端普通作业编号列表和清理
+* 远端普通作业编号列表和清理确认
 * VASP 固定目录提交预览和确认
+* 远端 VASP 作业列表和清理确认
+* 清理确认状态机（含 "确认清理全部" 双重确认）
 
-Web 文件上传说明：
+### 文件上传说明
 
 * 上传按钮只用于普通 Slurm 作业。
-* Web 附件不会用于 VASP 提交。
-* 上传总大小限制为 100 MB。
+* Web 附件不会用于 VASP 提交（VASP 走固定目录）。
+* 上传总大小限制为 100 MB（`python-multipart` 要求）。
+* 支持 JSON 和 multipart/form-data 两种请求格式。
 
-Web 普通作业上传示例：
+### 示例
 
 ```text
 帮我提交一个作业运行 python train.py，1核，5分钟
@@ -652,9 +826,11 @@ Web 普通作业上传示例：
 
 ---
 
-## 17. 错误诊断和 Pending 排查
+## 19. 错误诊断和 Pending 排查
 
-直接粘贴错误日志：
+### 粘贴错误日志
+
+直接粘贴报错内容即可诊断：
 
 ```text
 CUDA out of memory
@@ -663,7 +839,37 @@ sbatch: error: Batch job submission failed: Invalid partition name specified
 python: can't open file 'monitor_cpu.py': [Errno 2] No such file or directory
 ```
 
-Pending 排查：
+### 错误类型覆盖
+
+错误数据库包含 18 类错误模式，按类别分：
+
+| 类别 | 错误示例 |
+|------|----------|
+| memory | OOM、CUDA out of memory、GPU OOM |
+| permission | Permission denied |
+| slurm | Invalid partition、node config、PENDING |
+| storage | Disk quota exceeded、No space |
+| file | File not found、No such file |
+| python | ModuleNotFoundError、ImportError |
+| environment | Command not found |
+| compile | Compilation error |
+| gpu | GPU unavailable、CUDA not found |
+| ssh | Connection refused、Host key |
+
+### 自动修复 sbatch 脚本
+
+诊断后会根据错误类型建议修改 sbatch 脚本：
+
+| 错误 | 自动修复 |
+|------|----------|
+| OOM | 添加 `--mem=16G` |
+| TIME | 添加 `--time=04:00:00` 或 `--time=02:00:00` |
+| partition 无效 | 添加 `--partition=general` |
+| nodes/cpus | 添加 `--nodes=1 --cpus-per-task=4` |
+| GPU OOM | 添加 `--gres=gpu:1 --mem=32G` |
+| No CUDA | 添加 `--gres=gpu:1` + `module load cuda` |
+
+### Pending 排查
 
 ```text
 我的任务一直 pending
@@ -671,7 +877,11 @@ Pending 排查：
 为什么作业没有开始
 ```
 
-如果 Job Monitor 提示可诊断错误日志，可以先读取 stderr：
+Agent 会分析可能的 Pending 原因（QoS、partition、资源不足、维护等）并给出排查建议。
+
+### 从 Job Monitor 触发诊断
+
+如果 Job Monitor 提示可诊断错误日志，先读取 stderr：
 
 ```text
 读取 11814753 的错误日志
@@ -681,21 +891,55 @@ Pending 排查：
 
 ---
 
-## 18. 测试和检查
+## 20. 知识库问答
 
-本地全量检查：
+HPC Agent 内置了 RAG 知识库，可以用自然语言询问 Slurm/HPC 相关问题。
+
+### 示例
+
+```text
+什么是 sbatch
+squeue 是干什么的
+怎么取消作业
+GPU 作业怎么提交
+集群有哪些分区
+```
+
+### 工作原理
+
+1. 用户问题通过 jieba 分词后，用 TF-IDF 向量化
+2. 在知识库文档（`data/hpc_documents/`）中做余弦相似度检索
+3. 检索到最相关的 3 个文本块后，交给 DeepSeek-V4-Pro 生成自然语言回答
+4. 回答以中文为主，力求简洁准确
+
+---
+
+## 21. 测试和检查
+
+### 本地全量检查
 
 ```bash
 .venv/bin/python tests/run_all_checks.py
 ```
 
-SSH 连接检查：
+包含以下检查：
+
+1. **Python Syntax Check**：编译所有模块文件
+2. **Slurm Assistant Skill Checks**：测试脚本生成、参数提取
+3. **Error Diagnoser Skill Checks**：测试错误匹配和修复建议
+4. **VASP Assistant Skill Checks**：测试 VASP 脚本生成
+5. **Router Intent Detection Checks**：测试 28 种意图识别
+6. **Job Query Parsing Checks**：测试 Job ID 提取等
+7. **Submit Preview Checks**：测试文件上传、命令推断、资源推荐
+8. **HPC Env Config Checks**：检查 `.env` 配置是否有效
+
+### SSH 连接检查
 
 ```bash
 .venv/bin/python tests/test_ssh.py
 ```
 
-真实超算工作流检查：
+### 真实超算工作流检查
 
 ```bash
 .venv/bin/python tests/run_all_checks.py --live-hpc
@@ -703,7 +947,7 @@ SSH 连接检查：
 
 注意：`--live-hpc` 会连接超算并提交真实 Slurm 测试作业。
 
-TUI 快速手动测试：
+### TUI 手动测试流程
 
 ```text
 什么是 sbatch
@@ -714,57 +958,93 @@ TUI 快速手动测试：
 取消监控 JOBID
 ```
 
-把 `/path/to/your_script.py` 换成你本机真实存在的 `.py` 或 `.sh` 文件路径。
-
 ---
 
-## 19. 常用命令合集
+## 22. 常用命令合集
 
 ```text
+# Slurm 知识
 什么是 sbatch
 squeue 是干什么的
+怎么取消作业
+
+# 普通作业脚本生成
 帮我写一个 sbatch 脚本运行 python train.py，4核，10分钟
+
+# 普通作业提交
 跑 train.py
 跑 train.py，4核，15分钟
 帮我提交 ./run.sh，2核，30分钟
+帮我提交一个作业运行 python train.py，8核，1小时，16G内存
 确认提交
 取消提交
+
+# 作业查询
 查看 11814753 的状态
 读取 11814753 的输出
 读取 11814753 的错误日志
+
+# TUI 监控
 监控 11814753
 取消监控 11814753
+
+# 远端作业列表
 列出远端作业编号
+列出远端 VASP 作业
+
+# 远端作业清理
 清理远端作业 11817627 的文件
 确认清理
 清理远端普通作业目录下所有作业文件
 确认清理全部
+清理远端 VASP 作业 si_static_test 的文件
+清理全部远端 VASP 作业文件
+
+# VASP 脚本生成
 帮我生成一个 VASP 结构优化脚本，1 个节点，每节点 32 核，运行 24 小时
+帮我生成 VASP 静态计算脚本，1 个节点 32 核，运行 2 小时
+
+# VASP 提交
+帮我提交最近的 VASP 作业，1 个节点 32 核，运行 10 分钟
 帮我提交 VASP 作业，目录名 si_static_test，1 个节点 32 核，运行 10 分钟
+
+# VASP 同步与报告
+同步 VASP 作业 11817144 输出到本地
+生成 VASP 作业 si_static_test 报告
+一键分析 VASP 作业 si_static_test
+
+# 登记已有 VASP 作业
 登记 VASP 作业 11817144，目录名 si_static_test
+
+# 错误诊断
 CUDA out of memory
+ModuleNotFoundError: No module named numpy
+sbatch: error: Batch job submission failed: Invalid partition name specified
 我的任务一直 pending
 ```
 
 ---
 
-## 20. 当前限制
+## 23. 当前限制
 
 * 提交和清理操作需要用户确认。
 * Web 附件上传只用于普通 Slurm 作业。
 * Web 附件总大小限制为 100 MB。
-* 远端清理只作用于普通作业目录 `HPC_REMOTE_WORKDIR`。
-* VASP 提交前必须手动准备完整本地目录。
-* Agent 不会生成真实 `POTCAR`。
+* 远端清理只作用于普通作业目录 `HPC_REMOTE_WORKDIR` 或 VASP 作业目录。
+* VASP 提交前必须手动准备完整本地目录（含 `INCAR`、`KPOINTS`、`POSCAR`、`POTCAR`）。
+* Agent 不会生成真实 `POTCAR`，`POTCAR` 需要来自有权限使用的 VASP 赝势库。
 * TUI 监控只加入运行中或排队中的 Job。
 * 当前不做 GPU 利用率实时监控。
-* 聊天历史不持久化。
+* 聊天历史不持久化（Terminal CLI 有 readline 历史文件，但不保存对话上下文）。
+* Claude Code 报告生成需要本地安装 `claude` 命令行工具并配置相应的 API Key。
 
 ---
 
-## 21. 故障排查
+## 24. 故障排查
 
-Textual 未安装：
+### Textual 未安装
+
+错误信息：
 
 ```text
 Textual 依赖尚未安装
@@ -776,7 +1056,9 @@ Textual 依赖尚未安装
 uv sync
 ```
 
-Web 文件上传不可用：
+### Web 文件上传不可用
+
+错误信息：
 
 ```text
 python-multipart is required
@@ -788,29 +1070,47 @@ python-multipart is required
 uv sync
 ```
 
-SSH 连接失败：
+### SSH 连接失败
 
 * 检查 `HPC_HOST`、`HPC_USERNAME`、`HPC_KEY_PATH`。
-* 确认私钥文件存在且权限正确。
+* 确认私钥文件存在且权限正确（建议 600）。
+* 确认使用 Ed25519 或 RSA 格式私钥。
 * 手动测试 SSH：
 
 ```bash
 ssh -i /path/to/your/private/key -l 'your-hpc-username' your-hpc-host
 ```
 
-普通作业提示找不到文件：
+### 普通作业提示找不到文件
 
 * 相对路径是相对于当前项目目录解析的。
 * 文件不在项目目录时使用绝对路径。
 * 脚本内部引用的其他文件也需要作为附件上传或改成脚本运行目录下可访问的路径。
 
-VASP 提示缺少输入文件：
+### VASP 提示缺少输入文件
 
 * 检查本地目录是否在 `HPC_LOCAL_VASP_JOBS_INPUT_DIR` 下。
-* 检查是否包含 `INCAR`、`KPOINTS`、`POSCAR`、`POTCAR`。
+* 检查是否包含 `INCAR`、`KPOINTS`、`POSCAR`、`POTCAR` 四个必需文件。
 * 如果使用绝对路径，确认路径拼写正确。
+* POTCAR 必须是真实赝势文件，不能是占位符或空文件。
 
-剪贴板不可用：
+### 剪贴板不可用（TUI Ctrl+Y）
 
-* TUI 的 `Ctrl+Y` 会依次尝试 `pyperclip`、`powershell.exe`、`wl-copy`、`xclip`、`xsel`、`pbcopy`、`clip`。
+* TUI 的 `Ctrl+Y` 会依次尝试 `pyperclip`、`wl-copy`、`xclip`、`xsel`、`pbcopy`、`clip`、`powershell.exe`。
 * 如果当前环境没有可用剪贴板命令，会在 Chat 里提示错误。
+* 可以手动安装一个：`pip install pyperclip` 或 `apt install xclip`。
+
+### Claude Code 报告生成失败
+
+* 检查 `HPC_CLAUDE_CODE_COMMAND` 是否正确（默认 `claude`）。
+* 确认 `claude` 命令在当前 PATH 中（`which claude`）。
+* 检查 API Key 是否正确配置（Claude Code 通过环境变量获取）。
+* 检查 `HPC_CLAUDE_CODE_TIMEOUT_SECONDS` 是否足够（OUTCAR 较大时可能需要更长超时）。
+* 确认 `analysis/report_context.md` 已通过同步步骤生成。
+
+### Web 模式无法访问
+
+* 确认服务已启动（终端显示 uvicorn 日志）。
+* 检查端口 8000 是否被占用。
+* 浏览器通过 `http://127.0.0.1:8000` 访问。
+* 如果是远程服务器，需要端口转发或使用 `--host 0.0.0.0`。

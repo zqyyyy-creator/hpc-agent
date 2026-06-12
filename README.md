@@ -1,6 +1,8 @@
 # HPC Agent
 
-HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手。它支持 Slurm 知识问答、sbatch 脚本生成、普通作业提交、作业查询、日志读取、错误诊断、远端作业目录清理，以及固定目录流程的 VASP 作业提交和监控。
+HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，提供三种交互界面：**Textual TUI**（终端全屏界面）、**Terminal CLI**（命令行对话）和 **FastAPI Web UI**（网页对话）。
+
+核心功能覆盖 Slurm 知识问答、sbatch 脚本生成、普通作业提交/查询/清理、VASP 固定目录作业提交、VASP 输出同步与报告生成，以及基于 Claude Code 的 VASP 计算结果分析。
 
 详细操作请看 [USER_GUIDE.md](USER_GUIDE.md)。
 
@@ -8,22 +10,75 @@ HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手。它支持
 
 ## 当前能力
 
-* Slurm / HPC 知识库问答
+### Slurm / HPC 知识问答
+* 基于 RAG（TF-IDF + DeepSeek-V4-Pro）的 Slurm/HPC 知识库问答
+* 知识库文档涵盖：集群信息、常见错误、GPU 使用、sbatch 提交、作业状态、作业取消
+
+### 普通 Slurm 作业
 * 根据自然语言生成普通 sbatch 脚本
-* 根据本地普通作业文件自动补充推荐资源参数
-* 普通 Slurm 作业确认式提交
+* 根据本地普通作业文件自动补充推荐资源参数（CPU、内存、时间、GPU）
+* 普通 Slurm 作业确认式提交（生成 job.sh 预览 → 确认 → SSH 上传提交）
 * 普通作业文件上传到远端独立作业目录
-* 查询作业状态、读取 stdout、读取 stderr
-* Textual TUI 显式 Job Monitor
-* 同时监控多个运行中 Job，并用 Tab 切换
-* 复制上一条 Agent 回复
-* 远端普通作业编号列表
-* 远端普通作业文件清理，保留根目录本身
-* 错误日志诊断和 Pending 排查
-* VASP sbatch 脚本生成
-* VASP 固定目录提交：本地 input、远端 input、远端 output
-* 登记已有 VASP 作业，便于继续查询日志
-* Textual TUI、Terminal CLI、FastAPI Web UI 三种入口
+* 支持 `.py`、`.sh`、`.slurm`、`.sbatch` 文件类型
+* 危险命令检测（拒绝生成 `rm -rf`、`shutdown`、`reboot`、`mkfs` 等脚本）
+
+### 作业查询与监控
+* 查询作业状态（squeue / sacct）
+* 读取 stdout / stderr
+* Textual TUI 实时 Job Monitor（右侧面板，15 秒自动刷新）
+* 同时监控多个运行中 Job，按 `Tab` 切换
+* 监控面板显示：Job ID、State、Elapsed、Remote Dir、stdout/stderr 尾部摘录
+* VASP 作业监控时附带实时诊断（错误/警告匹配）
+
+### 远端作业管理
+* 列出远端普通作业编号
+* 按 Job ID 清理远端普通作业文件
+* 清理全部远端普通作业文件（保留根目录）
+* 列出远端 VASP 作业
+* 按 Job ID 清理远端 VASP 作业
+* 清理全部远端 VASP 作业
+
+### VASP 作业
+* VASP sbatch 脚本生成（结构优化/静态计算/其他）
+* VASP 固定目录提交：本地 input → 远端 input → 远端 output
+* 登记已有 VASP 作业，便于后续查询和同步
+* VASP 输出同步到本地（按 include/exclude 规则过滤文件）
+* VASP 远程文件探针与实时诊断（POTCAR、Fortran severe、OOM、Segfault、Disk full、Walltime 等）
+* OUTCAR / OSZICAR 确定性解析（能量、力、应力、能带、收敛状态等）
+* report_context.md 自动生成（为 Claude Code 提供结构化上下文）
+* Claude Code 报告生成：`report.md`（中文用户报告）、`paper_methods.md`（英文）、`paper_results.md`（英文）
+* 一键分析：自动完成同步 → report_context → Claude Code 报告全流程
+
+### 错误诊断
+* 基于规则匹配的错误日志诊断（18 类错误模式）
+* 自动修复 sbatch 脚本（OOM → 提高内存、TIME → 延长时间、partition → 修正分区等）
+* Pending / 不运行作业排查
+
+### 三入口支持
+* **Textual TUI**：全屏终端界面，含 Chat 面板和 Job Monitor 面板
+* **Terminal CLI**：Rich 命令行交互界面，支持 readline 历史
+* **FastAPI Web UI**：浏览器端聊天界面，支持附件上传、多文件上传
+
+### Web UI 特性
+* 单页聊天应用（sidebar + chat + input）
+* 多文件上传（普通作业附件，上限 100 MB）
+* 支持确认/取消状态机（提交确认、清理确认）
+* JSON / multipart/form-data 双协议
+
+### Claude Code 集成
+* 通过 `skills/vasp_report/SKILL.md` 定义分析 Skill
+* 调用 Claude Code CLI 生成 VASP 计算报告
+* 严格约束：只使用 `report_context.md`，不编造未确认的论文结果
+* 可配置模型、超时时间和命令路径
+
+### Job Registry
+* 基于 JSON 文件的本地作业登记
+* 记录 Job ID、类型（slurm/vasp）、远端路径、本地路径、上传文件
+
+### 测试体系
+* 本地全量检查：Python 语法、Slurm Assistant、Error Diagnoser、VASP Assistant、Router Intent、Job Query、Submit Preview、HPC Env Config
+* Live HPC 工作流检查（`--live-hpc`，真实超算提交测试）
+* SSH 连接检查
 
 ---
 
@@ -93,6 +148,11 @@ HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 
 说明：
 
+* `PARATERA_BASE_URL`：LLM API 服务地址。
+* `PARATERA_API_KEY`：LLM API Key。
+* `HPC_HOST`：超算 SSH 登录主机。
+* `HPC_USERNAME`：超算用户名。
+* `HPC_KEY_PATH`：本机 SSH 私钥绝对路径（Ed25519）。
 * `HPC_REMOTE_WORKDIR`：普通 Slurm 作业远端根目录。
 * `HPC_DEFAULT_PARTITION`：普通作业默认 partition；留空表示不写 `#SBATCH --partition`，使用集群默认分区。
 * `HPC_LOCAL_VASP_JOBS_INPUT_DIR`：本地 VASP 输入作业根目录。
@@ -104,7 +164,7 @@ HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 * `HPC_VASP_COMMAND`：VASP 主程序启动命令。
 * `HPC_VASP_MODULE`：可选，留空表示不使用 `module load`。
 * `HPC_CLAUDE_CODE_COMMAND`：Claude Code 命令，默认 `claude`。
-* `HPC_CLAUDE_CODE_MODEL`：Claude Code 使用的模型名。
+* `HPC_CLAUDE_CODE_MODEL`：Claude Code 使用的模型名；留空时使用环境默认，Paratera 网关默认回退到 `DeepSeek-V4-Pro`。
 * `HPC_CLAUDE_CODE_TIMEOUT_SECONDS`：Claude Code 报告生成超时时间，默认 1800 秒。
 
 `.env` 不应提交到 Git。
@@ -123,20 +183,15 @@ HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 取消提交
 ```
 
-作业查询：
+作业查询与监控：
 
 ```text
 查看 11814753 的状态
 读取 11814753 的输出
 读取 11814753 的错误日志
-列出远端作业编号
-```
-
-TUI 监控：
-
-```text
 监控 11814753
 取消监控 11814753
+列出远端作业编号
 ```
 
 远端普通作业清理：
@@ -154,6 +209,12 @@ VASP：
 帮我生成一个 VASP 结构优化脚本，1 个节点，每节点 32 核，运行 24 小时
 帮我提交 VASP 作业，目录名 si_static_test，1 个节点 32 核，运行 10 分钟
 登记 VASP 作业 11817144，目录名 si_static_test
+同步 VASP 作业 11817144 输出到本地
+生成 VASP 作业 si_static_test 报告
+一键分析 VASP 作业 si_static_test
+列出远端 VASP 作业
+清理远端 VASP 作业 si_static_test 的文件
+清理全部远端 VASP 作业文件
 ```
 
 错误诊断：
@@ -186,6 +247,8 @@ hpc_agent_job_<jobid>.err
 
 ## VASP 固定目录流程
 
+### 提交准备
+
 VASP 提交前，用户需要手动在本地准备完整作业目录：
 
 ```text
@@ -196,25 +259,90 @@ $HPC_LOCAL_VASP_JOBS_INPUT_DIR/<job-folder>/
 └── POTCAR
 ```
 
+### 提交过程
+
 提交时 Agent 只做三件事：
 
 1. 选择本地 `$HPC_LOCAL_VASP_JOBS_INPUT_DIR/<job-folder>`。
 2. 上传该目录文件到远端 `$HPC_VASP_REMOTE_INPUT_DIR/<job-folder>`。
 3. 在远端 `$HPC_VASP_REMOTE_OUTPUT_DIR/<job-folder>` 写入并运行 `job.sh`。
 
-VASP 标准输出、错误日志和运行结果写入远端 output 目录。作业完成后可用“同步 VASP 作业 <job_id> 输出到本地”拉取必要结果文件到 `$HPC_LOCAL_VASP_JOBS_OUTPUT_DIR/<job-folder>/raw_output/`，并创建 `analysis/file_manifest.json` 和 `analysis/report_context.md`。Agent 不会生成真实 `POTCAR`，`POTCAR` 需要来自你有权限使用的 VASP 赝势库。
+VASP 标准输出、错误日志和运行结果写入远端 output 目录。Agent 不会生成真实 `POTCAR`，`POTCAR` 需要来自你有权限使用的 VASP 赝势库。
 
-同步后可用“生成 VASP 作业 <job-folder> 报告”调用 Claude Code，生成 `analysis/report.md`、`analysis/paper_methods.md` 和 `analysis/paper_results.md`。
+### 输出同步
 
-也可以直接用“一键分析 VASP 作业 <job-folder>”自动完成同步、上下文生成和 Claude Code 报告生成。报告结果会显示 Claude Code 实际耗时和超时设置。
+作业完成后，用"同步 VASP 作业 <job_id> 输出到本地"拉取必要结果文件：
 
-Claude Code 报告生成会加载 `skills/vasp_report/SKILL.md`，该 skill 规定只使用 `analysis/report_context.md`，避免把大体积 VASP 原始输出直接塞进模型上下文。
+```text
+$HPC_LOCAL_VASP_JOBS_OUTPUT_DIR/<job-folder>/
+├── raw_output/
+│   ├── INCAR
+│   ├── KPOINTS
+│   ├── POSCAR
+│   ├── OUTCAR
+│   ├── OSZICAR
+│   ├── CONTCAR
+│   └── vasprun.xml
+└── analysis/
+    ├── file_manifest.json
+    └── report_context.md
+```
+
+同步规则：
+- **包含**：INCAR、POSCAR、KPOINTS、OUTCAR、OSZICAR、CONTCAR、vasprun.xml、*.out、*.err
+- **排除**：WAVECAR、CHGCAR、AECCAR*、POTCAR（避免拉回超大文件或赝势文件）
+
+### 一键分析与报告生成
+
+"一键分析 VASP 作业 <job-folder>" 自动完成三个步骤：
+
+1. **同步输出**：从远端拉取结果文件到本地 output 目录
+2. **生成 report_context.md**：包含 VASP 确定性事实、INCAR/KPOINTS/POSCAR 摘要、日志摘要、诊断信息
+3. **调用 Claude Code**：生成以下三个文件：
+   - `analysis/report.md` — 中文用户报告
+   - `analysis/paper_methods.md` — 英文论文方法描述
+   - `analysis/paper_results.md` — 英文论文结果描述
+
+也可以分步执行：
+
+```text
+# 仅同步
+同步 VASP 作业 11817144 输出到本地
+
+# 仅生成报告（同步完成后）
+生成 VASP 作业 si_static_test 报告
+```
+
+VASP 确定性事实从 OUTCAR/OSZICAR 解析获得，包括：
+- 收敛状态、自由能（TOTEN / energy without entropy / energy sigma→0）
+- E-fermi、ISMEAR、SIGMA、NELECT
+- 晶胞体积、晶格矢量、ENCUT
+- 应力张量、外部压强
+- 力（最大 |force|、平均力范数）
+- 计算耗时（CPU 时间、经历时间、最大内存）
+- 能带结构（VBM、CBM、带隙）
+- 离子种类、数量、原子质量
+- DAV/RMM 迭代次数
+
+Claude Code 报告生成加载 `skills/vasp_report/SKILL.md`，该 skill 严格约束只使用 `analysis/report_context.md` 中的内容，避免把大体积 VASP 原始输出直接塞进模型上下文，也禁止编造未在上下文中确认的结果。
+
+---
+
+## VASP 实时诊断
+
+TUI 模式下，VASP 作业被监控时会自动进行实时诊断。诊断探针检查远端 output 目录中关键文件，并匹配以下规则：
+
+**错误检测**：POTCAR 输入转换错误、Fortran 严重错误、OOM、Segfault、磁盘满、Walltime 超限、文件缺失、VASP 崩溃等。
+
+**警告检测**：BRMIX 电荷混合、ZBRENT 电子收敛、几何优化步失败等。
+
+诊断结果包含严重级别（ok/warning/error）、具体问题列表、证据和修复建议。
 
 ---
 
 ## TUI 快捷键
 
-Textual TUI 当前布局保持为：
+Textual TUI 当前布局：
 
 * 顶部：连接信息、远端普通作业根目录、快捷键提示
 * 左侧：Chat 对话区
@@ -233,6 +361,20 @@ Ctrl+X  退出
 F10     退出
 q       退出
 ```
+
+---
+
+## 错误诊断
+
+错误诊断基于 `data/errors/errors_db.json` 中的 18 类错误模式，通过正则匹配识别问题并给出修复建议。覆盖类别：内存、权限、Slurm 配置、存储、文件、Python 环境、编译、GPU、SSH 等。
+
+除了粘贴错误日志直接诊断外，还能对已生成的 sbatch 脚本自动修改：
+- OOM → 添加 `--mem` 或提高内存
+- TIME → 添加或延长 `--time`
+- partition 无效 → 添加 `--partition=general`
+- 缺少 nodes/cpus → 添加 `--nodes=1 --cpus-per-task=4`
+- GPU OOM → 添加 `--gres=gpu:1 --mem=32G`
+- 无 CUDA → 添加 `--gres=gpu:1` + `module load cuda`
 
 ---
 
@@ -258,14 +400,62 @@ q       退出
 
 ```text
 hpc-agent/
-├── app.py
-├── main.py
-├── textual_cli.py
-├── web_app.py
+├── app.py                    # 统一入口（三模式菜单）
+├── main.py                   # Terminal CLI 模式
+├── textual_cli.py            # Textual TUI 模式
+├── web_app.py                # FastAPI Web 服务器
+├── pyproject.toml            # 项目配置和依赖
+├── job.sh                    # 占位 Slurm 脚本
+├── .env.example              # 环境变量模板
+│
 ├── modules/
+│   ├── router.py             # 自然语言意图检测
+│   ├── knowledge_base.py     # RAG 知识库（TF-IDF + LLM）
+│   ├── slurm_assistant.py    # Slurm sbatch 脚本生成和资源解析
+│   ├── slurm_tools.py        # SSH/Paramiko 远程操作（提交、查询、同步、清理）
+│   ├── error_diagnoser.py    # 错误日志模式匹配和诊断
+│   ├── job_submitter.py      # 作业提交准备和执行
+│   ├── job_query.py          # 作业状态/输出/错误查询和 VASP 分析编排
+│   ├── job_registry.py       # 本地 JSON 作业登记
+│   ├── vasp_assistant.py     # VASP sbatch 脚本生成
+│   ├── vasp_monitor.py       # VASP 远程文件探针和错误诊断
+│   ├── vasp_outcar_parser.py # OUTCAR/OSZICAR 确定性解析器
+│   ├── vasp_report_context.py# report_context.md 生成
+│   └── claude_code_reporter.py# Claude Code CLI 调用和报告生成
+│
 ├── data/
+│   ├── hpc_documents/        # RAG 知识库文档（6 个 txt）
+│   │   ├── cluster_info.txt
+│   │   ├── common_errors.txt
+│   │   ├── gpu_usage.txt
+│   │   ├── slurm_submit.txt
+│   │   ├── slurm_status.txt
+│   │   └── slurm_cancel.txt
+│   ├── errors/
+│   │   └── errors_db.json    # 18 类错误诊断规则
+│   └── jobs/
+│       └── job_registry.json # 作业登记数据库
+│
+├── skills/                   # Claude Code Skill 定义
+│   ├── diagnose_error/SKILL.md
+│   ├── generate_sbatch/SKILL.md
+│   ├── generate_vasp_job/SKILL.md
+│   └── vasp_report/SKILL.md
+│
 ├── static/
+│   └── index.html            # Web UI 前端
+│
 ├── tests/
+│   ├── run_all_checks.py     # 测试编排器
+│   ├── test_slurm_assistant.py
+│   ├── test_error_diagnoser_skill.py
+│   ├── test_vasp_assistant.py
+│   ├── test_vasp_monitor.py
+│   ├── test_hpc_workflow.py
+│   ├── test_ssh.py
+│   ├── test_submit.py
+│   └── test_tools.py
+│
 ├── README.md
 └── USER_GUIDE.md
 ```
