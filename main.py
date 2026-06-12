@@ -25,14 +25,20 @@ from modules.job_submitter import (
 )
 from modules.vasp_assistant import generate_vasp_sbatch_script
 from modules.job_query import (
+    analyze_vasp_job,
     execute_cleanup_remote_jobs,
     extract_job_id,
+    prepare_cleanup_all_remote_vasp_jobs,
     prepare_cleanup_all_remote_jobs,
+    prepare_cleanup_remote_vasp_job,
     prepare_cleanup_remote_job,
+    generate_vasp_report,
     query_remote_agent_jobs,
+    query_remote_vasp_jobs,
     query_job_error,
     query_job_output,
     query_job_status,
+    sync_vasp_job_output,
 )
 from modules.router import detect_intent
 
@@ -96,6 +102,9 @@ def show_intent(intent: str):
         "generate_vasp_job": "生成 VASP 作业脚本",
         "submit_vasp_job": "提交 VASP 作业到超算",
         "register_vasp_job": "登记已有 VASP 作业",
+        "sync_vasp_output": "同步 VASP 输出到本地",
+        "generate_vasp_report": "生成 VASP 分析报告",
+        "analyze_vasp_job": "一键分析 VASP 作业",
         "job_status": "查询作业状态",
         "job_output": "读取作业输出",
         "job_error": "读取作业错误日志",
@@ -340,6 +349,13 @@ def handle_list_remote_jobs():
     console.print(Panel(answer, title="远端 Agent 作业编号", border_style="green"))
 
 
+def handle_list_remote_vasp_jobs():
+    with console.status("[bold green]正在扫描远端 VASP input/output 目录...[/bold green]"):
+        answer = query_remote_vasp_jobs()
+
+    console.print(Panel(answer, title="远端 VASP 作业目录", border_style="green"))
+
+
 def handle_cleanup_remote_job(question):
     job_id = extract_job_id(question)
 
@@ -386,6 +402,48 @@ def handle_cleanup_all_remote_jobs():
         answer = execute_cleanup_remote_jobs(prepared["targets"])
 
     console.print(Panel(answer, title="清理结果", border_style="green"))
+
+
+def handle_cleanup_remote_vasp_job(question):
+    with console.status("[bold green]正在扫描远端 VASP 作业目录...[/bold green]"):
+        prepared = prepare_cleanup_remote_vasp_job(question)
+
+    border_style = "red" if prepared["ready"] else "yellow"
+    console.print(Panel(prepared["message"], title="VASP 清理预览", border_style=border_style))
+
+    if not prepared["ready"]:
+        return
+
+    if not Confirm.ask("确认清理这些远端 VASP 作业目录？"):
+        console.print("[yellow]已取消清理。[/yellow]")
+        return
+
+    with console.status("[bold green]正在清理远端 VASP 作业目录...[/bold green]"):
+        answer = execute_cleanup_remote_jobs(prepared["targets"])
+
+    console.print(Panel(answer, title="VASP 清理结果", border_style="green"))
+
+
+def handle_cleanup_all_remote_vasp_jobs(question):
+    with console.status("[bold green]正在扫描全部远端 VASP 作业目录...[/bold green]"):
+        prepared = prepare_cleanup_all_remote_vasp_jobs(question)
+
+    border_style = "red" if prepared["ready"] else "yellow"
+    console.print(Panel(prepared["message"], title="VASP 清理全部预览", border_style=border_style))
+
+    if not prepared["ready"]:
+        return
+
+    confirmation = Prompt.ask("这是高风险操作。请输入“确认清理全部”继续")
+
+    if confirmation.strip() != "确认清理全部":
+        console.print("[yellow]已取消清理。[/yellow]")
+        return
+
+    with console.status("[bold green]正在清理全部远端 VASP 作业目录...[/bold green]"):
+        answer = execute_cleanup_remote_jobs(prepared["targets"])
+
+    console.print(Panel(answer, title="VASP 清理结果", border_style="green"))
 
 
 def handle_troubleshoot_job(question, documents, sources):
@@ -500,6 +558,19 @@ def main():
             elif intent == "register_vasp_job":
                 handle_register_vasp_job(question)
 
+            elif intent == "sync_vasp_output":
+                handle_job_query(question, sync_vasp_job_output, "VASP 输出同步")
+
+            elif intent == "generate_vasp_report":
+                with console.status("[bold green]正在调用 Claude Code 生成 VASP 报告，可能需要 1-3 分钟...[/bold green]"):
+                    answer = generate_vasp_report(question)
+                console.print(Panel(answer, title="VASP 报告生成", border_style="green"))
+
+            elif intent == "analyze_vasp_job":
+                with console.status("[bold green]正在同步输出并调用 Claude Code 一键分析，可能需要 1-3 分钟...[/bold green]"):
+                    answer = analyze_vasp_job(question)
+                console.print(Panel(answer, title="VASP 一键分析", border_style="green"))
+
             elif intent == "job_status":
                 handle_job_query(question, query_job_status, "作业状态")
 
@@ -512,11 +583,20 @@ def main():
             elif intent == "list_remote_jobs":
                 handle_list_remote_jobs()
 
+            elif intent == "list_remote_vasp_jobs":
+                handle_list_remote_vasp_jobs()
+
             elif intent == "cleanup_remote_job":
                 handle_cleanup_remote_job(question)
 
             elif intent == "cleanup_all_remote_jobs":
                 handle_cleanup_all_remote_jobs()
+
+            elif intent == "cleanup_remote_vasp_job":
+                handle_cleanup_remote_vasp_job(question)
+
+            elif intent == "cleanup_all_remote_vasp_jobs":
+                handle_cleanup_all_remote_vasp_jobs(question)
 
             elif intent == "generate_sbatch":
                 handle_generate_sbatch(question)

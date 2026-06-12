@@ -1,7 +1,10 @@
+import fnmatch
+import json
 import re
 import time
 import os
 import shlex
+import stat
 from pathlib import Path
 
 import paramiko
@@ -38,6 +41,27 @@ def _derive_vasp_remote_dir(kind: str):
 VASP_REMOTE_INPUT_DIR = _derive_vasp_remote_dir("input")
 VASP_REMOTE_OUTPUT_DIR = _derive_vasp_remote_dir("output")
 VASP_REMOTE_WORKDIR = VASP_REMOTE_OUTPUT_DIR
+VASP_LOCAL_OUTPUT_DIR = os.getenv("HPC_LOCAL_VASP_JOBS_OUTPUT_DIR", "~/vasp-jobs-output")
+VASP_SYNC_INCLUDE_PATTERNS = [
+    "INCAR",
+    "POSCAR",
+    "KPOINTS",
+    "OUTCAR",
+    "OSZICAR",
+    "CONTCAR",
+    "XDATCAR",
+    "vasprun.xml",
+    "vasp.out",
+    "job.sh",
+    "*.out",
+    "*.err",
+]
+VASP_SYNC_EXCLUDE_PATTERNS = [
+    "WAVECAR",
+    "CHGCAR",
+    "AECCAR*",
+    "POTCAR",
+]
 
 
 def get_ssh_client():
@@ -91,6 +115,203 @@ def _make_remote_run_dir(root_dir: str, run_name: str, default: str = "hpc_agent
     unique_suffix = f"{time.time_ns() % 1_000_000:06d}"
     safe_name = _safe_remote_dir_name(run_name, default)
     return f"{root_dir}/{safe_name}_{timestamp}_{unique_suffix}"
+
+
+def _local_vasp_output_dir_for_remote(remote_output_dir: str) -> Path:
+    run_name = Path(remote_output_dir).name
+    return Path(VASP_LOCAL_OUTPUT_DIR).expanduser() / run_name
+
+
+def _local_vasp_raw_output_dir(local_job_dir: Path) -> Path:
+    return local_job_dir / "raw_output"
+
+
+def _should_sync_vasp_output_file(file_name: str) -> bool:
+    if any(fnmatch.fnmatch(file_name, pattern) for pattern in VASP_SYNC_EXCLUDE_PATTERNS):
+        return False
+
+    return any(fnmatch.fnmatch(file_name, pattern) for pattern in VASP_SYNC_INCLUDE_PATTERNS)
+
+
+def _sftp_file_size(attr) -> int:
+    return int(getattr(attr, "st_size", 0) or 0)
+
+
+def _write_vasp_file_manifest(local_job_dir: Path, files: list[dict]) -> Path:
+    analysis_dir = local_job_dir / "analysis"
+    raw_output_dir = _local_vasp_raw_output_dir(local_job_dir)
+    analysis_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = analysis_dir / "file_manifest.json"
+    manifest = {
+        "local_job_dir": str(local_job_dir),
+        "raw_output_dir": str(raw_output_dir),
+        "analysis_dir": str(analysis_dir),
+        "files": files,
+    }
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
+def sync_vasp_output_to_local(
+    remote_output_dir: str,
+    local_output_dir: str | Path = None,
+    progress_callback=None,
+):
+    local_job_dir = Path(local_output_dir).expanduser() if local_output_dir else _local_vasp_output_dir_for_remote(remote_output_dir)
+    local_raw_output_dir = _local_vasp_raw_output_dir(local_job_dir)
+    local_job_dir.mkdir(parents=True, exist_ok=True)
+    local_raw_output_dir.mkdir(parents=True, exist_ok=True)
+    (local_job_dir / "analysis").mkdir(parents=True, exist_ok=True)
+
+    client = get_ssh_client()
+    sftp = client.open_sftp()
+    synced_files = []
+    skipped_files = []
+
+    try:
+        _emit_progress(progress_callback, "扫描远端 VASP 输出目录中...")
+        try:
+            remote_attrs = sftp.listdir_attr(remote_output_dir)
+        except FileNotFoundError as error:
+            return {
+                "success": False,
+                "remote_output_dir": remote_output_dir,
+                "local_output_dir": str(local_job_dir),
+                "local_raw_output_dir": str(local_raw_output_dir),
+                "local_analysis_dir": str(local_job_dir / "analysis"),
+                "manifest_path": None,
+                "synced_files": [],
+                "skipped_files": [],
+                "error": f"远端 VASP 输出目录不存在: {remote_output_dir}. Details: {error}",
+            }
+
+        for attr in remote_attrs:
+            file_name = attr.filename
+            remote_path = f"{remote_output_dir}/{file_name}"
+
+            if attr.st_mode is not None and not stat.S_ISREG(attr.st_mode):
+                skipped_files.append({
+                    "name": file_name,
+                    "reason": "not_regular_file",
+                    "size_bytes": _sftp_file_size(attr),
+                })
+                continue
+
+            if not _should_sync_vasp_output_file(file_name):
+                skipped_files.append({
+                    "name": file_name,
+                    "reason": "not_in_sync_whitelist_or_excluded",
+                    "size_bytes": _sftp_file_size(attr),
+                })
+                continue
+
+            local_path = local_raw_output_dir / file_name
+            _emit_progress(progress_callback, f"同步 VASP 输出文件: {file_name}")
+            sftp.get(remote_path, str(local_path))
+            synced_files.append({
+                "name": file_name,
+                "remote_path": remote_path,
+                "local_path": str(local_path),
+                "size_bytes": _sftp_file_size(attr),
+            })
+    finally:
+        sftp.close()
+        client.close()
+
+    manifest_path = _write_vasp_file_manifest(local_job_dir, synced_files)
+    report_context_path = None
+    report_context_error = None
+
+    try:
+        from modules.vasp_report_context import generate_vasp_report_context
+
+        context_result = generate_vasp_report_context(local_job_dir)
+        report_context_path = context_result["report_context_path"]
+    except Exception as error:
+        report_context_error = f"{type(error).__name__}: {error}"
+
+    result = {
+        "success": True,
+        "remote_output_dir": remote_output_dir,
+        "local_output_dir": str(local_job_dir),
+        "local_raw_output_dir": str(local_raw_output_dir),
+        "local_analysis_dir": str(local_job_dir / "analysis"),
+        "manifest_path": str(manifest_path),
+        "synced_files": synced_files,
+        "skipped_files": skipped_files,
+    }
+
+    if report_context_path:
+        result["report_context_path"] = report_context_path
+    if report_context_error:
+        result["report_context_error"] = report_context_error
+
+    return result
+
+
+def sync_vasp_job_output(job_id: str, progress_callback=None):
+    from modules.job_registry import get_job, register_job
+
+    job = get_job(job_id)
+
+    if not job:
+        return {
+            "success": False,
+            "job_id": str(job_id),
+            "remote_output_dir": None,
+            "local_output_dir": None,
+            "error": "本地 registry 中没有找到该 VASP 作业，请先提交或登记这个 Job ID。",
+        }
+
+    if job.get("type") != "vasp":
+        return {
+            "success": False,
+            "job_id": str(job_id),
+            "remote_output_dir": job.get("remote_workdir"),
+            "local_output_dir": None,
+            "error": "该 Job ID 不是 VASP 作业。",
+        }
+
+    remote_output_dir = job.get("remote_output_dir") or job.get("remote_workdir")
+
+    if not remote_output_dir:
+        return {
+            "success": False,
+            "job_id": str(job_id),
+            "remote_output_dir": None,
+            "local_output_dir": None,
+            "error": "该 VASP 作业没有登记远端输出目录。",
+        }
+
+    local_output_dir = job.get("local_output_dir")
+    result = sync_vasp_output_to_local(
+        remote_output_dir,
+        local_output_dir=local_output_dir,
+        progress_callback=progress_callback,
+    )
+    result["job_id"] = str(job_id)
+
+    updated_job = dict(job)
+    updated_job["local_output_dir"] = result["local_output_dir"]
+    updated_job["local_raw_output_dir"] = result["local_raw_output_dir"]
+    updated_job["local_analysis_dir"] = result["local_analysis_dir"]
+    updated_job["file_manifest"] = result["manifest_path"]
+
+    try:
+        from modules.vasp_report_context import generate_vasp_report_context
+
+        context_result = generate_vasp_report_context(result["local_output_dir"])
+        result["report_context_path"] = context_result["report_context_path"]
+        updated_job["report_context"] = context_result["report_context_path"]
+    except Exception as error:
+        result["report_context_error"] = f"{type(error).__name__}: {error}"
+
+    register_job(str(job_id), updated_job)
+
+    return result
 
 
 def _create_remote_dir(client, remote_dir: str):
@@ -324,55 +545,66 @@ def submit_vasp_script_text(script_text, local_input_dir=None, run_name=None, pr
     remote_input_dir = f"{VASP_REMOTE_INPUT_DIR}/{run_name}"
     remote_output_dir = f"{VASP_REMOTE_OUTPUT_DIR}/{run_name}"
     remote_script = f"{remote_output_dir}/job.sh"
+    local_output_dir = _local_vasp_output_dir_for_remote(remote_output_dir)
+    local_raw_output_dir = _local_vasp_raw_output_dir(local_output_dir)
+    local_analysis_dir = local_output_dir / "analysis"
+    local_raw_output_dir.mkdir(parents=True, exist_ok=True)
+    local_analysis_dir.mkdir(parents=True, exist_ok=True)
     runnable_script_text = _add_vasp_input_sync(script_text, remote_input_dir)
 
     client = get_ssh_client()
 
-    _emit_progress(progress_callback, "创建远程 VASP 输入/输出目录中...")
-    mkdir_command = f"mkdir -p {shlex.quote(remote_input_dir)} {shlex.quote(remote_output_dir)}"
-    stdin, stdout, stderr = client.exec_command(mkdir_command)
-    mkdir_output = stdout.read().decode()
-    mkdir_error = stderr.read().decode()
+    try:
+        _emit_progress(progress_callback, "创建远程 VASP 输入/输出目录中...")
+        mkdir_command = f"mkdir -p {shlex.quote(remote_input_dir)} {shlex.quote(remote_output_dir)}"
+        stdin, stdout, stderr = client.exec_command(mkdir_command)
+        mkdir_output = stdout.read().decode()
+        mkdir_error = stderr.read().decode()
 
-    if mkdir_error.strip():
+        if mkdir_error.strip():
+            return {
+                "success": False,
+                "job_id": None,
+                "remote_script": remote_script,
+                "remote_workdir": remote_output_dir,
+                "remote_input_dir": remote_input_dir,
+                "remote_output_dir": remote_output_dir,
+                "uploaded_files": [],
+                "output": mkdir_output,
+                "error": mkdir_error,
+            }
+
+        sftp = client.open_sftp()
+        uploaded_files = []
+
+        try:
+            _emit_progress(progress_callback, "上传 VASP 输入文件中...")
+            for local_path in local_paths:
+                remote_path = f"{remote_input_dir}/{local_path.name}"
+                sftp.put(str(local_path), remote_path)
+                uploaded_files.append(remote_path)
+
+            _emit_progress(progress_callback, "上传 VASP 作业脚本中...")
+            with sftp.open(remote_script, "w") as remote_file:
+                remote_file.write(runnable_script_text)
+            uploaded_files.append(remote_script)
+        finally:
+            sftp.close()
+    finally:
         client.close()
-        return {
-            "success": False,
-            "job_id": None,
-            "remote_script": remote_script,
-            "remote_workdir": remote_output_dir,
-            "remote_input_dir": remote_input_dir,
-            "remote_output_dir": remote_output_dir,
-            "uploaded_files": [],
-            "output": mkdir_output,
-            "error": mkdir_error,
-        }
-
-    sftp = client.open_sftp()
-    uploaded_files = []
-
-    _emit_progress(progress_callback, "上传 VASP 输入文件中...")
-    for local_path in local_paths:
-        remote_path = f"{remote_input_dir}/{local_path.name}"
-        sftp.put(str(local_path), remote_path)
-        uploaded_files.append(remote_path)
-
-    _emit_progress(progress_callback, "上传 VASP 作业脚本中...")
-    with sftp.open(remote_script, "w") as remote_file:
-        remote_file.write(runnable_script_text)
-    uploaded_files.append(remote_script)
-
-    sftp.close()
 
     _emit_progress(progress_callback, "提交 VASP 作业中...")
     command = f"cd {shlex.quote(remote_output_dir)} && sbatch job.sh"
 
-    stdin, stdout, stderr = client.exec_command(command)
+    submit_client = get_ssh_client()
 
-    output = stdout.read().decode()
-    error = stderr.read().decode()
+    try:
+        stdin, stdout, stderr = submit_client.exec_command(command)
 
-    client.close()
+        output = stdout.read().decode()
+        error = stderr.read().decode()
+    finally:
+        submit_client.close()
 
     match = re.search(r"Submitted batch job (\d+)", output)
     job_id = match.group(1) if match else None
@@ -384,6 +616,9 @@ def submit_vasp_script_text(script_text, local_input_dir=None, run_name=None, pr
         "remote_workdir": remote_output_dir,
         "remote_input_dir": remote_input_dir,
         "remote_output_dir": remote_output_dir,
+        "local_output_dir": str(local_output_dir),
+        "local_raw_output_dir": str(local_raw_output_dir),
+        "local_analysis_dir": str(local_analysis_dir),
         "uploaded_files": uploaded_files,
         "output": output,
         "error": error,
@@ -592,6 +827,8 @@ def tail_job_logs(job_id: str, remote_workdir: str = None, lines: int = 50):
 
 
 def get_job_monitor_snapshot(job_id: str, lines: int = 50):
+    from modules.job_registry import get_job
+
     status = check_job(job_id)
     accounting = None
     state, elapsed = _parse_squeue_state_elapsed(status.get("output", ""))
@@ -637,6 +874,45 @@ def get_job_monitor_snapshot(job_id: str, lines: int = 50):
             for pattern in log_failure_patterns
         )
 
+    vasp_diagnosis = None
+    job_metadata = get_job(job_id) or {}
+    remote_output_root = (VASP_REMOTE_OUTPUT_DIR or "").rstrip("/")
+    remote_dir = (remote_workdir or "").rstrip("/")
+    is_vasp_candidate = (
+        job_metadata.get("type") == "vasp"
+        or (
+            bool(remote_output_root)
+            and (
+                remote_dir == remote_output_root
+                or remote_dir.startswith(f"{remote_output_root}/")
+            )
+        )
+    )
+
+    if is_vasp_candidate:
+        try:
+            from modules.vasp_monitor import diagnose_remote_vasp_job
+
+            vasp_diagnosis = diagnose_remote_vasp_job(
+                remote_workdir=remote_workdir,
+                log_output=logs.get("output", ""),
+                log_error=logs.get("error", ""),
+                run_remote_command=run_remote_command,
+            )
+            if vasp_diagnosis.get("severity") in {"error", "warning"}:
+                failure_detected = True
+        except Exception as error:
+            vasp_diagnosis = {
+                "is_vasp": False,
+                "severity": "unknown",
+                "summary": "VASP 诊断探测失败。",
+                "issues": [],
+                "evidence": [],
+                "recommendations": [],
+                "remote_files": [],
+                "probe_error": f"{type(error).__name__}: {error}",
+            }
+
     return {
         "job_id": str(job_id),
         "squeue_output": status.get("output", ""),
@@ -652,6 +928,7 @@ def get_job_monitor_snapshot(job_id: str, lines: int = 50):
         "log_output": logs.get("output", ""),
         "log_error": logs.get("error", ""),
         "failure_detected": failure_detected,
+        "vasp_diagnosis": vasp_diagnosis,
     }
 
 
@@ -669,6 +946,38 @@ def list_remote_agent_jobs():
         "remote_workdir": REMOTE_WORKDIR,
         "output": output,
         "error": error,
+    }
+
+
+def list_remote_vasp_jobs():
+    roots = [
+        ("input", VASP_REMOTE_INPUT_DIR),
+        ("output", VASP_REMOTE_OUTPUT_DIR),
+    ]
+    outputs = []
+    errors = []
+
+    for label, root_dir in roots:
+        if not root_dir:
+            errors.append(f"{label}: 未配置远端 VASP {label} 目录。")
+            continue
+
+        command = (
+            f"cd {shlex.quote(root_dir)} && "
+            "find . -mindepth 1 -maxdepth 1 "
+            "-printf '%y\\t%P\\n' | sort"
+        )
+        output, error = run_remote_command(command)
+        outputs.append(f"## {label}\nroot\t{root_dir}\n{output.rstrip()}")
+
+        if error.strip():
+            errors.append(f"{label}: {error.rstrip()}")
+
+    return {
+        "remote_input_dir": VASP_REMOTE_INPUT_DIR,
+        "remote_output_dir": VASP_REMOTE_OUTPUT_DIR,
+        "output": "\n\n".join(outputs).strip(),
+        "error": "\n".join(errors),
     }
 
 
@@ -741,7 +1050,10 @@ def find_remote_agent_job_cleanup_targets(job_id: str):
     return {
         "success": error.strip() == "",
         "remote_workdir": REMOTE_WORKDIR,
-        "targets": _parse_cleanup_targets(output),
+        "targets": [
+            {**target, "remote_workdir": REMOTE_WORKDIR}
+            for target in _parse_cleanup_targets(output)
+        ],
         "output": output,
         "error": error,
     }
@@ -782,6 +1094,7 @@ def find_all_remote_agent_cleanup_targets():
         targets.append({
             "kind": kind,
             "path": path,
+            "remote_workdir": REMOTE_WORKDIR,
         })
 
     return {
@@ -793,40 +1106,238 @@ def find_all_remote_agent_cleanup_targets():
     }
 
 
+def _vasp_cleanup_roots(scope: str = "both"):
+    normalized = (scope or "both").lower()
+    roots = []
+
+    if normalized in {"input", "both", "all"} and VASP_REMOTE_INPUT_DIR:
+        roots.append(("input", VASP_REMOTE_INPUT_DIR))
+
+    if normalized in {"output", "both", "all"} and VASP_REMOTE_OUTPUT_DIR:
+        roots.append(("output", VASP_REMOTE_OUTPUT_DIR))
+
+    return roots
+
+
+def _target_for_remote_vasp_dir(root_dir: str, remote_dir: str, label: str):
+    root = root_dir.rstrip("/")
+    directory = remote_dir.rstrip("/")
+
+    if directory == root:
+        return None
+
+    if not directory.startswith(f"{root}/"):
+        return None
+
+    relative_path = directory[len(root) + 1:]
+
+    if not _is_safe_remote_cleanup_target(relative_path):
+        return None
+
+    return {
+        "kind": "dir",
+        "path": relative_path,
+        "remote_workdir": root_dir,
+        "scope": label,
+    }
+
+
+def find_remote_vasp_job_cleanup_targets(selector: str, scope: str = "both"):
+    from modules.job_registry import get_job
+
+    selector = str(selector).strip()
+    targets = []
+    errors = []
+    outputs = []
+    roots = _vasp_cleanup_roots(scope)
+
+    if not roots:
+        return {
+            "success": False,
+            "remote_workdir": None,
+            "remote_workdirs": [],
+            "targets": [],
+            "output": "",
+            "error": "未配置可用的远端 VASP input/output 目录。",
+        }
+
+    if re.fullmatch(r"\d{4,}", selector):
+        job = get_job(selector) or {}
+
+        if job.get("type") == "vasp":
+            registry_paths = {
+                "input": job.get("remote_input_dir"),
+                "output": job.get("remote_output_dir") or job.get("remote_workdir"),
+            }
+            for label, root_dir in roots:
+                target = _target_for_remote_vasp_dir(root_dir, registry_paths.get(label, ""), label)
+                if target:
+                    targets.append(target)
+
+        safe_selector = shlex.quote(selector)
+        for label, root_dir in roots:
+            command = (
+                f"cd {shlex.quote(root_dir)} && "
+                "{ "
+                "find . -mindepth 2 -maxdepth 3 -type f "
+                f"\\( -name '*_{safe_selector}.out' -o -name '*_{safe_selector}.err' \\) "
+                "-printf 'DIR\\t%h\\n'; "
+                "find . -maxdepth 1 -type d "
+                f"-name '*{safe_selector}*' -printf 'DIR\\t%P\\n'; "
+                "} | sort -u"
+            )
+            output, error = run_remote_command(command)
+            outputs.append(f"## {label}\n{output.rstrip()}")
+            if error.strip():
+                errors.append(f"{label}: {error.rstrip()}")
+            for target in _parse_cleanup_targets(output):
+                targets.append({
+                    **target,
+                    "remote_workdir": root_dir,
+                    "scope": label,
+                })
+    else:
+        safe_name = _safe_remote_dir_name(selector)
+        if not safe_name:
+            return {
+                "success": False,
+                "remote_workdir": None,
+                "remote_workdirs": [root for _, root in roots],
+                "targets": [],
+                "output": "",
+                "error": "VASP 作业名格式无效。",
+            }
+
+        for label, root_dir in roots:
+            command = (
+                f"cd {shlex.quote(root_dir)} && "
+                "find . -maxdepth 1 -type d "
+                f"\\( -name {shlex.quote(safe_name)} -o -name {shlex.quote(f'*{safe_name}*')} \\) "
+                "-printf 'DIR\\t%P\\n' | sort -u"
+            )
+            output, error = run_remote_command(command)
+            outputs.append(f"## {label}\n{output.rstrip()}")
+            if error.strip():
+                errors.append(f"{label}: {error.rstrip()}")
+            for target in _parse_cleanup_targets(output):
+                targets.append({
+                    **target,
+                    "remote_workdir": root_dir,
+                    "scope": label,
+                })
+
+    deduped = []
+    seen = set()
+    for target in targets:
+        key = (target["remote_workdir"], target["kind"], target["path"])
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(target)
+
+    return {
+        "success": not errors,
+        "remote_workdir": None,
+        "remote_workdirs": [root for _, root in roots],
+        "targets": deduped,
+        "output": "\n\n".join(outputs),
+        "error": "\n".join(errors),
+    }
+
+
+def find_all_remote_vasp_cleanup_targets(scope: str = "both"):
+    roots = _vasp_cleanup_roots(scope)
+    targets = []
+    outputs = []
+    errors = []
+
+    if not roots:
+        return {
+            "success": False,
+            "remote_workdir": None,
+            "remote_workdirs": [],
+            "targets": [],
+            "output": "",
+            "error": "未配置可用的远端 VASP input/output 目录。",
+        }
+
+    for label, root_dir in roots:
+        command = (
+            f"cd {shlex.quote(root_dir)} && "
+            "find . -mindepth 1 -maxdepth 1 -type d "
+            "-printf 'DIR\\t%P\\n' | sort"
+        )
+        output, error = run_remote_command(command)
+        outputs.append(f"## {label}\n{output.rstrip()}")
+        if error.strip():
+            errors.append(f"{label}: {error.rstrip()}")
+        for target in _parse_cleanup_targets(output):
+            targets.append({
+                **target,
+                "remote_workdir": root_dir,
+                "scope": label,
+            })
+
+    return {
+        "success": not errors,
+        "remote_workdir": None,
+        "remote_workdirs": [root for _, root in roots],
+        "targets": targets,
+        "output": "\n\n".join(outputs),
+        "error": "\n".join(errors),
+    }
+
+
 def cleanup_remote_agent_targets(targets):
     safe_targets = [
         target
         for target in targets
         if target.get("kind") in {"dir", "file"}
         and _is_safe_remote_cleanup_target(target.get("path", ""))
+        and target.get("remote_workdir", REMOTE_WORKDIR)
     ]
 
     if not safe_targets:
         return {
             "success": False,
             "remote_workdir": REMOTE_WORKDIR,
+            "remote_workdirs": [],
             "deleted": [],
             "output": "",
             "error": "没有安全的可清理目标。",
         }
 
-    quoted_targets = " ".join(
-        shlex.quote(target["path"])
-        for target in safe_targets
-    )
-    command = (
-        f"cd {shlex.quote(REMOTE_WORKDIR)} && "
-        f"rm -rf -- {quoted_targets}"
-    )
+    grouped_targets = {}
+    for target in safe_targets:
+        remote_workdir = target.get("remote_workdir") or REMOTE_WORKDIR
+        grouped_targets.setdefault(remote_workdir, []).append(target)
 
-    output, error = run_remote_command(command)
+    outputs = []
+    errors = []
+
+    for remote_workdir, group in grouped_targets.items():
+        quoted_targets = " ".join(
+            shlex.quote(target["path"])
+            for target in group
+        )
+        command = (
+            f"cd {shlex.quote(remote_workdir)} && "
+            f"rm -rf -- {quoted_targets}"
+        )
+
+        output, error = run_remote_command(command)
+        if output.strip():
+            outputs.append(f"{remote_workdir}:\n{output.rstrip()}")
+        if error.strip():
+            errors.append(f"{remote_workdir}:\n{error.rstrip()}")
 
     return {
-        "success": error.strip() == "",
+        "success": not errors,
         "remote_workdir": REMOTE_WORKDIR,
+        "remote_workdirs": sorted(grouped_targets),
         "deleted": safe_targets,
-        "output": output,
-        "error": error,
+        "output": "\n\n".join(outputs),
+        "error": "\n\n".join(errors),
     }
 
 
@@ -953,4 +1464,3 @@ def read_job_error(job_id):
         "output": output,
         "error": error,
     }
-

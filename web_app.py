@@ -14,14 +14,20 @@ from modules.job_submitter import (
 )
 from modules.vasp_assistant import generate_vasp_sbatch_script
 from modules.job_query import (
+    analyze_vasp_job,
     execute_cleanup_remote_jobs,
     extract_job_id,
+    generate_vasp_report,
+    prepare_cleanup_all_remote_vasp_jobs,
     prepare_cleanup_all_remote_jobs,
+    prepare_cleanup_remote_vasp_job,
     prepare_cleanup_remote_job,
     query_remote_agent_jobs,
+    query_remote_vasp_jobs,
     query_job_error,
     query_job_output,
     query_job_status,
+    sync_vasp_job_output,
 )
 from modules.router import detect_intent
 
@@ -149,7 +155,7 @@ async def chat(request: Request):
 
         required_confirmation = (
             "确认清理全部"
-            if pending_cleanup["kind"] == "all"
+            if pending_cleanup["kind"] in {"all", "vasp_all"}
             else "确认清理"
         )
 
@@ -157,7 +163,7 @@ async def chat(request: Request):
             answer = execute_cleanup_remote_jobs(pending_cleanup["targets"])
             cleanup_intent = (
                 "cleanup_all_remote_jobs"
-                if pending_cleanup["kind"] == "all"
+                if pending_cleanup["kind"] in {"all", "vasp_all"}
                 else "cleanup_remote_job"
             )
             clear_pending_cleanup()
@@ -257,6 +263,20 @@ async def chat(request: Request):
         result = register_existing_vasp_job_from_text(question)
         answer = result["message"]
 
+    elif intent == "sync_vasp_output":
+        job_id = extract_job_id(question)
+
+        if not job_id:
+            answer = "请提供 job_id，例如：同步 VASP 作业 11814709 的输出。"
+        else:
+            answer = sync_vasp_job_output(job_id)
+
+    elif intent == "generate_vasp_report":
+        answer = generate_vasp_report(question)
+
+    elif intent == "analyze_vasp_job":
+        answer = analyze_vasp_job(question)
+
     elif intent == "generate_sbatch":
         answer = generate_sbatch_script(question)
 
@@ -278,6 +298,9 @@ async def chat(request: Request):
     elif intent == "list_remote_jobs":
         answer = query_remote_agent_jobs()
 
+    elif intent == "list_remote_vasp_jobs":
+        answer = query_remote_vasp_jobs()
+
     elif intent == "cleanup_remote_job":
         job_id = extract_job_id(question)
 
@@ -291,13 +314,33 @@ async def chat(request: Request):
                 pending_cleanup["targets"] = prepared["targets"]
                 pending_cleanup["job_id"] = job_id
 
-            answer = prepared["message"]
+        answer = prepared["message"]
+
+    elif intent == "cleanup_remote_vasp_job":
+        prepared = prepare_cleanup_remote_vasp_job(question)
+
+        if prepared["ready"]:
+            pending_cleanup["kind"] = "vasp_job"
+            pending_cleanup["targets"] = prepared["targets"]
+            pending_cleanup["job_id"] = prepared.get("selector")
+
+        answer = prepared["message"]
 
     elif intent == "cleanup_all_remote_jobs":
         prepared = prepare_cleanup_all_remote_jobs()
 
         if prepared["ready"]:
             pending_cleanup["kind"] = "all"
+            pending_cleanup["targets"] = prepared["targets"]
+            pending_cleanup["job_id"] = None
+
+        answer = prepared["message"]
+
+    elif intent == "cleanup_all_remote_vasp_jobs":
+        prepared = prepare_cleanup_all_remote_vasp_jobs(question)
+
+        if prepared["ready"]:
+            pending_cleanup["kind"] = "vasp_all"
             pending_cleanup["targets"] = prepared["targets"]
             pending_cleanup["job_id"] = None
 

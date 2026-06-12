@@ -78,13 +78,18 @@ HPC_KEY_PATH=/path/to/your/private/key
 HPC_REMOTE_WORKDIR=/path/to/remote/hpc-agent-jobs
 HPC_DEFAULT_PARTITION=
 
-HPC_LOCAL_VASP_JOBS_DIR=/path/to/local/vasp-jobs
+HPC_LOCAL_VASP_JOBS_INPUT_DIR=/path/to/local/vasp-jobs-input
+HPC_LOCAL_VASP_JOBS_OUTPUT_DIR=/path/to/local/vasp-jobs-output
 HPC_VASP_REMOTE_INPUT_DIR=/path/to/remote/vasp-hpc-jobs-input
 HPC_VASP_REMOTE_OUTPUT_DIR=/path/to/remote/vasp-hpc-jobs-output
 HPC_VASP_PARTITION=
 HPC_VASP_SETUP_COMMAND=source /public1/soft/intel/2020u4/compilers_and_libraries_2020.4.304/linux/bin/compilervars.sh intel64
 HPC_VASP_COMMAND=mpirun /public1/soft/vasp
 HPC_VASP_MODULE=
+
+HPC_CLAUDE_CODE_COMMAND=claude
+HPC_CLAUDE_CODE_MODEL=
+HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 ```
 
 字段说明：
@@ -96,25 +101,30 @@ HPC_VASP_MODULE=
 * `HPC_KEY_PATH`：本机 SSH 私钥绝对路径。
 * `HPC_REMOTE_WORKDIR`：普通 Slurm 作业远端根目录。
 * `HPC_DEFAULT_PARTITION`：普通作业默认 partition；留空表示不写 `#SBATCH --partition`，使用集群默认分区。
-* `HPC_LOCAL_VASP_JOBS_DIR`：本地 VASP 作业根目录。
+* `HPC_LOCAL_VASP_JOBS_INPUT_DIR`：本地 VASP 输入作业根目录，每个子目录对应一次 VASP 作业输入。
+* `HPC_LOCAL_VASP_JOBS_OUTPUT_DIR`：本地 VASP 输出根目录，用来保存从远端 output 同步回来的结果和 `analysis/`。
 * `HPC_VASP_REMOTE_INPUT_DIR`：VASP 远端输入根目录。
 * `HPC_VASP_REMOTE_OUTPUT_DIR`：VASP 远端输出/运行根目录。
 * `HPC_VASP_PARTITION`：VASP 作业默认 partition；留空表示不写 `#SBATCH --partition`，使用集群默认分区。
 * `HPC_VASP_SETUP_COMMAND`：VASP 运行前环境初始化命令。
 * `HPC_VASP_COMMAND`：VASP 主程序启动命令。
 * `HPC_VASP_MODULE`：可选模块名，留空表示不执行 `module load`。
+* `HPC_CLAUDE_CODE_COMMAND`：Claude Code 命令，默认 `claude`。
+* `HPC_CLAUDE_CODE_MODEL`：Claude Code 使用的模型名；留空时使用环境默认，Paratera 网关默认回退到 `DeepSeek-V4-Pro`。
+* `HPC_CLAUDE_CODE_TIMEOUT_SECONDS`：Claude Code 报告生成超时时间，默认 1800 秒。
 
 检查本地路径：
 
 ```bash
 realpath -e /path/to/your/private/key
-realpath /path/to/local/vasp-jobs
+realpath /path/to/local/vasp-jobs-input
+realpath /path/to/local/vasp-jobs-output
 ```
 
 如果本地 VASP 根目录不存在：
 
 ```bash
-mkdir -p /path/to/local/vasp-jobs
+mkdir -p /path/to/local/vasp-jobs-input /path/to/local/vasp-jobs-output
 ```
 
 ---
@@ -415,7 +425,7 @@ Agent 会先展示将删除的目录或文件。确认：
 当前 VASP 只保留固定目录提交逻辑。提交前，用户需要手动在本地准备完整 VASP 作业目录：
 
 ```text
-$HPC_LOCAL_VASP_JOBS_DIR/<job-folder>/
+$HPC_LOCAL_VASP_JOBS_INPUT_DIR/<job-folder>/
 ├── INCAR
 ├── KPOINTS
 ├── POSCAR
@@ -467,16 +477,83 @@ POTCAR
 
 提交时 Agent 会：
 
-1. 在 `HPC_LOCAL_VASP_JOBS_DIR` 中选择完整作业目录。
+1. 在 `HPC_LOCAL_VASP_JOBS_INPUT_DIR` 中选择完整作业目录。
 2. 校验 `INCAR`、`KPOINTS`、`POSCAR`、`POTCAR`。
 3. 把生成的 `job.sh` 写入本地作业目录。
 4. 上传输入文件到 `HPC_VASP_REMOTE_INPUT_DIR/<job-folder>`。
 5. 在 `HPC_VASP_REMOTE_OUTPUT_DIR/<job-folder>` 写入远端 `job.sh`。
 6. 远端 `job.sh` 运行时从 input 目录复制输入文件到 output 目录。
 7. 在 output 目录执行 VASP。
-8. 登记 Job ID 和远端 output 目录。
+8. 登记 Job ID、远端 output 目录和本地 output/analysis 目录。
 
 VASP 标准输出、错误日志和运行结果都会写入远端 output 目录。
+
+作业完成后，可以把远端 output 同步回本地：
+
+```text
+同步 VASP 作业 11817144 输出到本地
+```
+
+同步后目录结构为：
+
+```text
+$HPC_LOCAL_VASP_JOBS_OUTPUT_DIR/<job-folder>/
+├── raw_output/
+│   ├── INCAR
+│   ├── KPOINTS
+│   ├── POSCAR
+│   ├── OUTCAR
+│   ├── OSZICAR
+│   └── vasprun.xml
+└── analysis/
+    ├── file_manifest.json
+    └── report_context.md
+```
+
+默认不会同步 `WAVECAR`、`CHGCAR`、`AECCAR*`、`POTCAR`，避免把超大文件或赝势文件拉回本地分析目录。原始输出只放在 `raw_output/`，Claude Code 分析产物只放在 `analysis/`。`report_context.md` 是后续 Claude Code 生成报告的受控输入。
+
+生成 Claude Code 报告：
+
+```text
+生成 VASP 作业 si_static_test 报告
+```
+
+也可以使用已登记的 Job ID：
+
+```text
+生成 VASP 作业 11817144 报告
+```
+
+生成后会写入：
+
+```text
+$HPC_LOCAL_VASP_JOBS_OUTPUT_DIR/<job-folder>/analysis/
+├── report.md
+├── paper_methods.md
+└── paper_results.md
+```
+
+一键分析会自动执行同步、`report_context.md` 生成和 Claude Code 报告生成：
+
+```text
+一键分析 VASP 作业 si_static_test
+```
+
+或：
+
+```text
+一键分析 VASP 作业 11817144
+```
+
+Claude Code 调用可能需要几十秒到数分钟。CLI/TUI 会显示等待状态，结果中会包含 Claude Code 实际耗时和超时设置。
+
+报告生成规则来自项目内 skill：
+
+```text
+skills/vasp_report/SKILL.md
+```
+
+该 skill 约束 Claude Code 只使用 `analysis/report_context.md`，不直接读取大体积原始输出，也不编造未在上下文中确认的论文结果。
 
 当前默认 VASP 启动方式：
 
@@ -537,6 +614,7 @@ HPC_VASP_MODULE=
 查看 11817144 的状态
 读取 11817144 的输出
 读取 11817144 的错误日志
+同步 VASP 作业 11817144 输出到本地
 ```
 
 ---
@@ -728,7 +806,7 @@ ssh -i /path/to/your/private/key -l 'your-hpc-username' your-hpc-host
 
 VASP 提示缺少输入文件：
 
-* 检查本地目录是否在 `HPC_LOCAL_VASP_JOBS_DIR` 下。
+* 检查本地目录是否在 `HPC_LOCAL_VASP_JOBS_INPUT_DIR` 下。
 * 检查是否包含 `INCAR`、`KPOINTS`、`POSCAR`、`POTCAR`。
 * 如果使用绝对路径，确认路径拼写正确。
 

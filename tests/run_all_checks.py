@@ -10,6 +10,7 @@ PYTHON_FILES = [
     "main.py",
     "textual_cli.py",
     "web_app.py",
+    "modules/claude_code_reporter.py",
     "modules/error_diagnoser.py",
     "modules/job_query.py",
     "modules/job_registry.py",
@@ -19,6 +20,9 @@ PYTHON_FILES = [
     "modules/slurm_assistant.py",
     "modules/slurm_tools.py",
     "modules/vasp_assistant.py",
+    "modules/vasp_monitor.py",
+    "modules/vasp_outcar_parser.py",
+    "modules/vasp_report_context.py",
     "tests/test_error_diagnoser_skill.py",
     "tests/test_hpc_workflow.py",
     "tests/test_slurm_assistant.py",
@@ -26,6 +30,7 @@ PYTHON_FILES = [
     "tests/test_submit.py",
     "tests/test_tools.py",
     "tests/test_vasp_assistant.py",
+    "tests/test_vasp_monitor.py",
 ]
 
 
@@ -76,16 +81,27 @@ def run_vasp_assistant_checks():
     print_section("4. VASP assistant skill checks")
 
     from tests import test_vasp_assistant as checks
+    from tests import test_vasp_monitor as monitor_checks
+    import textual_cli
 
     checks.test_generate_vasp_script_defaults()
     checks.test_generate_vasp_script_extracts_resources()
     checks.test_submit_vasp_job_preview_handles_partition()
+    checks.test_vasp_submit_path_does_not_replace_runtime_command()
     checks.test_dangerous_vasp_request_is_rejected()
     checks.test_vasp_input_validation_requires_all_files()
     checks.test_vasp_submit_stops_when_local_inputs_missing()
     checks.test_resolve_vasp_job_input_dir_selects_latest_complete_job()
     checks.test_resolve_vasp_job_input_dir_uses_named_child()
     checks.test_register_existing_vasp_job_from_text_writes_registry()
+    monitor_checks.test_potcar_input_conversion_is_error()
+    monitor_checks.test_brmix_warning_is_warning()
+    monitor_checks.test_non_vasp_directory_stays_unknown()
+
+    if not textual_cli._is_vasp_long_workflow_request("提交 VASP 作业，路径为 /tmp/si，帮我运行并分析"):
+        raise AssertionError("Expected VASP long workflow request to be detected")
+    if textual_cli._is_vasp_long_workflow_request("提交 VASP 作业，路径为 /tmp/si"):
+        raise AssertionError("Did not expect plain VASP submit request to auto-analyze")
 
     print("OK VASP assistant skill checks passed")
 
@@ -112,6 +128,33 @@ def run_router_checks():
         "列出远端 hpc-agent-jobs 里的任务编号": "list_remote_jobs",
         "清理远端作业 11817627 的文件": "cleanup_remote_job",
         "清理远端 hpc-agent-jobs 下所有作业文件": "cleanup_all_remote_jobs",
+        "列出远端 VASP input 和 output 目录": "list_remote_vasp_jobs",
+        "清理远端 VASP 作业 11817627 的 input 和 output": "cleanup_remote_vasp_job",
+        "删除远端 VASP 作业 si_static_test 的 output 目录": "cleanup_remote_vasp_job",
+        "清理远端 VASP output 下所有作业目录": "cleanup_all_remote_vasp_jobs",
+        "帮我跑 python train.py 到超算，4 核 10 分钟": "submit_job",
+        "启动任务 bash run.sh，2 核": "submit_job",
+        "只生成脚本运行 python train.py": "generate_sbatch",
+        "给我一个 sbatch 脚本跑 python train.py": "generate_sbatch",
+        "11814753 算完没": "job_status",
+        "11814753 还在跑吗": "job_status",
+        "看看 11814753 的输出": "job_output",
+        "看一下 11814753 的报错日志": "job_error",
+        "这个作业为什么没开始": "troubleshoot_job",
+        "资源怎么填，申请多少核": "suggest_params",
+        "列一下远端作业": "list_remote_jobs",
+        "删掉远端作业 11817627 的文件": "cleanup_remote_job",
+        "帮我生成一个 DFT 弛豫脚本": "generate_vasp_job",
+        "提交一个第一性原理静态计算任务": "submit_vasp_job",
+        "提交 VASP 作业，路径为 /home/qyz/vasp-jobs-input/si_static_test，帮我运行并分析": "submit_vasp_job",
+        "提交并分析 VASP 作业，路径为 /home/qyz/vasp-jobs-input/si_static_test": "submit_vasp_job",
+        "把 VASP 作业 11817144 记下来": "register_vasp_job",
+        "把 VASP 作业 11817144 的结果拿回本地": "sync_vasp_output",
+        "帮我分析 VASP 作业 11817144": "analyze_vasp_job",
+        "把 VASP 作业 11817144 整理成论文格式": "generate_vasp_report",
+        "远端 VASP 目录有什么": "list_remote_vasp_jobs",
+        "删掉远端 VASP 作业 si_static_test 的 input 目录": "cleanup_remote_vasp_job",
+        "清空远端 VASP input 下所有作业": "cleanup_all_remote_vasp_jobs",
     }
 
     for request, expected_intent in cases.items():

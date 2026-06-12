@@ -10,7 +10,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 DEFAULT_VASP_JOB_NAME = "vasp_job"
 DEFAULT_VASP_NODES = 1
 DEFAULT_VASP_TASKS_PER_NODE = 32
-DEFAULT_VASP_TIME_LIMIT = "24:00:00"
+DEFAULT_VASP_TIME_LIMIT = os.getenv("HPC_VASP_DEFAULT_TIME_LIMIT", "00:10:00")
 DEFAULT_VASP_OUTPUT_FILE = "%x_%j.out"
 DEFAULT_VASP_ERROR_FILE = "%x_%j.err"
 DEFAULT_VASP_SETUP_COMMAND = os.getenv(
@@ -93,9 +93,9 @@ def extract_vasp_time_limit(text: str) -> str:
 
 def extract_vasp_command(text: str) -> str:
     command_patterns = [
-        r"((?:srun|mpirun|mpiexec)(?:\s+-[A-Za-z0-9_.=-]+(?:\s+\d+)?)?\s+/[^\s;|&]*vasp[^\s;|&]*)",
+        r"((?:srun|mpirun|mpiexec)(?:\s+-[A-Za-z0-9_.=-]+(?:\s+\d+)?)?\s+/(?:[^\s;|&]*/)?vasp(?:_(?:std|gam|ncl))?)(?=$|\s|[;|&])",
         r"((?:srun|mpirun|mpiexec)(?:\s+-[A-Za-z0-9_.=-]+(?:\s+\d+)?)?\s+vasp_(?:std|gam|ncl))",
-        r"\b(/[^\s;|&]*vasp[^\s;|&]*)\b",
+        r"\b(/(?:[^\s;|&]*/)?vasp(?:_(?:std|gam|ncl))?)(?=$|\s|[;|&])",
         r"\b(vasp_(?:std|gam|ncl))\b",
     ]
 

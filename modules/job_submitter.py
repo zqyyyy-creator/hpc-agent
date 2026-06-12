@@ -12,7 +12,11 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 DEFAULT_PARTITION = os.getenv("HPC_DEFAULT_PARTITION", "")
 VASP_PARTITION = os.getenv("HPC_VASP_PARTITION", DEFAULT_PARTITION)
-VASP_LOCAL_JOBS_DIR = os.getenv("HPC_LOCAL_VASP_JOBS_DIR", "~/vasp-jobs")
+VASP_LOCAL_JOBS_DIR = os.getenv(
+    "HPC_LOCAL_VASP_JOBS_INPUT_DIR",
+    os.getenv("HPC_LOCAL_VASP_JOBS_DIR", "~/vasp-jobs-input"),
+)
+VASP_LOCAL_OUTPUT_DIR = os.getenv("HPC_LOCAL_VASP_JOBS_OUTPUT_DIR", "~/vasp-jobs-output")
 
 
 def _derive_vasp_remote_dir(kind: str):
@@ -223,7 +227,7 @@ def extract_vasp_job_selector(text: str):
 
 
 def register_existing_vasp_job_from_text(text: str):
-    from modules.job_registry import register_vasp_job
+    from modules.job_registry import register_job
 
     job_match = re.search(r"(\d{4,})", text)
 
@@ -251,7 +255,23 @@ def register_existing_vasp_job_from_text(text: str):
         remote_workdir = f"{VASP_REMOTE_WORKDIR}/{selector}"
         local_job_dir = str(Path(VASP_LOCAL_JOBS_DIR) / selector)
 
-    register_vasp_job(job_id, local_job_dir, remote_workdir)
+    local_output_dir = Path(VASP_LOCAL_OUTPUT_DIR).expanduser() / Path(remote_workdir).name
+    local_raw_output_dir = local_output_dir / "raw_output"
+    local_analysis_dir = local_output_dir / "analysis"
+    register_job(
+        job_id,
+        {
+            "type": "vasp",
+            "job_id": str(job_id),
+            "local_job_dir": local_job_dir,
+            "local_output_dir": str(local_output_dir),
+            "local_raw_output_dir": str(local_raw_output_dir),
+            "local_analysis_dir": str(local_analysis_dir),
+            "remote_workdir": remote_workdir,
+            "remote_output_dir": remote_workdir,
+            "remote_script": f"{remote_workdir}/job.sh",
+        },
+    )
 
     return {
         "success": True,
@@ -259,6 +279,9 @@ def register_existing_vasp_job_from_text(text: str):
             "VASP 作业映射已登记。\n\n"
             f"Job ID: {job_id}\n"
             f"本地作业目录: {local_job_dir}\n"
+            f"本地输出目录: {local_output_dir}\n"
+            f"本地原始输出目录: {local_raw_output_dir}\n"
+            f"本地分析目录: {local_analysis_dir}\n"
             f"远程输出目录: {remote_workdir}\n\n"
             f"现在可以读取 {job_id} 的输出或错误日志。"
         ),
@@ -385,6 +408,9 @@ def submit_prepared_vasp_script(script: str, selector_text: str = ""):
                 "type": "vasp",
                 "job_id": result["job_id"],
                 "local_job_dir": result["local_job_dir"],
+                "local_output_dir": result.get("local_output_dir"),
+                "local_raw_output_dir": result.get("local_raw_output_dir"),
+                "local_analysis_dir": result.get("local_analysis_dir"),
                 "remote_workdir": result["remote_workdir"],
                 "remote_input_dir": result.get("remote_input_dir"),
                 "remote_output_dir": result.get("remote_output_dir"),
@@ -409,6 +435,9 @@ def submit_prepared_vasp_script(script: str, selector_text: str = ""):
                 "VASP 作业已提交成功。\n\n"
                 f"Job ID: {result['job_id']}\n"
                 f"本地 VASP 输入目录: {result['local_job_dir']}\n"
+                f"本地 VASP 输出目录: {result.get('local_output_dir')}\n"
+                f"本地 VASP 原始输出目录: {result.get('local_raw_output_dir')}\n"
+                f"本地分析目录: {result.get('local_analysis_dir')}\n"
                 f"远程 VASP 输入目录: {result.get('remote_input_dir')}\n"
                 f"远程 VASP 输出目录: {result.get('remote_output_dir')}\n"
                 f"远程脚本: {result['remote_script']}\n\n"
@@ -416,7 +445,8 @@ def submit_prepared_vasp_script(script: str, selector_text: str = ""):
                 f"{archived_files}\n\n"
                 "已上传到远端输入/输出目录的文件:\n"
                 f"{uploaded_files}\n\n"
-                "VASP 标准输出、错误日志和运行结果会写入远程输出目录。\n\n"
+                "VASP 标准输出、错误日志和运行结果会写入远程输出目录。\n"
+                "作业完成后，可同步远端输出到本地输出目录，并在 analysis/ 下生成 Claude Code 分析输入和报告。\n\n"
                 f"Slurm 输出:\n{result['output']}"
             ),
             "raw": result,

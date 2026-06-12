@@ -3,6 +3,7 @@ import re
 import shutil
 import subprocess
 import base64
+import time
 from pathlib import Path
 
 import jieba
@@ -147,6 +148,22 @@ def _last_nonempty_lines(text: str, limit: int = 5):
     return "\n".join(lines[-limit:])
 
 
+def _is_vasp_long_workflow_request(text: str):
+    normalized = text.lower().replace(" ", "")
+    workflow_keywords = [
+        "运行并分析",
+        "提交并分析",
+        "跑完分析",
+        "完成后分析",
+        "完成后生成报告",
+        "自动分析",
+        "一键分析",
+        "runandanalyze",
+        "submitandanalyze",
+    ]
+    return any(keyword in normalized for keyword in workflow_keywords)
+
+
 def run_textual_cli():
     try:
         from textual.app import App, ComposeResult
@@ -164,14 +181,20 @@ def run_textual_cli():
 
     from modules.error_diagnoser import ErrorDiagnoser
     from modules.job_query import (
+        analyze_vasp_job,
         execute_cleanup_remote_jobs,
         extract_job_id,
+        generate_vasp_report,
+        prepare_cleanup_all_remote_vasp_jobs,
         prepare_cleanup_all_remote_jobs,
+        prepare_cleanup_remote_vasp_job,
         prepare_cleanup_remote_job,
         query_job_error,
         query_job_output,
         query_job_status,
         query_remote_agent_jobs,
+        query_remote_vasp_jobs,
+        sync_vasp_job_output,
     )
     from modules.job_submitter import (
         prepare_submit_script,
@@ -306,6 +329,7 @@ def run_textual_cli():
             self.active_monitor_index = 0
             self.monitor_refresh_running = False
             self.failure_notices_shown = set()
+            self.vasp_workflows = {}
             self.history = []
             self.last_assistant_reply = None
 
@@ -452,6 +476,13 @@ def run_textual_cli():
                     result["pending_submission"] = pending_submission
                 elif intent == "register_vasp_job":
                     answer = self._format_operation_result(register_existing_vasp_job_from_text(question))
+                elif intent == "sync_vasp_output":
+                    answer, job_id = self._query_job(question, sync_vasp_job_output, "VASP 输出同步")
+                    result["job_id"] = job_id
+                elif intent == "generate_vasp_report":
+                    answer = generate_vasp_report(question)
+                elif intent == "analyze_vasp_job":
+                    answer = analyze_vasp_job(question)
                 elif intent == "generate_sbatch":
                     answer = generate_sbatch_script(question)
                 elif intent == "generate_vasp_job":
@@ -469,12 +500,22 @@ def run_textual_cli():
                     result["live_log"] = answer[-3000:]
                 elif intent == "list_remote_jobs":
                     answer = query_remote_agent_jobs()
+                elif intent == "list_remote_vasp_jobs":
+                    answer = query_remote_vasp_jobs()
                 elif intent == "cleanup_remote_job":
                     answer, pending_cleanup = self._prepare_cleanup(question)
                     result["pending_cleanup"] = pending_cleanup
                 elif intent == "cleanup_all_remote_jobs":
                     answer, pending_cleanup = self._prepare_cleanup_all()
                     result["pending_cleanup"] = pending_cleanup
+                elif intent == "cleanup_remote_vasp_job":
+                    prepared = prepare_cleanup_remote_vasp_job(question)
+                    answer = prepared["message"]
+                    result["pending_cleanup"] = prepared if prepared["ready"] else None
+                elif intent == "cleanup_all_remote_vasp_jobs":
+                    prepared = prepare_cleanup_all_remote_vasp_jobs(question)
+                    answer = prepared["message"]
+                    result["pending_cleanup"] = prepared if prepared["ready"] else None
                 elif intent == "suggest_params":
                     answer = suggest_slurm_parameters(question)
                 elif intent == "diagnose_error":
@@ -540,6 +581,31 @@ def run_textual_cli():
             job_id = str(validation["job_id"])
 
             if not validation.get("monitorable"):
+                if self._is_vasp_workflow_waiting_for_terminal(job_id):
+                    snapshot = snapshot or {
+                        "job_id": job_id,
+                        "state": validation.get("state") or validation.get("sacct_state") or "UNKNOWN",
+                        "elapsed": validation.get("elapsed"),
+                        "accounting_state": validation.get("sacct_state"),
+                        "is_completed": validation.get("sacct_state") == "COMPLETED",
+                        "is_failed_terminal": validation.get("sacct_state") not in {None, "COMPLETED"},
+                        "remote_workdir": None,
+                        "log_output": "",
+                        "log_error": "",
+                        "failure_detected": validation.get("sacct_state") not in {None, "COMPLETED"},
+                    }
+                    if job_id not in self.monitored_job_ids:
+                        self.monitored_job_ids.append(job_id)
+                    self.monitor_snapshots[job_id] = snapshot
+                    self.monitor_active[job_id] = False
+                    self.active_monitor_index = self.monitored_job_ids.index(job_id)
+                    self._write_system(
+                        f"Job {job_id} 已不在 squeue 中，长流程直接进入同步分析。"
+                    )
+                    self._trigger_vasp_workflow_analysis(job_id, snapshot)
+                    self._render_monitor_panel()
+                    return
+
                 self._write_system(validation.get("message") or f"Job {job_id} 无法开始监控。")
                 return
 
@@ -589,6 +655,19 @@ def run_textual_cli():
                 if self.monitor_active.get(job_id, True)
             ]
 
+            # During the analyzing phase, the Slurm job is done (monitor
+            # inactive) but we still need to re-render the panel so the live
+            # analysis timer ticks — no need to query HPC again.
+            analyzing_job_ids = [
+                job_id
+                for job_id in self.monitored_job_ids
+                if self.vasp_workflows.get(str(job_id), {}).get("state") == "analyzing"
+            ]
+
+            if not active_job_ids and analyzing_job_ids:
+                self._render_monitor_panel()
+                return
+
             if not active_job_ids or self.monitor_refresh_running:
                 return
 
@@ -634,8 +713,14 @@ def run_textual_cli():
                     continue
 
                 self.monitor_snapshots[job_id] = snapshot
+                self._update_vasp_workflow_from_snapshot(snapshot)
 
                 if snapshot.get("is_failed_terminal") and self.monitor_active.get(job_id, True):
+                    if self._is_vasp_workflow_waiting_for_terminal(job_id):
+                        self.monitor_active[job_id] = False
+                        self._trigger_vasp_workflow_analysis(job_id, snapshot)
+                        continue
+
                     self._remove_monitored_job(job_id)
                     if job_id not in self.failure_notices_shown:
                         self.failure_notices_shown.add(job_id)
@@ -649,6 +734,7 @@ def run_textual_cli():
                     self._write_system(
                         f"Job {job_id} 已完成，已停止刷新。右侧保留最终状态和最近日志。"
                     )
+                    self._trigger_vasp_workflow_analysis(job_id, snapshot)
 
                 if (
                     snapshot.get("failure_detected")
@@ -656,9 +742,128 @@ def run_textual_cli():
                     and job_id not in self.failure_notices_shown
                 ):
                     self.failure_notices_shown.add(job_id)
+                    vasp_diagnosis = snapshot.get("vasp_diagnosis") or {}
+                    if vasp_diagnosis.get("is_vasp") and vasp_diagnosis.get("severity") in {"error", "warning"}:
+                        self._write_system(
+                            f"Job {job_id} 的 VASP 诊断发现 {vasp_diagnosis.get('severity')}: "
+                            f"{vasp_diagnosis.get('summary')}"
+                        )
+                        continue
                     self._write_system(
                         f"Job {job_id} 可能失败或出现异常，可诊断错误日志。"
                     )
+
+            self._render_monitor_panel()
+
+        def _start_vasp_workflow(self, job_id: str):
+            job_id = str(job_id)
+            now = time.time()
+            self.vasp_workflows[job_id] = {
+                "job_id": job_id,
+                "kind": "vasp",
+                "state": "running",
+                "message": "VASP 作业运行中，正在持续监控 Slurm 状态和 VASP 输出。",
+                "started_at": now,
+                "updated_at": now,
+                "analysis_started": False,
+                "analysis_started_at": None,
+                "finished_at": None,
+                "analysis_answer": "",
+            }
+            self._write_system(
+                f"已启动 VASP 长流程 Job {job_id}：监控 -> 同步输出 -> Claude Code 报告。"
+            )
+            self._start_monitoring(job_id)
+
+        def _is_vasp_workflow_waiting_for_terminal(self, job_id: str):
+            workflow = self.vasp_workflows.get(str(job_id))
+            return bool(workflow and workflow.get("state") in {"monitoring", "running"})
+
+        def _update_vasp_workflow_from_snapshot(self, snapshot: dict):
+            workflow = self.vasp_workflows.get(str(snapshot["job_id"]))
+
+            if not workflow or workflow.get("state") not in {"monitoring", "running"}:
+                return
+
+            diagnosis = snapshot.get("vasp_diagnosis") or {}
+            if diagnosis.get("is_vasp") and diagnosis.get("severity") in {"error", "warning"}:
+                workflow["message"] = (
+                    f"监控中，VASP 诊断: {diagnosis.get('severity')} - "
+                    f"{diagnosis.get('summary')}"
+                )
+                workflow["updated_at"] = time.time()
+
+        def _trigger_vasp_workflow_analysis(self, job_id: str, snapshot: dict):
+            workflow = self.vasp_workflows.get(str(job_id))
+
+            if not workflow or workflow.get("analysis_started"):
+                return
+
+            now = time.time()
+            workflow["state"] = "analyzing"
+            workflow["analysis_started"] = True
+            workflow["analysis_started_at"] = now
+            workflow["updated_at"] = now
+            terminal_state = snapshot.get("state") or snapshot.get("accounting_state") or "UNKNOWN"
+            workflow["message"] = (
+                f"Slurm 状态为 {terminal_state}，正在同步远端输出并生成 Claude Code 报告。"
+            )
+            self._write_system(
+                f"Job {job_id} 已到达终态 {terminal_state}，开始 VASP 自动分析。"
+            )
+            self._render_monitor_panel()
+            self.run_worker(
+                lambda: self._vasp_workflow_analysis_in_worker(job_id),
+                thread=True,
+                exclusive=False,
+            )
+
+        def _vasp_workflow_analysis_in_worker(self, job_id: str):
+            try:
+                answer = analyze_vasp_job(f"分析 VASP 作业 {job_id}")
+                success = "VASP 一键分析完成" in answer
+                result = {
+                    "job_id": str(job_id),
+                    "success": success,
+                    "answer": answer,
+                    "error": "",
+                }
+            except Exception as error:
+                result = {
+                    "job_id": str(job_id),
+                    "success": False,
+                    "answer": "",
+                    "error": f"{type(error).__name__}: {error}",
+                }
+
+            self.call_from_thread(self._apply_vasp_workflow_analysis_result, result)
+
+        def _apply_vasp_workflow_analysis_result(self, result: dict):
+            job_id = str(result["job_id"])
+            workflow = self.vasp_workflows.get(job_id)
+
+            if not workflow:
+                return
+
+            finished_at = time.time()
+            workflow["updated_at"] = finished_at
+            workflow["finished_at"] = finished_at
+
+            if result["success"]:
+                workflow["state"] = "completed"
+                workflow["message"] = "自动分析完成，报告已写入本地 analysis 目录。"
+                workflow["analysis_answer"] = result["answer"]
+                self._write_assistant(
+                    f"VASP 长流程 Job {job_id} 已完成。\n\n{result['answer']}"
+                )
+            else:
+                workflow["state"] = "failed"
+                workflow["message"] = "自动分析未完成，请查看对话区错误信息。"
+                details = result["answer"] or result["error"]
+                workflow["analysis_answer"] = details
+                self._write_assistant(
+                    f"VASP 长流程 Job {job_id} 自动分析失败。\n\n{details}"
+                )
 
             self._render_monitor_panel()
 
@@ -675,6 +880,27 @@ def run_textual_cli():
             sacct_error = snapshot.get("sacct_error", "").strip()
             state = snapshot.get("state") or "UNKNOWN"
             elapsed = snapshot.get("elapsed") or "-"
+
+            # For VASP long-workflow jobs, override State/Elapsed so the
+            # monitor shows workflow progress (analyzing / completed) instead
+            # of the frozen Slurm terminal state.  Plain submit-and-run jobs
+            # without a workflow keep the original Slurm state and elapsed.
+            wf = self.vasp_workflows.get(str(snapshot["job_id"]))
+            if wf:
+                wf_state = wf.get("state", "unknown")
+                if wf_state == "analyzing":
+                    state = "ANALYZING"
+                    analysis_started = wf.get("analysis_started_at") or wf.get("started_at", time.time())
+                    analysis_elapsed = max(0, int(time.time() - analysis_started))
+                    elapsed = f"{analysis_elapsed}s"
+                elif wf_state == "completed":
+                    state = "COMPLETED"
+                    total_elapsed = max(0, int((wf.get("finished_at") or time.time()) - (wf.get("started_at") or time.time())))
+                    elapsed = f"{total_elapsed}s"
+                elif wf_state == "failed":
+                    state = "FAILED"
+                    total_elapsed = max(0, int((wf.get("finished_at") or time.time()) - (wf.get("started_at") or time.time())))
+                    elapsed = f"{total_elapsed}s"
 
             failure_note = ""
             if snapshot.get("failure_detected") and not snapshot.get("is_completed"):
@@ -698,17 +924,107 @@ def run_textual_cli():
 
             compact_dir = _compact_remote_dir(remote_workdir)
             output_preview = _last_nonempty_lines(log_text, limit=5) or "还没有找到 stdout/stderr 日志。"
-            active_text = "active" if self.monitor_active.get(snapshot["job_id"], True) else "stopped"
+            active_text = self._format_monitor_activity(snapshot["job_id"])
+            workflow_section = self._format_workflow_status(snapshot["job_id"])
+            vasp_section = self._format_vasp_diagnosis(snapshot.get("vasp_diagnosis"))
             return (
-                f"Monitor: {position}/{total} ({active_text})\n"
+                f"Monitor: {position}/{total}  {active_text}\n"
                 f"Job: {snapshot['job_id']}\n"
                 f"State: {state}\n"
                 f"Elapsed: {elapsed}\n"
                 f"Dir: {compact_dir}"
+                f"{workflow_section}"
+                f"{vasp_section}"
                 f"{failure_note}"
                 f"{error_note}"
                 f"\n\nLast Output:\n{output_preview}"
             )
+
+        def _format_monitor_activity(self, job_id: str):
+            workflow = self.vasp_workflows.get(str(job_id))
+
+            if workflow:
+                state = workflow.get("state")
+                # For completed/failed workflows, the monitor is stopped but
+                # we still show the terminal workflow state.
+                if state in {"completed", "failed"}:
+                    return state
+                # "monitoring" and "running" both mean the Slurm job is live.
+                if state in {"monitoring", "running", "analyzing"}:
+                    return "running" if state == "monitoring" else state
+
+            return "active" if self.monitor_active.get(str(job_id), True) else "stopped"
+
+        def _format_workflow_status(self, job_id: str):
+            workflow = self.vasp_workflows.get(str(job_id))
+
+            if not workflow:
+                return ""
+
+            state = workflow.get("state", "unknown")
+            display_state = "running" if state == "monitoring" else state
+            message = workflow.get("message") or "-"
+            now = time.time()
+            started_at = workflow.get("started_at", now)
+            finished_at = workflow.get("finished_at")
+            analysis_started_at = workflow.get("analysis_started_at")
+
+            # Total elapsed: live until finished, then frozen at finish time.
+            if finished_at:
+                total_elapsed = max(0, int(finished_at - started_at))
+            else:
+                total_elapsed = max(0, int(now - started_at))
+
+            lines = [
+                "",
+                "",
+                f"Workflow: {display_state}",
+                message,
+                f"Workflow Elapsed: {total_elapsed}s",
+            ]
+
+            if display_state == "analyzing" and analysis_started_at:
+                analysis_elapsed = max(0, int(now - analysis_started_at))
+                lines.append(f"Analysis Elapsed: {analysis_elapsed}s")
+
+            if display_state in {"completed", "failed"}:
+                lines.append("Workflow Timer: stopped")
+
+            return "\n".join(lines)
+
+        def _format_vasp_diagnosis(self, diagnosis: dict | None):
+            if not diagnosis or not diagnosis.get("is_vasp"):
+                return ""
+
+            severity = (diagnosis.get("severity") or "unknown").upper()
+            summary = diagnosis.get("summary") or "暂无 VASP 诊断结论。"
+            issues = diagnosis.get("issues") or []
+            evidence = diagnosis.get("evidence") or []
+            recommendations = diagnosis.get("recommendations") or []
+
+            lines = [
+                "",
+                "",
+                f"VASP Diagnosis: {severity}",
+                summary,
+            ]
+
+            if issues:
+                lines.append("Issues:")
+                for issue in issues[:3]:
+                    lines.append(f"- {issue.get('summary')}")
+
+            if evidence:
+                lines.append("Evidence:")
+                for item in evidence[:4]:
+                    lines.append(f"- {item}")
+
+            if recommendations:
+                lines.append("Advice:")
+                for item in recommendations[:2]:
+                    lines.append(f"- {item}")
+
+            return "\n".join(lines)
 
         def _render_monitor_panel(self):
             job_id = self._active_monitor_job_id()
@@ -817,9 +1133,16 @@ def run_textual_cli():
                 "script": prepared["script"],
                 "source_text": question,
                 "uploaded_files": [],
+                "auto_analyze": _is_vasp_long_workflow_request(question),
             }
+            workflow_note = ""
+            if pending_submission["auto_analyze"]:
+                workflow_note = (
+                    "\n\n检测到“运行并分析”请求。确认提交后将自动进入长流程："
+                    "\n监控 Slurm/VASP 输出 -> 作业结束后同步输出 -> 调用 Claude Code 生成报告。"
+                )
             return (
-                f"{prepared['message']}\n\n"
+                f"{prepared['message']}{workflow_note}\n\n"
                 "回复“确认提交”或按 Ctrl+S 提交；回复“取消提交”或按 Esc 取消。"
             ), pending_submission
 
@@ -830,6 +1153,7 @@ def run_textual_cli():
 
             pending = self.pending_submission
             self.pending_submission = None
+            result = {}
 
             try:
                 if pending["kind"] == "vasp":
@@ -848,6 +1172,14 @@ def run_textual_cli():
 
             self._write_assistant(answer)
             self._select_latest_job_from_answer(answer)
+
+            if (
+                pending.get("kind") == "vasp"
+                and pending.get("auto_analyze")
+                and result.get("success")
+                and result.get("job_id")
+            ):
+                self._start_vasp_workflow(result["job_id"])
 
         def _query_job(self, question: str, func, label: str):
             job_id = extract_job_id(question) or self.current_job_id

@@ -77,26 +77,35 @@ HPC_KEY_PATH=/path/to/your/private/key
 HPC_REMOTE_WORKDIR=/path/to/remote/hpc-agent-jobs
 HPC_DEFAULT_PARTITION=
 
-HPC_LOCAL_VASP_JOBS_DIR=/path/to/local/vasp-jobs
+HPC_LOCAL_VASP_JOBS_INPUT_DIR=/path/to/local/vasp-jobs-input
+HPC_LOCAL_VASP_JOBS_OUTPUT_DIR=/path/to/local/vasp-jobs-output
 HPC_VASP_REMOTE_INPUT_DIR=/path/to/remote/vasp-hpc-jobs-input
 HPC_VASP_REMOTE_OUTPUT_DIR=/path/to/remote/vasp-hpc-jobs-output
 HPC_VASP_PARTITION=
 HPC_VASP_SETUP_COMMAND=source /public1/soft/intel/2020u4/compilers_and_libraries_2020.4.304/linux/bin/compilervars.sh intel64
 HPC_VASP_COMMAND=mpirun /public1/soft/vasp
 HPC_VASP_MODULE=
+
+HPC_CLAUDE_CODE_COMMAND=claude
+HPC_CLAUDE_CODE_MODEL=
+HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 ```
 
 说明：
 
 * `HPC_REMOTE_WORKDIR`：普通 Slurm 作业远端根目录。
 * `HPC_DEFAULT_PARTITION`：普通作业默认 partition；留空表示不写 `#SBATCH --partition`，使用集群默认分区。
-* `HPC_LOCAL_VASP_JOBS_DIR`：本地 VASP 作业根目录。
+* `HPC_LOCAL_VASP_JOBS_INPUT_DIR`：本地 VASP 输入作业根目录。
+* `HPC_LOCAL_VASP_JOBS_OUTPUT_DIR`：本地 VASP 输出和分析根目录。
 * `HPC_VASP_REMOTE_INPUT_DIR`：VASP 作业远端输入根目录。
 * `HPC_VASP_REMOTE_OUTPUT_DIR`：VASP 作业远端输出/运行根目录。
 * `HPC_VASP_PARTITION`：VASP 作业默认 partition；留空表示不写 `#SBATCH --partition`，使用集群默认分区。
 * `HPC_VASP_SETUP_COMMAND`：VASP 运行前的环境初始化命令。
 * `HPC_VASP_COMMAND`：VASP 主程序启动命令。
 * `HPC_VASP_MODULE`：可选，留空表示不使用 `module load`。
+* `HPC_CLAUDE_CODE_COMMAND`：Claude Code 命令，默认 `claude`。
+* `HPC_CLAUDE_CODE_MODEL`：Claude Code 使用的模型名。
+* `HPC_CLAUDE_CODE_TIMEOUT_SECONDS`：Claude Code 报告生成超时时间，默认 1800 秒。
 
 `.env` 不应提交到 Git。
 
@@ -180,7 +189,7 @@ hpc_agent_job_<jobid>.err
 VASP 提交前，用户需要手动在本地准备完整作业目录：
 
 ```text
-$HPC_LOCAL_VASP_JOBS_DIR/<job-folder>/
+$HPC_LOCAL_VASP_JOBS_INPUT_DIR/<job-folder>/
 ├── INCAR
 ├── KPOINTS
 ├── POSCAR
@@ -189,11 +198,17 @@ $HPC_LOCAL_VASP_JOBS_DIR/<job-folder>/
 
 提交时 Agent 只做三件事：
 
-1. 选择本地 `$HPC_LOCAL_VASP_JOBS_DIR/<job-folder>`。
+1. 选择本地 `$HPC_LOCAL_VASP_JOBS_INPUT_DIR/<job-folder>`。
 2. 上传该目录文件到远端 `$HPC_VASP_REMOTE_INPUT_DIR/<job-folder>`。
 3. 在远端 `$HPC_VASP_REMOTE_OUTPUT_DIR/<job-folder>` 写入并运行 `job.sh`。
 
-VASP 标准输出、错误日志和运行结果写入远端 output 目录。Agent 不会生成真实 `POTCAR`，`POTCAR` 需要来自你有权限使用的 VASP 赝势库。
+VASP 标准输出、错误日志和运行结果写入远端 output 目录。作业完成后可用“同步 VASP 作业 <job_id> 输出到本地”拉取必要结果文件到 `$HPC_LOCAL_VASP_JOBS_OUTPUT_DIR/<job-folder>/raw_output/`，并创建 `analysis/file_manifest.json` 和 `analysis/report_context.md`。Agent 不会生成真实 `POTCAR`，`POTCAR` 需要来自你有权限使用的 VASP 赝势库。
+
+同步后可用“生成 VASP 作业 <job-folder> 报告”调用 Claude Code，生成 `analysis/report.md`、`analysis/paper_methods.md` 和 `analysis/paper_results.md`。
+
+也可以直接用“一键分析 VASP 作业 <job-folder>”自动完成同步、上下文生成和 Claude Code 报告生成。报告结果会显示 Claude Code 实际耗时和超时设置。
+
+Claude Code 报告生成会加载 `skills/vasp_report/SKILL.md`，该 skill 规定只使用 `analysis/report_context.md`，避免把大体积 VASP 原始输出直接塞进模型上下文。
 
 ---
 
