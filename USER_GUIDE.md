@@ -1,6 +1,6 @@
 # HPC Agent 用户手册
 
-本文档说明如何配置、启动和使用 HPC Agent。当前代码支持三种界面：Textual TUI、Terminal CLI 和 Web UI。普通 Slurm 作业和 VASP 作业使用不同流程，尤其是 VASP 只保留固定目录提交逻辑。
+本文档说明如何配置、启动和使用 HPC Agent。当前代码保留 Textual TUI 作为统一交互入口。普通 Slurm 作业和 VASP 作业使用不同流程，尤其是 VASP 只保留固定目录提交逻辑。
 
 ---
 
@@ -49,10 +49,8 @@
 * 自动修复 sbatch 脚本（OOM → 提高内存、TIME → 延长时间等）
 * Pending / 不运行作业排查
 
-### 三种交互界面
+### 交互界面
 * **Textual TUI**：全屏终端界面，Chat + Job Monitor 双面板
-* **Terminal CLI**：Rich 命令行对话界面，支持 readline 命令历史
-* **Web UI**：浏览器端聊天界面，支持附件上传
 
 ### 其他特性
 * Claude Code 集成（通过 `skills/vasp_report/SKILL.md` 定义分析 Skill）
@@ -81,11 +79,8 @@ uv sync
 核心依赖包括：
 
 ```text
-fastapi
-uvicorn
 paramiko
 python-dotenv
-python-multipart
 rich
 textual
 jieba
@@ -170,31 +165,11 @@ mkdir -p /path/to/local/vasp-jobs-input /path/to/local/vasp-jobs-output
 python app.py
 ```
 
-然后选择：
-
-```text
-1. Textual TUI 控制台模式
-2. Terminal CLI 对话模式
-3. Web 网页对话模式
-```
-
-Web UI 默认地址：
-
-```text
-http://127.0.0.1:8000
-```
-
-也可以直接启动 Web：
-
-```bash
-uvicorn web_app:app --reload
-```
+启动后会直接进入 Textual TUI。
 
 退出方式：
 
 * **TUI**：按 `Ctrl+X`、`F10` 或 `q`。
-* **Terminal CLI**：输入 `quit`。
-* **Web**：在启动服务的终端按 `Ctrl+C`。
 
 ---
 
@@ -292,7 +267,7 @@ VASP 作业在监控时会自动进行远程探针诊断：
 5. 用户回复 `确认提交` 或按 `Ctrl+S`。
 6. Agent 连接超算，把文件上传到远端独立目录，并执行 `sbatch job.sh`。
 
-### 带附件提交（Terminal CLI）
+### 带附件提交（TUI）
 
 如果提交时没有显式指定文件路径，Agent 会询问是否上传附件。用户可提供本地文件路径，Agent 会将其作为附件一并上传到远端作业目录。
 
@@ -716,7 +691,7 @@ $HPC_LOCAL_VASP_JOBS_OUTPUT_DIR/<job-folder>/analysis/
 
 ### Claude Code 调用
 
-报告生成通过 `modules/claude_code_reporter.py` 调用 `claude` CLI：
+报告生成通过 `modules/vasp/claude_code_reporter.py` 调用 `claude` CLI：
 
 * 加载 `skills/vasp_report/SKILL.md` 作为分析指令
 * 该 Skill 严格约束 Claude Code 只使用 `analysis/report_context.md`
@@ -777,52 +752,9 @@ $HPC_LOCAL_VASP_JOBS_OUTPUT_DIR/<job-folder>/analysis/
 
 ---
 
-## 18. Web UI
+## 18. TUI 操作覆盖
 
-### 访问
-
-启动后在浏览器中打开：
-
-```text
-http://127.0.0.1:8000
-```
-
-### 界面
-
-* **左侧边栏**：品牌 Logo + "New Chat" 按钮
-* **中央聊天区**：用户和助手消息气泡
-* **底部输入区**：文本输入框 + 文件上传按钮（`+`）
-
-### 支持的操作
-
-* 聊天式文本输入
-* Intent 检测结果展示
-* 普通作业附件上传（多文件，总大小限制 100 MB）
-* 普通作业提交预览和确认/取消
-* 作业状态、输出、错误日志查询
-* 远端普通作业编号列表和清理确认
-* VASP 固定目录提交预览和确认
-* 远端 VASP 作业列表和清理确认
-* 清理确认状态机（含 "确认清理全部" 双重确认）
-
-### 文件上传说明
-
-* 上传按钮只用于普通 Slurm 作业。
-* Web 附件不会用于 VASP 提交（VASP 走固定目录）。
-* 上传总大小限制为 100 MB（`python-multipart` 要求）。
-* 支持 JSON 和 multipart/form-data 两种请求格式。
-
-### 示例
-
-```text
-帮我提交一个作业运行 python train.py，1核，5分钟
-```
-
-点击输入框左侧 `+` 上传 `train.py`，发送后回复：
-
-```text
-确认提交
-```
+Textual TUI 覆盖聊天式文本输入、Intent 检测结果展示、普通作业提交预览和确认/取消、作业状态/输出/错误日志查询、远端普通作业编号列表和清理确认、VASP 固定目录提交预览和确认、远端 VASP 作业列表和清理确认，以及清理确认状态机（含 "确认清理全部" 双重确认）。
 
 ---
 
@@ -936,7 +868,7 @@ GPU 作业怎么提交
 ### SSH 连接检查
 
 ```bash
-.venv/bin/python tests/test_ssh.py
+.venv/bin/python tests/slurm/test_ssh.py
 ```
 
 ### 真实超算工作流检查
@@ -1028,14 +960,12 @@ sbatch: error: Batch job submission failed: Invalid partition name specified
 ## 23. 当前限制
 
 * 提交和清理操作需要用户确认。
-* Web 附件上传只用于普通 Slurm 作业。
-* Web 附件总大小限制为 100 MB。
 * 远端清理只作用于普通作业目录 `HPC_REMOTE_WORKDIR` 或 VASP 作业目录。
 * VASP 提交前必须手动准备完整本地目录（含 `INCAR`、`KPOINTS`、`POSCAR`、`POTCAR`）。
 * Agent 不会生成真实 `POTCAR`，`POTCAR` 需要来自有权限使用的 VASP 赝势库。
 * TUI 监控只加入运行中或排队中的 Job。
 * 当前不做 GPU 利用率实时监控。
-* 聊天历史不持久化（Terminal CLI 有 readline 历史文件，但不保存对话上下文）。
+* 聊天历史不持久化。
 * Claude Code 报告生成需要本地安装 `claude` 命令行工具并配置相应的 API Key。
 
 ---
@@ -1048,20 +978,6 @@ sbatch: error: Batch job submission failed: Invalid partition name specified
 
 ```text
 Textual 依赖尚未安装
-```
-
-处理：
-
-```bash
-uv sync
-```
-
-### Web 文件上传不可用
-
-错误信息：
-
-```text
-python-multipart is required
 ```
 
 处理：
@@ -1107,10 +1023,3 @@ ssh -i /path/to/your/private/key -l 'your-hpc-username' your-hpc-host
 * 检查 API Key 是否正确配置（Claude Code 通过环境变量获取）。
 * 检查 `HPC_CLAUDE_CODE_TIMEOUT_SECONDS` 是否足够（OUTCAR 较大时可能需要更长超时）。
 * 确认 `analysis/report_context.md` 已通过同步步骤生成。
-
-### Web 模式无法访问
-
-* 确认服务已启动（终端显示 uvicorn 日志）。
-* 检查端口 8000 是否被占用。
-* 浏览器通过 `http://127.0.0.1:8000` 访问。
-* 如果是远程服务器，需要端口转发或使用 `--host 0.0.0.0`。

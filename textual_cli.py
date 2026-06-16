@@ -1,167 +1,36 @@
 import logging
 import re
-import shutil
-import subprocess
-import base64
-import time
 from pathlib import Path
 
 import jieba
 
+from modules.tui.tui_helpers import (
+    _copy_to_clipboard,
+    _extract_local_file_candidates,
+    _extract_local_file_paths,
+    _has_explicit_run_command,
+    _infer_run_command,
+    _is_vasp_long_workflow_request,
+    _uploaded_files_from_paths,
+)
+from modules.tui.tui_formatters import format_monitor_snapshot
+from modules.tui.tui_monitor import (
+    active_monitor_job_id,
+    active_refresh_job_ids,
+    analyzing_workflow_job_ids,
+    is_cancel_monitor_request,
+    is_monitor_request,
+    remove_monitored_job_state,
+)
+from modules.tui.tui_vasp_workflow import (
+    apply_vasp_workflow_analysis_result,
+    create_vasp_workflow,
+    is_vasp_workflow_waiting_for_terminal,
+    mark_vasp_workflow_analyzing,
+    update_vasp_workflow_from_snapshot,
+)
 
 jieba.setLogLevel(logging.ERROR)
-
-
-def _extract_local_file_candidates(text: str):
-    candidates = re.findall(
-        r"(?:~|/|\./|\../)?[A-Za-z0-9_./-]+\.(?:py|sh|slurm|sbatch)",
-        text,
-    )
-    cleaned_candidates = []
-
-    for candidate in candidates:
-        cleaned = candidate.strip("`'\"，,。；;:：")
-
-        if cleaned not in cleaned_candidates:
-            cleaned_candidates.append(cleaned)
-
-    return cleaned_candidates
-
-
-def _extract_local_file_paths(text: str):
-    paths = []
-
-    for candidate in _extract_local_file_candidates(text):
-        path = Path(candidate).expanduser()
-
-        if path.is_file():
-            paths.append(path)
-
-    return paths
-
-
-def _has_explicit_run_command(text: str):
-    return bool(
-        re.search(r"\bpython(?:3)?\s+\S+\.py\b", text)
-        or re.search(r"\bbash\s+\S+\.sh\b", text)
-        or re.search(r"\./[A-Za-z0-9_./-]+", text)
-    )
-
-
-def _uploaded_files_from_paths(paths):
-    return [
-        {
-            "name": path.name,
-            "content": path.read_bytes(),
-        }
-        for path in paths
-    ]
-
-
-def _infer_run_command(uploaded_files):
-    for item in uploaded_files:
-        name = item["name"]
-
-        if name.endswith(".py"):
-            return f"python {name}"
-
-    for item in uploaded_files:
-        name = item["name"]
-
-        if name.endswith(".sh"):
-            return f"bash {name}"
-
-    return None
-
-
-def _copy_to_clipboard(text: str):
-    errors = []
-
-    try:
-        import pyperclip
-
-        pyperclip.copy(text)
-        return True, ""
-    except Exception as error:
-        errors.append(f"pyperclip: {type(error).__name__}: {error}")
-
-    powershell = shutil.which("powershell.exe")
-
-    if powershell:
-        try:
-            encoded_text = base64.b64encode(text.encode("utf-16-le")).decode("ascii")
-            command = [
-                powershell,
-                "-NoProfile",
-                "-Command",
-                (
-                    "Add-Type -AssemblyName System.Windows.Forms; "
-                    f"[Windows.Forms.Clipboard]::SetText([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('{encoded_text}')))"
-                ),
-            ]
-            subprocess.run(command, check=True, timeout=5)
-            return True, ""
-        except Exception as error:
-            errors.append(f"powershell.exe: {type(error).__name__}: {error}")
-
-    commands = [
-        ["wl-copy"],
-        ["xclip", "-selection", "clipboard"],
-        ["xsel", "--clipboard", "--input"],
-        ["pbcopy"],
-        ["clip"],
-        ["clip.exe"],
-    ]
-
-    for command in commands:
-        if not shutil.which(command[0]):
-            continue
-
-        try:
-            subprocess.run(
-                command,
-                input=text,
-                text=True,
-                check=True,
-                timeout=3,
-            )
-            return True, ""
-        except Exception as error:
-            errors.append(f"{command[0]}: {type(error).__name__}: {error}")
-
-    return False, "; ".join(errors) or "没有找到 wl-copy/xclip/xsel/pbcopy/clip.exe 等剪贴板命令"
-
-
-def _compact_remote_dir(remote_workdir: str):
-    if not remote_workdir or remote_workdir == "-":
-        return "-"
-
-    return Path(remote_workdir).name or remote_workdir
-
-
-def _last_nonempty_lines(text: str, limit: int = 5):
-    lines = [line for line in text.splitlines() if line.strip()]
-
-    if not lines:
-        return ""
-
-    return "\n".join(lines[-limit:])
-
-
-def _is_vasp_long_workflow_request(text: str):
-    normalized = text.lower().replace(" ", "")
-    workflow_keywords = [
-        "运行并分析",
-        "提交并分析",
-        "跑完分析",
-        "完成后分析",
-        "完成后生成报告",
-        "自动分析",
-        "一键分析",
-        "runandanalyze",
-        "submitandanalyze",
-    ]
-    return any(keyword in normalized for keyword in workflow_keywords)
 
 
 def run_textual_cli():
@@ -179,46 +48,46 @@ def run_textual_cli():
         )
         return
 
-    from modules.error_diagnoser import ErrorDiagnoser
-    from modules.job_query import (
+    from modules.knowledge.error_diagnoser import ErrorDiagnoser
+    from modules.core.confirmed_actions import execute_confirmed_action
+    from modules.slurm.job_query import (
         analyze_vasp_job,
-        execute_cleanup_remote_jobs,
         extract_job_id,
-        generate_vasp_report,
-        prepare_cleanup_all_remote_vasp_jobs,
-        prepare_cleanup_all_remote_jobs,
-        prepare_cleanup_remote_vasp_job,
-        prepare_cleanup_remote_job,
         query_job_error,
         query_job_output,
         query_job_status,
-        query_remote_agent_jobs,
-        query_remote_vasp_jobs,
-        sync_vasp_job_output,
     )
-    from modules.job_submitter import (
-        prepare_submit_script,
-        prepare_vasp_submit_script,
-        register_existing_vasp_job_from_text,
-        submit_prepared_script,
-        submit_prepared_vasp_script,
+    from modules.core.conversation_state import GLOBAL_CONVERSATION_STATE
+    from modules.core.agent_runtime import (
+        can_answer_intent,
+        can_preview_cleanup_intent,
+        execute_answer_intent,
+        execute_cleanup_preview,
+        execute_submit_preview,
     )
-    from modules.knowledge_base import ask_llm, load_documents, retrieve
-    from modules.router import detect_intent
-    from modules.slurm_assistant import (
+    from modules.knowledge.knowledge_base import load_documents
+    from modules.core.llm_fallback import handle_llm_fallback
+    from modules.routing.router import (
+        analyze_plan,
+        can_execute_plan_all,
+        detect_intent,
+        format_route_plan,
+        get_clarification,
+        parse_plan_step_selection,
+        serialize_route_plan,
+    )
+    from modules.routing.tool_dispatcher import dispatch_tool_request
+    from modules.slurm.slurm_assistant import (
         build_resource_recommendation_text,
         extract_command,
-        generate_sbatch_script,
-        suggest_slurm_parameters,
     )
-    from modules.slurm_tools import (
+    from modules.slurm.slurm_tools import (
         HOST,
         REMOTE_WORKDIR,
         USERNAME,
         get_job_monitor_snapshot,
         validate_monitorable_job,
     )
-    from modules.vasp_assistant import generate_vasp_sbatch_script
 
     class HPCAgentTUI(App):
         CSS = """
@@ -379,26 +248,19 @@ def run_textual_cli():
                 self.action_next_monitor()
 
         def _is_monitor_request(self, text: str):
-            normalized = text.lower().replace(" ", "")
-            return (
-                ("监控" in normalized or "monitor" in normalized)
-                and "取消监控" not in normalized
-                and "cancelmonitor" not in normalized
-                and extract_job_id(text)
-            )
+            return is_monitor_request(text, extract_job_id(text))
 
         def _is_cancel_monitor_request(self, text: str):
-            normalized = text.lower().replace(" ", "")
-            return (
-                ("取消监控" in normalized or "cancelmonitor" in normalized)
-                and extract_job_id(text)
-            )
+            return is_cancel_monitor_request(text, extract_job_id(text))
 
         def _select_latest_job_from_answer(self, answer: str):
             matches = re.findall(r"Job ID:\s*(\d+)", answer)
 
-            if matches and not self.monitored_job_ids:
-                self.current_job_id = matches[-1]
+            if matches:
+                GLOBAL_CONVERSATION_STATE.record_job(matches[-1], metadata={"source": "ui_select"})
+
+                if not self.monitored_job_ids:
+                    self.current_job_id = matches[-1]
 
         def on_input_submitted(self, event: Input.Submitted):
             question = event.value.strip()
@@ -408,31 +270,34 @@ def run_textual_cli():
                 return
 
             self.history.append(question)
+            GLOBAL_CONVERSATION_STATE.remember_turn("user", question)
             self._write_user(question)
 
-            if self.pending_submission and question in {"确认", "确认提交", "yes", "y", "submit"}:
+            if self.pending_submission and GLOBAL_CONVERSATION_STATE.is_confirmation(question):
                 self._submit_pending()
+                GLOBAL_CONVERSATION_STATE.clear_pending_action("submit")
                 return
 
-            if self.pending_submission and question in {"取消", "取消提交", "no", "n", "cancel"}:
+            if self.pending_submission and GLOBAL_CONVERSATION_STATE.is_cancellation(question):
                 self.pending_submission = None
+                GLOBAL_CONVERSATION_STATE.clear_pending_action("submit")
                 self._write_system("已取消提交。")
                 return
 
-            if self.pending_cleanup and question == "确认清理":
-                answer = execute_cleanup_remote_jobs(self.pending_cleanup["targets"])
+            if self.pending_cleanup and GLOBAL_CONVERSATION_STATE.is_confirmation(question):
+                action_result = execute_confirmed_action(
+                    "cleanup",
+                    self.pending_cleanup,
+                    state=GLOBAL_CONVERSATION_STATE,
+                )
                 self.pending_cleanup = None
-                self._write_assistant(answer)
+                GLOBAL_CONVERSATION_STATE.clear_pending_action("cleanup")
+                self._write_assistant(action_result.message)
                 return
 
-            if self.pending_cleanup and question == "确认清理全部":
-                answer = execute_cleanup_remote_jobs(self.pending_cleanup["targets"])
+            if self.pending_cleanup and GLOBAL_CONVERSATION_STATE.is_cancellation(question):
                 self.pending_cleanup = None
-                self._write_assistant(answer)
-                return
-
-            if self.pending_cleanup and question in {"取消", "取消清理", "no", "n", "cancel"}:
-                self.pending_cleanup = None
+                GLOBAL_CONVERSATION_STATE.clear_pending_action("cleanup")
                 self._write_system("已取消清理。")
                 return
 
@@ -458,7 +323,24 @@ def run_textual_cli():
             self.call_from_thread(self._apply_question_result, result)
 
         def _build_question_result(self, question: str):
-            intent = detect_intent(question)
+            selected_step = parse_plan_step_selection(question)
+            if selected_step is not None:
+                if selected_step == "all":
+                    return self._execute_pending_plan_all()
+
+                plan_step = GLOBAL_CONVERSATION_STATE.get_route_plan_step(selected_step)
+                if not plan_step:
+                    return {
+                        "answer": "当前没有可确认的多步骤计划，或步骤编号不存在。请先发送一个多步骤请求。",
+                        "job_id": None,
+                        "live_log": None,
+                        "pending_submission": None,
+                        "pending_cleanup": None,
+                    }
+                question = plan_step.get("route_text") or plan_step.get("text") or question
+
+            plan = analyze_plan(question)
+            intent = "multi_step_plan" if plan is not None else detect_intent(question)
             result = {
                 "answer": "",
                 "job_id": None,
@@ -468,78 +350,137 @@ def run_textual_cli():
             }
 
             try:
-                if intent == "submit_job":
+                if intent == "multi_step_plan":
+                    GLOBAL_CONVERSATION_STATE.record_route_plan(serialize_route_plan(plan))
+                    answer = format_route_plan(plan)
+                elif intent == "clarify":
+                    answer = get_clarification(question)
+                elif intent == "submit_job":
                     answer, pending_submission = self._prepare_submit_job(question)
                     result["pending_submission"] = pending_submission
                 elif intent == "submit_vasp_job":
                     answer, pending_submission = self._prepare_submit_vasp_job(question)
                     result["pending_submission"] = pending_submission
-                elif intent == "register_vasp_job":
-                    answer = self._format_operation_result(register_existing_vasp_job_from_text(question))
-                elif intent == "sync_vasp_output":
-                    answer, job_id = self._query_job(question, sync_vasp_job_output, "VASP 输出同步")
-                    result["job_id"] = job_id
-                elif intent == "generate_vasp_report":
-                    answer = generate_vasp_report(question)
-                elif intent == "analyze_vasp_job":
-                    answer = analyze_vasp_job(question)
-                elif intent == "generate_sbatch":
-                    answer = generate_sbatch_script(question)
-                elif intent == "generate_vasp_job":
-                    answer = generate_vasp_sbatch_script(question)
-                elif intent == "job_status":
-                    answer, job_id = self._query_job(question, query_job_status, "状态")
-                    result["job_id"] = job_id
-                elif intent == "job_output":
-                    answer, job_id = self._query_job(question, query_job_output, "输出")
-                    result["job_id"] = job_id
-                    result["live_log"] = answer[-3000:]
-                elif intent == "job_error":
-                    answer, job_id = self._query_job(question, query_job_error, "错误日志")
-                    result["job_id"] = job_id
-                    result["live_log"] = answer[-3000:]
-                elif intent == "list_remote_jobs":
-                    answer = query_remote_agent_jobs()
-                elif intent == "list_remote_vasp_jobs":
-                    answer = query_remote_vasp_jobs()
-                elif intent == "cleanup_remote_job":
-                    answer, pending_cleanup = self._prepare_cleanup(question)
-                    result["pending_cleanup"] = pending_cleanup
-                elif intent == "cleanup_all_remote_jobs":
-                    answer, pending_cleanup = self._prepare_cleanup_all()
-                    result["pending_cleanup"] = pending_cleanup
-                elif intent == "cleanup_remote_vasp_job":
-                    prepared = prepare_cleanup_remote_vasp_job(question)
-                    answer = prepared["message"]
-                    result["pending_cleanup"] = prepared if prepared["ready"] else None
-                elif intent == "cleanup_all_remote_vasp_jobs":
-                    prepared = prepare_cleanup_all_remote_vasp_jobs(question)
-                    answer = prepared["message"]
-                    result["pending_cleanup"] = prepared if prepared["ready"] else None
-                elif intent == "suggest_params":
-                    answer = suggest_slurm_parameters(question)
-                elif intent == "diagnose_error":
-                    answer = self.diagnoser.format_results(self.diagnoser.diagnose(question))
-                elif intent == "troubleshoot_job":
-                    docs = retrieve(question, self.documents, self.sources)
-                    answer = ask_llm(question, docs)
+                elif intent == "generate_test_file":
+                    answer = dispatch_tool_request(
+                        question,
+                        intent,
+                        state=GLOBAL_CONVERSATION_STATE,
+                    ).message
+                elif can_answer_intent(intent) and intent != "rag_qa":
+                    runtime_result = execute_answer_intent(
+                        question,
+                        intent,
+                        documents=self.documents,
+                        sources=self.sources,
+                        diagnoser=self.diagnoser,
+                        state=GLOBAL_CONVERSATION_STATE,
+                        current_job_id=self.current_job_id,
+                    )
+                    answer = runtime_result.answer
+                    result["job_id"] = runtime_result.data.get("job_id")
+                    result["live_log"] = runtime_result.data.get("live_log")
+                elif can_preview_cleanup_intent(intent):
+                    runtime_result = execute_cleanup_preview(
+                        question,
+                        intent,
+                        state=GLOBAL_CONVERSATION_STATE,
+                    )
+                    answer = runtime_result.answer
+                    result["pending_cleanup"] = runtime_result.data.get("pending_cleanup")
                 else:
-                    docs = retrieve(question, self.documents, self.sources)
-                    answer = ask_llm(question, docs)
+                    fallback = handle_llm_fallback(
+                        question,
+                        self.documents,
+                        self.sources,
+                        self.diagnoser,
+                        GLOBAL_CONVERSATION_STATE,
+                    )
+                    intent = fallback.intent
+                    answer = fallback.answer
             except Exception as error:
                 answer = f"请求处理失败: {type(error).__name__}: {error}"
 
             result["answer"] = answer
             return result
 
+        def _execute_pending_plan_all(self):
+            plan = GLOBAL_CONVERSATION_STATE.pending_route_plan
+            if not plan:
+                return {
+                    "answer": "当前没有可执行的多步骤计划。请先发送一个多步骤请求。",
+                    "job_id": None,
+                    "live_log": None,
+                    "pending_submission": None,
+                    "pending_cleanup": None,
+                }
+
+            if not can_execute_plan_all(plan):
+                return {
+                    "answer": (
+                        "这个计划里包含需要确认或补充信息的步骤，不能一次性全部执行。\n"
+                        "请改用“确认1”“确认2”逐步执行。"
+                    ),
+                    "job_id": None,
+                    "live_log": None,
+                    "pending_submission": None,
+                    "pending_cleanup": None,
+                }
+
+            answers = []
+            last_job_id = None
+            live_log = None
+            for step in plan.get("steps") or []:
+                step_text = step.get("route_text") or step.get("text") or ""
+                if not step_text:
+                    continue
+                step_result = self._build_question_result(step_text)
+                answers.append(
+                    f"第 {step.get('index')} 步: {step.get('intent')}\n"
+                    f"{step_result.get('answer', '')}"
+                )
+                last_job_id = step_result.get("job_id") or last_job_id
+                live_log = step_result.get("live_log") or live_log
+
+                if step_result.get("pending_submission") or step_result.get("pending_cleanup"):
+                    return {
+                        "answer": (
+                            "\n\n---\n\n".join(answers)
+                            + "\n\n后续步骤暂停：当前步骤产生了需要确认的操作。"
+                        ),
+                        "job_id": last_job_id,
+                        "live_log": live_log,
+                        "pending_submission": step_result.get("pending_submission"),
+                        "pending_cleanup": step_result.get("pending_cleanup"),
+                    }
+
+            return {
+                "answer": "\n\n---\n\n".join(answers),
+                "job_id": last_job_id,
+                "live_log": live_log,
+                "pending_submission": None,
+                "pending_cleanup": None,
+            }
+
         def _apply_question_result(self, result: dict):
             if result.get("pending_submission") is not None:
                 self.pending_submission = result["pending_submission"]
+                GLOBAL_CONVERSATION_STATE.record_pending_action(
+                    "submit",
+                    self.pending_submission,
+                    "作业提交预览，回复“确认执行”或“确认提交”后执行。",
+                )
 
             if result.get("pending_cleanup") is not None:
                 self.pending_cleanup = result["pending_cleanup"]
+                GLOBAL_CONVERSATION_STATE.record_pending_action(
+                    "cleanup",
+                    self.pending_cleanup,
+                    "远端清理预览，回复“确认执行”或“确认清理”后执行。",
+                )
 
             answer = result.get("answer", "")
+            GLOBAL_CONVERSATION_STATE.remember_turn("assistant", answer)
             self._write_assistant(answer)
             self._select_latest_job_from_answer(answer)
 
@@ -636,33 +577,17 @@ def run_textual_cli():
             if job_id not in self.monitored_job_ids:
                 return
 
-            removed_index = self.monitored_job_ids.index(job_id)
-            self.monitored_job_ids.remove(job_id)
-            self.monitor_snapshots.pop(job_id, None)
-            self.monitor_active.pop(job_id, None)
-
-            if not self.monitored_job_ids:
-                self.active_monitor_index = 0
-            elif self.active_monitor_index > removed_index:
-                self.active_monitor_index -= 1
-            elif self.active_monitor_index >= len(self.monitored_job_ids):
-                self.active_monitor_index = len(self.monitored_job_ids) - 1
+            self.active_monitor_index = remove_monitored_job_state(
+                self.monitored_job_ids,
+                self.monitor_snapshots,
+                self.monitor_active,
+                self.active_monitor_index,
+                job_id,
+            )
 
         def _schedule_monitor_refresh(self):
-            active_job_ids = [
-                job_id
-                for job_id in self.monitored_job_ids
-                if self.monitor_active.get(job_id, True)
-            ]
-
-            # During the analyzing phase, the Slurm job is done (monitor
-            # inactive) but we still need to re-render the panel so the live
-            # analysis timer ticks — no need to query HPC again.
-            analyzing_job_ids = [
-                job_id
-                for job_id in self.monitored_job_ids
-                if self.vasp_workflows.get(str(job_id), {}).get("state") == "analyzing"
-            ]
+            active_job_ids = active_refresh_job_ids(self.monitored_job_ids, self.monitor_active)
+            analyzing_job_ids = analyzing_workflow_job_ids(self.monitored_job_ids, self.vasp_workflows)
 
             if not active_job_ids and analyzing_job_ids:
                 self._render_monitor_panel()
@@ -757,57 +682,27 @@ def run_textual_cli():
 
         def _start_vasp_workflow(self, job_id: str):
             job_id = str(job_id)
-            now = time.time()
-            self.vasp_workflows[job_id] = {
-                "job_id": job_id,
-                "kind": "vasp",
-                "state": "running",
-                "message": "VASP 作业运行中，正在持续监控 Slurm 状态和 VASP 输出。",
-                "started_at": now,
-                "updated_at": now,
-                "analysis_started": False,
-                "analysis_started_at": None,
-                "finished_at": None,
-                "analysis_answer": "",
-            }
+            self.vasp_workflows[job_id] = create_vasp_workflow(job_id)
             self._write_system(
                 f"已启动 VASP 长流程 Job {job_id}：监控 -> 同步输出 -> Claude Code 报告。"
             )
             self._start_monitoring(job_id)
 
         def _is_vasp_workflow_waiting_for_terminal(self, job_id: str):
-            workflow = self.vasp_workflows.get(str(job_id))
-            return bool(workflow and workflow.get("state") in {"monitoring", "running"})
+            return is_vasp_workflow_waiting_for_terminal(self.vasp_workflows, job_id)
 
         def _update_vasp_workflow_from_snapshot(self, snapshot: dict):
-            workflow = self.vasp_workflows.get(str(snapshot["job_id"]))
-
-            if not workflow or workflow.get("state") not in {"monitoring", "running"}:
-                return
-
-            diagnosis = snapshot.get("vasp_diagnosis") or {}
-            if diagnosis.get("is_vasp") and diagnosis.get("severity") in {"error", "warning"}:
-                workflow["message"] = (
-                    f"监控中，VASP 诊断: {diagnosis.get('severity')} - "
-                    f"{diagnosis.get('summary')}"
-                )
-                workflow["updated_at"] = time.time()
+            update_vasp_workflow_from_snapshot(self.vasp_workflows, snapshot)
 
         def _trigger_vasp_workflow_analysis(self, job_id: str, snapshot: dict):
-            workflow = self.vasp_workflows.get(str(job_id))
-
-            if not workflow or workflow.get("analysis_started"):
+            terminal_state = mark_vasp_workflow_analyzing(
+                self.vasp_workflows,
+                job_id,
+                snapshot,
+            )
+            if terminal_state is None:
                 return
 
-            now = time.time()
-            workflow["state"] = "analyzing"
-            workflow["analysis_started"] = True
-            workflow["analysis_started_at"] = now
-            workflow["updated_at"] = now
-            terminal_state = snapshot.get("state") or snapshot.get("accounting_state") or "UNKNOWN"
-            workflow["message"] = (
-                f"Slurm 状态为 {terminal_state}，正在同步远端输出并生成 Claude Code 报告。"
-            )
             self._write_system(
                 f"Job {job_id} 已到达终态 {terminal_state}，开始 VASP 自动分析。"
             )
@@ -840,191 +735,27 @@ def run_textual_cli():
 
         def _apply_vasp_workflow_analysis_result(self, result: dict):
             job_id = str(result["job_id"])
-            workflow = self.vasp_workflows.get(job_id)
+            workflow = apply_vasp_workflow_analysis_result(self.vasp_workflows, result)
 
             if not workflow:
                 return
 
-            finished_at = time.time()
-            workflow["updated_at"] = finished_at
-            workflow["finished_at"] = finished_at
-
             if result["success"]:
-                workflow["state"] = "completed"
-                workflow["message"] = "自动分析完成，报告已写入本地 analysis 目录。"
-                workflow["analysis_answer"] = result["answer"]
                 self._write_assistant(
                     f"VASP 长流程 Job {job_id} 已完成。\n\n{result['answer']}"
                 )
             else:
-                workflow["state"] = "failed"
-                workflow["message"] = "自动分析未完成，请查看对话区错误信息。"
-                details = result["answer"] or result["error"]
-                workflow["analysis_answer"] = details
                 self._write_assistant(
-                    f"VASP 长流程 Job {job_id} 自动分析失败。\n\n{details}"
+                    f"VASP 长流程 Job {job_id} 自动分析失败。\n\n{workflow['analysis_answer']}"
                 )
 
             self._render_monitor_panel()
 
         def _active_monitor_job_id(self):
-            if not self.monitored_job_ids:
-                return None
-
-            self.active_monitor_index %= len(self.monitored_job_ids)
-            return self.monitored_job_ids[self.active_monitor_index]
-
-        def _format_monitor_snapshot(self, snapshot: dict, position: int, total: int):
-            remote_workdir = snapshot.get("remote_workdir") or "-"
-            squeue_error = snapshot.get("squeue_error", "").strip()
-            sacct_error = snapshot.get("sacct_error", "").strip()
-            state = snapshot.get("state") or "UNKNOWN"
-            elapsed = snapshot.get("elapsed") or "-"
-
-            # For VASP long-workflow jobs, override State/Elapsed so the
-            # monitor shows workflow progress (analyzing / completed) instead
-            # of the frozen Slurm terminal state.  Plain submit-and-run jobs
-            # without a workflow keep the original Slurm state and elapsed.
-            wf = self.vasp_workflows.get(str(snapshot["job_id"]))
-            if wf:
-                wf_state = wf.get("state", "unknown")
-                if wf_state == "analyzing":
-                    state = "ANALYZING"
-                    analysis_started = wf.get("analysis_started_at") or wf.get("started_at", time.time())
-                    analysis_elapsed = max(0, int(time.time() - analysis_started))
-                    elapsed = f"{analysis_elapsed}s"
-                elif wf_state == "completed":
-                    state = "COMPLETED"
-                    total_elapsed = max(0, int((wf.get("finished_at") or time.time()) - (wf.get("started_at") or time.time())))
-                    elapsed = f"{total_elapsed}s"
-                elif wf_state == "failed":
-                    state = "FAILED"
-                    total_elapsed = max(0, int((wf.get("finished_at") or time.time()) - (wf.get("started_at") or time.time())))
-                    elapsed = f"{total_elapsed}s"
-
-            failure_note = ""
-            if snapshot.get("failure_detected") and not snapshot.get("is_completed"):
-                failure_note = (
-                    "\n\n检测到失败/异常信号。可输入："
-                    f"\n读取 {snapshot['job_id']} 的错误日志"
-                    "\n或粘贴错误日志让 Agent 诊断。"
-                )
-
-            error_note = ""
-            if squeue_error:
-                error_note += f"\n\nsqueue 错误:\n{squeue_error}"
-            if sacct_error:
-                error_note += f"\n\nsacct 错误:\n{sacct_error}"
-
-            log_text = snapshot.get("log_output", "").strip()
-            log_error = snapshot.get("log_error", "").strip()
-
-            if log_error:
-                log_text += f"\n\n读取日志错误:\n{log_error}"
-
-            compact_dir = _compact_remote_dir(remote_workdir)
-            output_preview = _last_nonempty_lines(log_text, limit=5) or "还没有找到 stdout/stderr 日志。"
-            active_text = self._format_monitor_activity(snapshot["job_id"])
-            workflow_section = self._format_workflow_status(snapshot["job_id"])
-            vasp_section = self._format_vasp_diagnosis(snapshot.get("vasp_diagnosis"))
-            return (
-                f"Monitor: {position}/{total}  {active_text}\n"
-                f"Job: {snapshot['job_id']}\n"
-                f"State: {state}\n"
-                f"Elapsed: {elapsed}\n"
-                f"Dir: {compact_dir}"
-                f"{workflow_section}"
-                f"{vasp_section}"
-                f"{failure_note}"
-                f"{error_note}"
-                f"\n\nLast Output:\n{output_preview}"
-            )
-
-        def _format_monitor_activity(self, job_id: str):
-            workflow = self.vasp_workflows.get(str(job_id))
-
-            if workflow:
-                state = workflow.get("state")
-                # For completed/failed workflows, the monitor is stopped but
-                # we still show the terminal workflow state.
-                if state in {"completed", "failed"}:
-                    return state
-                # "monitoring" and "running" both mean the Slurm job is live.
-                if state in {"monitoring", "running", "analyzing"}:
-                    return "running" if state == "monitoring" else state
-
-            return "active" if self.monitor_active.get(str(job_id), True) else "stopped"
-
-        def _format_workflow_status(self, job_id: str):
-            workflow = self.vasp_workflows.get(str(job_id))
-
-            if not workflow:
-                return ""
-
-            state = workflow.get("state", "unknown")
-            display_state = "running" if state == "monitoring" else state
-            message = workflow.get("message") or "-"
-            now = time.time()
-            started_at = workflow.get("started_at", now)
-            finished_at = workflow.get("finished_at")
-            analysis_started_at = workflow.get("analysis_started_at")
-
-            # Total elapsed: live until finished, then frozen at finish time.
-            if finished_at:
-                total_elapsed = max(0, int(finished_at - started_at))
-            else:
-                total_elapsed = max(0, int(now - started_at))
-
-            lines = [
-                "",
-                "",
-                f"Workflow: {display_state}",
-                message,
-                f"Workflow Elapsed: {total_elapsed}s",
-            ]
-
-            if display_state == "analyzing" and analysis_started_at:
-                analysis_elapsed = max(0, int(now - analysis_started_at))
-                lines.append(f"Analysis Elapsed: {analysis_elapsed}s")
-
-            if display_state in {"completed", "failed"}:
-                lines.append("Workflow Timer: stopped")
-
-            return "\n".join(lines)
-
-        def _format_vasp_diagnosis(self, diagnosis: dict | None):
-            if not diagnosis or not diagnosis.get("is_vasp"):
-                return ""
-
-            severity = (diagnosis.get("severity") or "unknown").upper()
-            summary = diagnosis.get("summary") or "暂无 VASP 诊断结论。"
-            issues = diagnosis.get("issues") or []
-            evidence = diagnosis.get("evidence") or []
-            recommendations = diagnosis.get("recommendations") or []
-
-            lines = [
-                "",
-                "",
-                f"VASP Diagnosis: {severity}",
-                summary,
-            ]
-
-            if issues:
-                lines.append("Issues:")
-                for issue in issues[:3]:
-                    lines.append(f"- {issue.get('summary')}")
-
-            if evidence:
-                lines.append("Evidence:")
-                for item in evidence[:4]:
-                    lines.append(f"- {item}")
-
-            if recommendations:
-                lines.append("Advice:")
-                for item in recommendations[:2]:
-                    lines.append(f"- {item}")
-
-            return "\n".join(lines)
+            job_id = active_monitor_job_id(self.monitored_job_ids, self.active_monitor_index)
+            if job_id is not None:
+                self.active_monitor_index %= len(self.monitored_job_ids)
+            return job_id
 
         def _render_monitor_panel(self):
             job_id = self._active_monitor_job_id()
@@ -1038,10 +769,12 @@ def run_textual_cli():
             snapshot = self.monitor_snapshots.get(job_id)
 
             if snapshot:
-                text = self._format_monitor_snapshot(
+                text = format_monitor_snapshot(
                     snapshot,
                     self.active_monitor_index + 1,
                     len(self.monitored_job_ids),
+                    self.monitor_active,
+                    self.vasp_workflows,
                 )
             else:
                 text = (
@@ -1092,59 +825,38 @@ def run_textual_cli():
                 if recommendation_text:
                     submit_request = f"{submit_request}\n{recommendation_text}"
 
-            prepared = prepare_submit_script(submit_request)
+            runtime_result = execute_submit_preview(
+                submit_request,
+                "submit_job",
+                state=GLOBAL_CONVERSATION_STATE,
+                uploaded_files=uploaded_files,
+                source_text=question,
+                inferred_command=inferred_command,
+                recommendation_details=recommendation_details,
+                pending_kind="slurm",
+                confirmation_text="\n\n回复“确认提交”或按 Ctrl+S 提交；回复“取消提交”或按 Esc 取消。",
+            )
+            prepared = runtime_result.data["prepared"]
 
             if not prepared["ready"]:
-                return prepared["message"], None
+                return runtime_result.answer, None
 
-            pending_submission = {
-                "kind": "slurm",
-                "script": prepared["script"],
-                "uploaded_files": uploaded_files,
-            }
-
-            uploaded_note = ""
-            if uploaded_files:
-                uploaded_note = "\n\n将上传附件:\n" + "\n".join(
-                    f"- {item['name']} ({len(item['content'])} bytes)"
-                    for item in uploaded_files
-                )
-
-            command_note = f"\n\n推断运行命令: {inferred_command}" if inferred_command else ""
-            resource_note = ""
-            if recommendation_details:
-                resource_note = "\n\nAgent 推荐资源:\n" + "\n".join(
-                    f"- {item}" for item in recommendation_details
-                )
-            answer = (
-                f"{prepared['message']}{command_note}{resource_note}{uploaded_note}\n\n"
-                "回复“确认提交”或按 Ctrl+S 提交；回复“取消提交”或按 Esc 取消。"
-            )
-            return answer, pending_submission
+            return runtime_result.answer, runtime_result.data["pending_submission"]
 
         def _prepare_submit_vasp_job(self, question: str):
-            prepared = prepare_vasp_submit_script(question)
+            runtime_result = execute_submit_preview(
+                question,
+                "submit_vasp_job",
+                state=GLOBAL_CONVERSATION_STATE,
+                auto_analyze=_is_vasp_long_workflow_request(question),
+                confirmation_text="\n\n回复“确认提交”或按 Ctrl+S 提交；回复“取消提交”或按 Esc 取消。",
+            )
+            prepared = runtime_result.data["prepared"]
 
             if not prepared["ready"]:
-                return prepared["message"], None
+                return runtime_result.answer, None
 
-            pending_submission = {
-                "kind": "vasp",
-                "script": prepared["script"],
-                "source_text": question,
-                "uploaded_files": [],
-                "auto_analyze": _is_vasp_long_workflow_request(question),
-            }
-            workflow_note = ""
-            if pending_submission["auto_analyze"]:
-                workflow_note = (
-                    "\n\n检测到“运行并分析”请求。确认提交后将自动进入长流程："
-                    "\n监控 Slurm/VASP 输出 -> 作业结束后同步输出 -> 调用 Claude Code 生成报告。"
-                )
-            return (
-                f"{prepared['message']}{workflow_note}\n\n"
-                "回复“确认提交”或按 Ctrl+S 提交；回复“取消提交”或按 Esc 取消。"
-            ), pending_submission
+            return runtime_result.answer, runtime_result.data["pending_submission"]
 
         def _submit_pending(self):
             if not self.pending_submission:
@@ -1157,16 +869,25 @@ def run_textual_cli():
 
             try:
                 if pending["kind"] == "vasp":
-                    result = submit_prepared_vasp_script(
-                        pending["script"],
-                        pending.get("source_text", ""),
+                    action_result = execute_confirmed_action(
+                        "submit_vasp",
+                        {
+                            "script": pending["script"],
+                            "source_text": pending.get("source_text", ""),
+                        },
+                        state=GLOBAL_CONVERSATION_STATE,
                     )
                 else:
-                    result = submit_prepared_script(
-                        pending["script"],
-                        uploaded_files=pending.get("uploaded_files", []),
+                    action_result = execute_confirmed_action(
+                        "submit",
+                        {
+                            "script": pending["script"],
+                            "uploaded_files": pending.get("uploaded_files", []),
+                        },
+                        state=GLOBAL_CONVERSATION_STATE,
                     )
-                answer = result["answer"]
+                result = action_result.raw or {}
+                answer = action_result.message
             except Exception as error:
                 answer = f"作业提交失败: {type(error).__name__}: {error}"
 
@@ -1182,32 +903,31 @@ def run_textual_cli():
                 self._start_vasp_workflow(result["job_id"])
 
         def _query_job(self, question: str, func, label: str):
+            intent_by_func = {
+                query_job_status: "job_status",
+                query_job_output: "job_output",
+                query_job_error: "job_error",
+            }
+            intent = intent_by_func.get(func)
+
+            if intent:
+                if self.current_job_id and not extract_job_id(question):
+                    GLOBAL_CONVERSATION_STATE.record_job(self.current_job_id, metadata={"source": "ui_context"})
+
+                result = dispatch_tool_request(
+                    question,
+                    intent,
+                    state=GLOBAL_CONVERSATION_STATE,
+                )
+                job_id = result.data.get("job_id") if result.success else None
+                return result.message, job_id
+
             job_id = extract_job_id(question) or self.current_job_id
 
             if not job_id:
                 return f"请提供 Job ID 后再查询{label}。", None
 
             return func(job_id), job_id
-
-        def _prepare_cleanup(self, question: str):
-            job_id = extract_job_id(question)
-
-            if not job_id:
-                return "请提供要清理的 Job ID，例如：清理远端作业 11817627 的文件。", None
-
-            prepared = prepare_cleanup_remote_job(job_id)
-            pending_cleanup = prepared if prepared["ready"] else None
-
-            return prepared["message"], pending_cleanup
-
-        def _prepare_cleanup_all(self):
-            prepared = prepare_cleanup_all_remote_jobs()
-            pending_cleanup = prepared if prepared["ready"] else None
-
-            return prepared["message"], pending_cleanup
-
-        def _format_operation_result(self, result: dict):
-            return result.get("message", str(result))
 
         def action_submit_pending(self):
             self._submit_pending()

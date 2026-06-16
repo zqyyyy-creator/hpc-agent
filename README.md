@@ -1,6 +1,6 @@
 # HPC Agent
 
-HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，提供三种交互界面：**Textual TUI**（终端全屏界面）、**Terminal CLI**（命令行对话）和 **FastAPI Web UI**（网页对话）。
+HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保留 **Textual TUI**（终端全屏界面）作为统一交互入口。
 
 核心功能覆盖 Slurm 知识问答、sbatch 脚本生成、普通作业提交/查询/清理、VASP 固定目录作业提交、VASP 输出同步与报告生成，以及基于 Claude Code 的 VASP 计算结果分析。
 
@@ -54,16 +54,9 @@ HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，提供三
 * 自动修复 sbatch 脚本（OOM → 提高内存、TIME → 延长时间、partition → 修正分区等）
 * Pending / 不运行作业排查
 
-### 三入口支持
+### TUI 交互入口
 * **Textual TUI**：全屏终端界面，含 Chat 面板和 Job Monitor 面板
-* **Terminal CLI**：Rich 命令行交互界面，支持 readline 历史
-* **FastAPI Web UI**：浏览器端聊天界面，支持附件上传、多文件上传
-
-### Web UI 特性
-* 单页聊天应用（sidebar + chat + input）
-* 多文件上传（普通作业附件，上限 100 MB）
 * 支持确认/取消状态机（提交确认、清理确认）
-* JSON / multipart/form-data 双协议
 
 ### Claude Code 集成
 * 通过 `skills/vasp_report/SKILL.md` 定义分析 Skill
@@ -96,25 +89,7 @@ uv sync
 python app.py
 ```
 
-启动后选择：
-
-```text
-1. Textual TUI 控制台模式
-2. Terminal CLI 对话模式
-3. Web 网页对话模式
-```
-
-Web 模式默认访问：
-
-```text
-http://127.0.0.1:8000
-```
-
-也可以直接启动 Web：
-
-```bash
-uvicorn web_app:app --reload
-```
+启动后会直接进入 Textual TUI。
 
 ---
 
@@ -400,28 +375,19 @@ q       退出
 
 ```text
 hpc-agent/
-├── app.py                    # 统一入口（三模式菜单）
-├── main.py                   # Terminal CLI 模式
+├── app.py                    # 统一入口，默认启动 Textual TUI
 ├── textual_cli.py            # Textual TUI 模式
-├── web_app.py                # FastAPI Web 服务器
 ├── pyproject.toml            # 项目配置和依赖
 ├── job.sh                    # 占位 Slurm 脚本
 ├── .env.example              # 环境变量模板
 │
 ├── modules/
-│   ├── router.py             # 自然语言意图检测
-│   ├── knowledge_base.py     # RAG 知识库（TF-IDF + LLM）
-│   ├── slurm_assistant.py    # Slurm sbatch 脚本生成和资源解析
-│   ├── slurm_tools.py        # SSH/Paramiko 远程操作（提交、查询、同步、清理）
-│   ├── error_diagnoser.py    # 错误日志模式匹配和诊断
-│   ├── job_submitter.py      # 作业提交准备和执行
-│   ├── job_query.py          # 作业状态/输出/错误查询和 VASP 分析编排
-│   ├── job_registry.py       # 本地 JSON 作业登记
-│   ├── vasp_assistant.py     # VASP sbatch 脚本生成
-│   ├── vasp_monitor.py       # VASP 远程文件探针和错误诊断
-│   ├── vasp_outcar_parser.py # OUTCAR/OSZICAR 确定性解析器
-│   ├── vasp_report_context.py# report_context.md 生成
-│   └── claude_code_reporter.py# Claude Code CLI 调用和报告生成
+│   ├── core/                 # Agent runtime、上下文、确认状态、通用 tool calling
+│   ├── routing/              # 自然语言意图检测、LLM intent fallback、工具分发
+│   ├── slurm/                # Slurm 脚本、提交、查询、清理、远端操作、测试作业
+│   ├── vasp/                 # VASP 脚本、监控、解析、报告上下文、Claude Code 报告
+│   ├── tui/                  # Textual TUI helper、formatter、monitor、workflow 状态
+│   └── knowledge/            # RAG 知识库和错误诊断
 │
 ├── data/
 │   ├── hpc_documents/        # RAG 知识库文档（6 个 txt）
@@ -442,19 +408,13 @@ hpc-agent/
 │   ├── generate_vasp_job/SKILL.md
 │   └── vasp_report/SKILL.md
 │
-├── static/
-│   └── index.html            # Web UI 前端
-│
 ├── tests/
 │   ├── run_all_checks.py     # 测试编排器
-│   ├── test_slurm_assistant.py
-│   ├── test_error_diagnoser_skill.py
-│   ├── test_vasp_assistant.py
-│   ├── test_vasp_monitor.py
-│   ├── test_hpc_workflow.py
-│   ├── test_ssh.py
-│   ├── test_submit.py
-│   └── test_tools.py
+│   ├── core/
+│   ├── routing/
+│   ├── slurm/
+│   ├── vasp/
+│   └── knowledge/
 │
 ├── README.md
 └── USER_GUIDE.md
