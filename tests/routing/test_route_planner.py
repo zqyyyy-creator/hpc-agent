@@ -39,7 +39,7 @@ def test_sequential_regular_workflow_becomes_plan():
 
 
 def test_single_vasp_submit_and_analyze_phrase_stays_single_intent():
-    request = "提交并分析 VASP 作业，路径为 /home/qyz/vasp-jobs-input/si_static_test"
+    request = "提交并分析 VASP 作业，路径为 /tmp/hpc-agent-test/vasp-jobs-input/si_static_test"
 
     assert analyze_plan(request) is None
     assert detect_intent(request) == "submit_vasp_job"

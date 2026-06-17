@@ -98,6 +98,47 @@ KEYWORDS: dict[str, list[str]] = {
         "查进度", "看进度",
         "jobstatus", "checkjob", "squeue",
     ],
+    "recent_jobs": [
+        "查看最近作业", "列出最近作业", "最近作业",
+        "我的最近作业", "查看我的作业", "列出我的作业",
+        "最近提交的作业", "最近跑的作业",
+    ],
+    "job_record_status": [
+        "查看本地作业记录状态", "本地作业记录状态",
+        "查看jobregistry状态", "jobregistry状态",
+        "本地记录有多少作业", "本地作业记录有多少",
+        "查看本地记录状态", "本地记录状态",
+    ],
+    "preview_archive_job_records": [
+        "预览归档本地作业记录", "预览归档作业记录",
+        "归档本地作业记录预览", "本地作业记录归档预览",
+        "只保留最近", "保留最近",
+    ],
+    "list_job_record_archives": [
+        "查看本地作业记录归档", "列出本地作业记录归档",
+        "查看归档文件", "列出归档文件", "本地归档有哪些",
+        "查看jobregistry归档", "jobregistry归档",
+        "查看归档记录", "列出归档记录", "归档记录",
+        "查看作业归档", "列出作业归档", "作业归档",
+        "有哪些归档记录", "归档有哪些",
+    ],
+    "preview_restore_job_records": [
+        "预览恢复本地作业记录归档", "恢复本地作业记录归档预览",
+        "预览恢复归档文件", "恢复最近一次本地作业记录归档",
+        "预览恢复最近一次", "恢复归档记录",
+        "预览恢复归档记录", "恢复作业归档",
+        "恢复本地归档", "恢复最近归档", "恢复最近一次归档",
+    ],
+    "job_detail": [
+        "查看作业详情", "作业详情", "任务详情",
+        "查看任务详情", "详情", "详细信息",
+        "这个作业详情", "那个作业详情",
+    ],
+    "list_local_vasp_jobs": [
+        "列出vasp作业", "查看vasp作业", "我的vasp作业",
+        "本地vasp作业", "列出本地vasp作业",
+        "已经记录的vasp作业", "vasp作业列表",
+    ],
     "job_output": [
         "读取输出", "查看输出", "标准输出",
         "输出结果", "看输出", "看看输出",
@@ -112,6 +153,11 @@ KEYWORDS: dict[str, list[str]] = {
         "看错误", "看看错误", "失败日志", "报错日志",
         "看报错", "查错误", "查报错", "读错误", "读取错误",
         "stderr", "joberror",
+    ],
+    "diagnose_job": [
+        "诊断作业", "诊断任务", "诊断这个作业", "诊断那个作业",
+        "帮我诊断作业", "帮我诊断任务", "排查作业", "排查任务",
+        "分析作业失败", "分析任务失败", "诊断", "排查", "diagnosejob",
     ],
     "sbatch": [
         "生成脚本", "写脚本", "写一个sbatch",
@@ -144,6 +190,19 @@ KEYWORDS: dict[str, list[str]] = {
         "参数怎么填", "需要多少核", "需要多少内存",
         "推荐sbatch", "建议sbatch", "看看需要",
         "cpus-per-task", "gres", "nodes", "ntasks",
+    ],
+    "current_config": [
+        "查看当前模型", "当前模型", "查看模型", "模型配置",
+        "查看当前配置", "当前配置", "查看环境配置", "当前环境",
+    ],
+    "hpc_config_check": [
+        "检查我的超算配置", "检查超算配置", "超算配置体检",
+        "配置体检", "检查环境配置", "检查hpc配置", "检查ssh配置",
+    ],
+    "hpc_submission_test": [
+        "一键测试超算提交流程", "测试超算提交流程", "测试提交作业流程",
+        "测试提交流程", "测试超算能不能提交作业", "测试这个超算能不能正常提交作业",
+        "一键测试提交", "一键最小验证流程",
     ],
     "troubleshoot": [
         "一直不运行", "一直pending", "pending",
@@ -198,6 +257,11 @@ KEYWORDS: dict[str, list[str]] = {
         "methods", "results", "方法部分", "结果部分",
         "report", "analysisreport",
     ],
+    "vasp_input_generation": [
+        "配置文件", "输入文件", "生成incar", "生成poscar", "生成kpoints",
+        "生成其他三个文件", "生成其它三个文件", "生成三个文件",
+        "生成vasp输入", "生成vasp配置",
+    ],
     "analyze_vasp": [
         "一键分析", "完整分析", "分析vasp作业",
         "分析vasp任务", "分析vasp计算",
@@ -220,13 +284,24 @@ KEYWORDS: dict[str, list[str]] = {
 
 EXPLANATION_KEYWORDS: dict[str, list[str]] = {
     "suggest_params": ["资源怎么填", "申请多少核", "需要多少核", "需要多少资源", "多少内存"],
+    "current_config": ["当前模型", "当前配置", "模型配置"],
+    "check_hpc_config": ["检查", "配置", "超算"],
+    "test_hpc_submission": ["测试", "提交", "超算"],
     "troubleshoot_job": ["pending", "为什么没开始", "一直不运行", "卡住", "没有开始"],
     "generate_sbatch": ["生成脚本", "写脚本", "sbatch", "只生成脚本"],
     "submit_job": ["提交", "运行", "跑到超算", ".py", ".sh"],
     "submit_vasp_job": ["提交", "运行", "vasp", "第一性原理", "dft"],
     "generate_vasp_job": ["vasp", "dft", "结构优化", "弛豫", "生成脚本"],
+    "generate_vasp_inputs": ["vasp", "potcar", "incar", "poscar", "kpoints", "配置文件"],
     "generate_test_file": ["测试", "sleep", "hostname", "mpirun", "srun"],
     "job_status": ["状态", "算完没", "跑完没", "进度", "刚才"],
+    "recent_jobs": ["最近作业", "我的作业", "最近提交"],
+    "job_record_status": ["本地作业记录", "jobregistry", "本地记录"],
+    "preview_archive_job_records": ["预览", "归档", "保留最近"],
+    "list_job_record_archives": ["归档", "归档文件"],
+    "preview_restore_job_records": ["预览", "恢复", "归档"],
+    "job_detail": ["详情", "详细信息", "作业详情"],
+    "list_local_vasp_jobs": ["vasp", "本地", "记录", "列表"],
     "job_output": ["输出", "结果", "stdout", "它"],
     "job_error": ["错误日志", "报错", "stderr"],
     "cleanup_remote_job": ["清理", "删除", "删掉"],
@@ -240,6 +315,7 @@ EXPLANATION_KEYWORDS: dict[str, list[str]] = {
     "generate_vasp_report": ["报告", "论文格式", "methods", "results"],
     "analyze_vasp_job": ["分析", "一键分析", "自动分析"],
     "diagnose_error": ["error", "failed", "traceback", "报错", "oom"],
+    "diagnose_job": ["诊断", "排查", "作业", "任务"],
     "clarify": ["缺少文件/命令/job_id"],
     "rag_qa": ["fallback"],
 }
@@ -249,16 +325,28 @@ INTENT_RISKS = {
     "rag_qa": "none",
     "clarify": "clarify_required",
     "suggest_params": "none",
+    "current_config": "read_only",
+    "check_hpc_config": "read_only",
+    "test_hpc_submission": "confirm_required",
     "diagnose_error": "read_only",
+    "diagnose_job": "read_only",
     "troubleshoot_job": "read_only",
     "job_status": "read_only",
     "job_output": "read_only",
     "job_error": "read_only",
+    "recent_jobs": "read_only",
+    "job_record_status": "read_only",
+    "preview_archive_job_records": "read_only",
+    "list_job_record_archives": "read_only",
+    "preview_restore_job_records": "read_only",
+    "job_detail": "read_only",
+    "list_local_vasp_jobs": "read_only",
     "list_remote_jobs": "read_only",
     "list_remote_vasp_jobs": "read_only",
     "generate_sbatch": "generate_only",
     "generate_test_file": "generate_or_confirm_required",
     "generate_vasp_job": "generate_only",
+    "generate_vasp_inputs": "generate_only",
     "generate_vasp_report": "read_only",
     "analyze_vasp_job": "read_only",
     "register_vasp_job": "read_only",
@@ -378,6 +466,16 @@ def _last_job_reference(ctx: RouteContext) -> bool:
     return ctx.raw_match_any(KEYWORDS["last_job_reference"])
 
 
+def _local_vasp_job_list_request(ctx: RouteContext) -> bool:
+    if not ctx.is_vasp_request:
+        return False
+    if ctx.match_any(["远端", "远程", "hpc", "input", "output"]):
+        return False
+    if ctx.match_any(KEYWORDS["vasp_input_generation"] + KEYWORDS["submit"] + KEYWORDS["sbatch"]):
+        return False
+    return ctx.match_any(KEYWORDS["list_local_vasp_jobs"]) and ctx.match_any(["列出", "查看", "看看", "有哪些", "列表"])
+
+
 def _generic_vasp_directory_cleanup_request(ctx: RouteContext) -> bool:
     if not (ctx.is_vasp_request and ctx.match_any(KEYWORDS["cleanup"])):
         return False
@@ -443,10 +541,21 @@ ROUTE_RULES: tuple[RouteRule, ...] = (
     RouteRule("vasp_howto_or_concept", "rag_qa", lambda ctx: ctx.is_vasp_request and ctx.is_howto_or_concept and not ctx.match_any(KEYWORDS["params"])),
     RouteRule("vasp_file_catalog_howto", "rag_qa", lambda ctx: ctx.is_vasp_request and "有哪些" in ctx.q_no_space and not ctx.match_any(["远端", "远程", "目录"])),
     RouteRule("vasp_params", "suggest_params", lambda ctx: ctx.is_vasp_request and ctx.match_any(KEYWORDS["params"])),
+    RouteRule("current_config", "current_config", lambda ctx: ctx.match_any(KEYWORDS["current_config"])),
+    RouteRule("check_hpc_config", "check_hpc_config", lambda ctx: ctx.match_any(KEYWORDS["hpc_config_check"])),
+    RouteRule("test_hpc_submission", "test_hpc_submission", lambda ctx: ctx.match_any(KEYWORDS["hpc_submission_test"])),
+    RouteRule("job_record_status", "job_record_status", lambda ctx: ctx.match_any(KEYWORDS["job_record_status"])),
+    RouteRule("preview_restore_job_records", "preview_restore_job_records", lambda ctx: ctx.match_any(KEYWORDS["preview_restore_job_records"]) and ctx.match_any(["恢复", "归档"])),
+    RouteRule("list_job_record_archives", "list_job_record_archives", lambda ctx: ctx.match_any(KEYWORDS["list_job_record_archives"])),
+    RouteRule("preview_archive_job_records", "preview_archive_job_records", lambda ctx: ctx.match_any(KEYWORDS["preview_archive_job_records"]) and ctx.match_any(["归档", "保留"])),
+    RouteRule("recent_jobs", "recent_jobs", lambda ctx: ctx.match_any(KEYWORDS["recent_jobs"])),
+    RouteRule("job_detail", "job_detail", lambda ctx: ctx.match_any(KEYWORDS["job_detail"])),
+    RouteRule("list_local_vasp_jobs", "list_local_vasp_jobs", _local_vasp_job_list_request),
     RouteRule("sync_vasp_output", "sync_vasp_output", lambda ctx: ctx.is_vasp_request and (ctx.has_job_id or _last_job_reference(ctx)) and ctx.match_any(KEYWORDS["sync_vasp_action"]) and ctx.match_any(KEYWORDS["sync_vasp_target"])),
     RouteRule("vasp_job_output", "job_output", lambda ctx: ctx.is_vasp_request and (ctx.has_job_id or _last_job_reference(ctx)) and ctx.match_any(KEYWORDS["job_output"] + ["输出", "结果"])),
     RouteRule("vasp_job_error", "job_error", lambda ctx: ctx.is_vasp_request and (ctx.has_job_id or _last_job_reference(ctx)) and ctx.match_any(KEYWORDS["job_error"] + ["错误", "报错", "日志"])),
     RouteRule("vasp_job_status", "job_status", lambda ctx: ctx.is_vasp_request and (ctx.has_job_id or _last_job_reference(ctx)) and ctx.match_any(KEYWORDS["job_status"] + ["状态", "跑完没", "算完没", "进度"])),
+    RouteRule("diagnose_job", "diagnose_job", lambda ctx: (ctx.has_job_id or _last_job_reference(ctx)) and ctx.match_any(KEYWORDS["diagnose_job"])),
     RouteRule("vasp_list_remote", "list_remote_vasp_jobs", lambda ctx: ctx.is_vasp_request and ctx.match_any(KEYWORDS["list_remote_job"] + ["列出", "查看", "有哪些", "有什么"])),
     RouteRule("vasp_cleanup_directory_root", "cleanup_all_remote_vasp_jobs", _generic_vasp_directory_cleanup_request),
     RouteRule("vasp_cleanup_all", "cleanup_all_remote_vasp_jobs", lambda ctx: ctx.is_vasp_request and ctx.match_any(KEYWORDS["cleanup"]) and ctx.match_any(KEYWORDS["cleanup_all"])),
@@ -457,6 +566,7 @@ ROUTE_RULES: tuple[RouteRule, ...] = (
     RouteRule("list_remote", "list_remote_jobs", lambda ctx: ctx.match_any(KEYWORDS["list_remote_job"])),
     RouteRule("register_vasp_job", "register_vasp_job", lambda ctx: ctx.is_vasp_request and (ctx.match_any(KEYWORDS["register_vasp"]) or (ctx.has_job_id and ctx.match_any(KEYWORDS["register_vasp_loose"])))),
     RouteRule("generate_vasp_report", "generate_vasp_report", lambda ctx: ctx.is_vasp_request and ctx.match_any(KEYWORDS["vasp_report"])),
+    RouteRule("generate_vasp_inputs", "generate_vasp_inputs", lambda ctx: ctx.is_vasp_request and ctx.match_any(KEYWORDS["vasp_input_generation"])),
     RouteRule("submit_vasp_job", "submit_vasp_job", lambda ctx: ctx.is_vasp_request and ctx.match_any(KEYWORDS["submit"])),
     RouteRule("analyze_vasp_job_by_reference", "analyze_vasp_job", _route_to_vasp_analysis_by_reference),
     RouteRule("analyze_vasp_job", "analyze_vasp_job", lambda ctx: ctx.is_vasp_request and ctx.match_any(KEYWORDS["analyze_vasp"])),

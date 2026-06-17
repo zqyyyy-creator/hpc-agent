@@ -21,12 +21,21 @@ PYTHON_FILES = [
     "modules/routing/router.py",
     "modules/routing/tool_dispatcher.py",
     "modules/slurm/hpc_test_files.py",
+    "modules/slurm/job_cleanup.py",
+    "modules/slurm/job_lifecycle.py",
+    "modules/slurm/job_listing.py",
+    "modules/slurm/job_logs.py",
+    "modules/slurm/job_monitor.py",
     "modules/slurm/job_query.py",
     "modules/slurm/job_registry.py",
+    "modules/slurm/job_submission.py",
     "modules/slurm/job_submitter.py",
+    "modules/slurm/remote.py",
+    "modules/slurm/remote_utils.py",
     "modules/slurm/slurm_assistant.py",
     "modules/slurm/slurm_tools.py",
     "modules/slurm/submit_attachments.py",
+    "modules/slurm/vasp_sync.py",
     "modules/tui/tui_formatters.py",
     "modules/tui/tui_helpers.py",
     "modules/tui/tui_monitor.py",
@@ -39,16 +48,19 @@ PYTHON_FILES = [
     "tests/core/test_agent_runtime.py",
     "tests/core/test_confirmed_actions.py",
     "tests/core/test_conversation_state.py",
+    "tests/core/test_environment_status.py",
     "tests/core/test_tool_calling.py",
     "tests/knowledge/test_error_diagnoser_skill.py",
     "tests/knowledge/test_knowledge_base_context.py",
     "tests/routing/test_route_planner.py",
+    "tests/routing/test_route_cases_fixture.py",
     "tests/routing/test_router_negative.py",
     "tests/routing/test_tool_dispatcher.py",
     "tests/slurm/test_cleanup_tool_calling.py",
     "tests/slurm/test_hpc_workflow.py",
     "tests/slurm/test_hpc_test_files.py",
     "tests/slurm/test_job_query_tool_calling.py",
+    "tests/slurm/test_job_lifecycle.py",
     "tests/slurm/test_slurm_assistant.py",
     "tests/slurm/test_slurm_tool_calling.py",
     "tests/slurm/test_ssh.py",
@@ -81,6 +93,7 @@ def run_slurm_assistant_checks():
     checks.test_gpu_python_script()
     checks.test_memory_shell_script()
     checks.test_missing_command_still_generates()
+    checks.test_hpc_submission_smoke_test_generates_hostname_script()
     checks.test_dangerous_command_is_rejected()
     checks.test_resource_question_is_not_treated_as_submission()
 
@@ -89,6 +102,7 @@ def run_slurm_assistant_checks():
 
 def run_agent_runtime_checks():
     from tests.core import test_agent_runtime as checks
+    from tests.core import test_environment_status as env_checks
 
     for check in [
         checks.test_can_answer_intent_marks_only_answer_intents,
@@ -96,10 +110,17 @@ def run_agent_runtime_checks():
         checks.test_can_preview_submit_intent_marks_submit_intents,
         checks.test_execute_clarify_intent_does_not_need_llm,
         checks.test_execute_diagnose_intent_uses_injected_diagnoser,
+        checks.test_execute_diagnose_job_intent_uses_job_diagnosis,
+        checks.test_execute_current_config_intent_reports_models,
+        checks.test_execute_archive_preview_returns_pending_action,
+        checks.test_execute_restore_preview_returns_pending_action,
         checks.test_execute_job_output_returns_job_id_and_live_log,
         checks.test_execute_cleanup_preview_returns_pending_payload,
         checks.test_execute_submit_preview_returns_pending_submission,
+        checks.test_execute_hpc_submission_test_returns_pending_submission,
         checks.test_execute_vasp_submit_preview_keeps_auto_analyze,
+        env_checks.test_current_model_config_masks_api_key,
+        env_checks.test_hpc_environment_check_uses_injected_remote_runner,
     ]:
         check()
 
@@ -143,6 +164,8 @@ def run_confirmed_action_checks():
     checks.test_confirmed_slurm_submit_records_job()
     checks.test_confirmed_vasp_submit_records_vasp_job()
     checks.test_confirmed_cleanup_returns_answer_and_targets()
+    checks.test_confirmed_archive_job_records_returns_archive_result()
+    checks.test_confirmed_restore_job_records_returns_restore_result()
     checks.test_unknown_confirmed_action_is_rejected()
 
     print("OK confirmed action checks passed")
@@ -207,6 +230,7 @@ def run_job_query_tool_calling_checks():
     checks.test_job_query_without_context_asks_for_job_id()
     checks.test_execute_job_query_tool_call_uses_injected_query_function()
     checks.test_router_detects_last_job_references()
+    checks.test_diagnose_job_request_returns_next_steps()
 
     print("OK job query tool calling checks passed")
 
@@ -268,6 +292,10 @@ def run_vasp_assistant_checks():
 
     checks.test_generate_vasp_script_defaults()
     checks.test_generate_vasp_script_extracts_resources()
+    checks.test_parse_potcar_entries_extracts_metadata()
+    checks.test_generate_vasp_inputs_from_single_element_potcar_writes_files()
+    checks.test_generate_vasp_inputs_request_resolves_named_job_dir()
+    checks.test_generate_vasp_inputs_does_not_overwrite_without_explicit_request()
     checks.test_submit_vasp_job_preview_handles_partition()
     checks.test_vasp_submit_path_does_not_replace_runtime_command()
     checks.test_dangerous_vasp_request_is_rejected()
@@ -285,6 +313,8 @@ def run_vasp_assistant_checks():
     checks.test_analyze_vasp_job_intent()
     monitor_checks.test_potcar_input_conversion_is_error()
     monitor_checks.test_brmix_warning_is_warning()
+    monitor_checks.test_empty_oszicar_is_suppressed_for_running_job()
+    monitor_checks.test_empty_oszicar_is_warning_for_terminal_job()
     monitor_checks.test_non_vasp_directory_stays_unknown()
 
     if not textual_cli._is_vasp_long_workflow_request("提交 VASP 作业，路径为 /tmp/si，帮我运行并分析"):
@@ -296,81 +326,11 @@ def run_vasp_assistant_checks():
 
 
 def run_router_checks():
-    from modules.routing.router import detect_intent
+    from tests.routing import test_route_cases_fixture as checks
 
-    cases = {
-        "帮我提交一个作业运行 python train.py，4 核，10 分钟": "submit_job",
-        "跑 monitor_cpu.py，4核，15分钟": "submit_job",
-        "运行 ./job.sh，2核": "submit_job",
-        "提交 /tmp/train.py，8核，1小时": "submit_job",
-        "帮我生成一个 sbatch 脚本运行 python train.py": "generate_sbatch",
-        "生成一个 sleep 60 的测试作业脚本": "generate_test_file",
-        "生成一个 sleep 60 的测试作业脚本并运行": "generate_test_file",
-        "生成一个sleep 60的测试作业并运行": "generate_test_file",
-        "生成一个sleep90测试作业": "generate_test_file",
-        "生成一个 sleep 90 的测试作业脚本": "generate_test_file",
-        "帮我创建等待120秒的测试文件": "generate_test_file",
-        "生成一个打印节点名的测试脚本": "generate_test_file",
-        "生成hostname测试作业": "generate_test_file",
-        "帮我生成 hostname 测试文件，文件名 node_check.sh": "generate_test_file",
-        "创建 srun -n 4 hostname 测试脚本": "generate_test_file",
-        "创建 srun -n 4 hostname 测试脚本并运行": "generate_test_file",
-        "创建srun -n 4 hostname测试脚本并运行": "generate_test_file",
-        "创建 mpirun -np 4 hostname 测试脚本": "generate_test_file",
-        "生成一个 8 个 MPI 进程打印节点名的测试脚本": "generate_test_file",
-        "跑个测试任务": "generate_test_file",
-        "查看刚才那个作业": "job_status",
-        "看它的输出": "job_output",
-        "看上一个任务的错误日志": "job_error",
-        "查看11814753的状态": "job_status",
-        "读取11814753的输出": "job_output",
-        "读取11814753的错误日志": "job_error",
-        "CUDA out of memory": "diagnose_error",
-        "我的任务一直 pending": "troubleshoot_job",
-        "帮我生成一个 VASP 结构优化脚本": "generate_vasp_job",
-        "帮我提交一个 VASP 结构优化任务，1 个节点 32 核": "submit_vasp_job",
-        "登记 VASP 作业 11817144，目录名 vasp_imported_20260610_131601": "register_vasp_job",
-        "列出远端 hpc-agent-jobs 里的任务编号": "list_remote_jobs",
-        "清理远端作业 11817627 的文件": "cleanup_remote_job",
-        "清理远端 hpc-agent-jobs 下所有作业文件": "cleanup_all_remote_jobs",
-        "列出远端 VASP input 和 output 目录": "list_remote_vasp_jobs",
-        "清理远端 VASP 作业 11817627 的 input 和 output": "cleanup_remote_vasp_job",
-        "删除远端 VASP 作业 si_static_test 的 output 目录": "cleanup_remote_vasp_job",
-        "清理远端vasp作业目录": "cleanup_all_remote_vasp_jobs",
-        "清理远端 VASP output 下所有作业目录": "cleanup_all_remote_vasp_jobs",
-        "帮我跑 python train.py 到超算，4 核 10 分钟": "submit_job",
-        "启动任务 bash run.sh，2 核": "submit_job",
-        "只生成脚本运行 python train.py": "generate_sbatch",
-        "给我一个 sbatch 脚本跑 python train.py": "generate_sbatch",
-        "11814753 算完没": "job_status",
-        "11814753 还在跑吗": "job_status",
-        "看看 11814753 的输出": "job_output",
-        "看一下 11814753 的报错日志": "job_error",
-        "这个作业为什么没开始": "troubleshoot_job",
-        "资源怎么填，申请多少核": "rag_qa",
-        "列一下远端作业": "list_remote_jobs",
-        "删掉远端作业 11817627 的文件": "cleanup_remote_job",
-        "帮我生成一个 DFT 弛豫脚本": "generate_vasp_job",
-        "提交一个第一性原理静态计算任务": "submit_vasp_job",
-        "提交 VASP 作业，路径为 /home/qyz/vasp-jobs-input/si_static_test，帮我运行并分析": "submit_vasp_job",
-        "提交并分析 VASP 作业，路径为 /home/qyz/vasp-jobs-input/si_static_test": "submit_vasp_job",
-        "把 VASP 作业 11817144 记下来": "register_vasp_job",
-        "把 VASP 作业 11817144 的结果拿回本地": "sync_vasp_output",
-        "帮我分析 VASP 作业 11817144": "analyze_vasp_job",
-        "把 VASP 作业 11817144 整理成论文格式": "generate_vasp_report",
-        "远端 VASP 目录有什么": "list_remote_vasp_jobs",
-        "删掉远端 VASP 作业 si_static_test 的 input 目录": "cleanup_remote_vasp_job",
-        "清空远端 VASP input 下所有作业": "cleanup_all_remote_vasp_jobs",
-    }
-
-    for request, expected_intent in cases.items():
-        actual_intent = detect_intent(request)
-        print(f"{request} -> {actual_intent}")
-
-        if actual_intent != expected_intent:
-            raise AssertionError(
-                f"Expected {expected_intent!r}, got {actual_intent!r} for {request!r}"
-            )
+    checks.test_route_cases_fixture_schema()
+    checks.test_route_cases_fixture()
+    checks.test_route_cases_explainable()
 
     print("OK router intent checks passed")
 
@@ -424,6 +384,22 @@ def run_job_query_checks():
             )
 
     print("OK job query parsing checks passed")
+
+
+def run_job_lifecycle_checks():
+    from tests.slurm import test_job_lifecycle as checks
+
+    checks.test_recent_jobs_lists_latest_local_records()
+    checks.test_vasp_jobs_filters_non_vasp_records()
+    checks.test_job_detail_reports_paths_and_next_steps()
+    checks.test_job_record_status_summarizes_registry()
+    checks.test_archive_job_records_preview_keeps_recent_without_writing()
+    checks.test_archive_job_records_preview_requires_keep_count()
+    checks.test_archive_job_records_moves_records_to_archive_file()
+    checks.test_job_record_archives_lists_archive_files()
+    checks.test_restore_job_records_preview_and_restore_missing_records()
+
+    print("OK job lifecycle checks passed")
 
 
 def run_submit_preview_checks():
@@ -573,6 +549,7 @@ CHECKS = [
     ("7. Tool dispatcher checks", run_tool_dispatcher_checks),
     ("8. Slurm tool calling checks", run_slurm_tool_calling_checks),
     ("9. Job query tool calling checks", run_job_query_tool_calling_checks),
+    ("9b. Job lifecycle checks", run_job_lifecycle_checks),
     ("10. Cleanup tool calling checks", run_cleanup_tool_calling_checks),
     ("11. VASP tool calling checks", run_vasp_tool_calling_checks),
     ("12. VASP postprocess tool calling checks", run_vasp_postprocess_tool_calling_checks),

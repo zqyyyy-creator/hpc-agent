@@ -21,6 +21,8 @@ class DummyDiagnoser:
 
 def test_can_answer_intent_marks_only_answer_intents():
     assert can_answer_intent("generate_sbatch")
+    assert can_answer_intent("current_config")
+    assert can_answer_intent("check_hpc_config")
     assert can_answer_intent("troubleshoot_job")
     assert can_answer_intent("rag_qa")
     assert can_answer_intent("job_status")
@@ -38,6 +40,7 @@ def test_can_preview_cleanup_intent_marks_cleanup_intents():
 def test_can_preview_submit_intent_marks_submit_intents():
     assert can_preview_submit_intent("submit_job")
     assert can_preview_submit_intent("submit_vasp_job")
+    assert can_preview_submit_intent("test_hpc_submission")
     assert not can_preview_submit_intent("cleanup_remote_job")
 
 
@@ -68,6 +71,100 @@ def test_execute_diagnose_intent_uses_injected_diagnoser():
 
     assert result.handled
     assert result.answer == "diagnosed: CUDA out of memory"
+
+
+def test_execute_diagnose_job_intent_uses_job_diagnosis():
+    original = agent_runtime.diagnose_job_request
+
+    try:
+        agent_runtime.diagnose_job_request = lambda question, state=None: f"diagnose job from {question}"
+        result = execute_answer_intent(
+            "诊断作业 12345",
+            "diagnose_job",
+            documents=[],
+            sources=[],
+            diagnoser=DummyDiagnoser(),
+            state=None,
+        )
+    finally:
+        agent_runtime.diagnose_job_request = original
+
+    assert result.handled
+    assert result.answer == "diagnose job from 诊断作业 12345"
+
+
+def test_execute_current_config_intent_reports_models():
+    result = execute_answer_intent(
+        "查看当前模型",
+        "current_config",
+        documents=[],
+        sources=[],
+        diagnoser=DummyDiagnoser(),
+        state=None,
+    )
+
+    assert result.handled
+    assert "Agent 主体模型" in result.answer
+    assert "Claude Code VASP 报告模型" in result.answer
+    assert "API Key: <已配置>" in result.answer or "API Key: <未配置>" in result.answer
+
+
+def test_execute_archive_preview_returns_pending_action():
+    original = agent_runtime.build_archive_job_records_preview
+
+    try:
+        agent_runtime.build_archive_job_records_preview = lambda question: {
+            "success": True,
+            "message": "preview",
+            "requires_confirmation": True,
+            "keep_count": 2,
+            "keep_job_ids": ["30003", "20002"],
+            "archive_job_ids": ["10001"],
+        }
+        result = execute_answer_intent(
+            "预览归档本地作业记录，只保留最近 2 个",
+            "preview_archive_job_records",
+            documents=[],
+            sources=[],
+            diagnoser=DummyDiagnoser(),
+            state=None,
+        )
+    finally:
+        agent_runtime.build_archive_job_records_preview = original
+
+    assert result.handled
+    assert result.answer == "preview"
+    assert result.data["pending_action"]["kind"] == "archive_job_records"
+    assert result.data["pending_action"]["payload"]["archive_job_ids"] == ["10001"]
+
+
+def test_execute_restore_preview_returns_pending_action():
+    original = agent_runtime.build_restore_job_records_preview
+
+    try:
+        agent_runtime.build_restore_job_records_preview = lambda question: {
+            "success": True,
+            "message": "restore preview",
+            "requires_confirmation": True,
+            "archive_path": "/tmp/archive.json",
+            "restore_job_ids": ["10001"],
+            "skipped_job_ids": [],
+        }
+        result = execute_answer_intent(
+            "预览恢复最近一次本地作业记录归档",
+            "preview_restore_job_records",
+            documents=[],
+            sources=[],
+            diagnoser=DummyDiagnoser(),
+            state=None,
+        )
+    finally:
+        agent_runtime.build_restore_job_records_preview = original
+
+    assert result.handled
+    assert result.answer == "restore preview"
+    assert result.data["pending_action"]["kind"] == "restore_job_records"
+    assert result.data["pending_action"]["payload"]["restore_job_ids"] == ["10001"]
 
 
 def test_execute_job_output_returns_job_id_and_live_log():
@@ -166,6 +263,48 @@ def test_execute_submit_preview_returns_pending_submission():
     assert result.data["pending_submission"]["script"].startswith("#!/bin/bash")
 
 
+def test_execute_hpc_submission_test_returns_pending_submission():
+    original_dispatch = agent_runtime.dispatch_tool_request
+
+    class FakeDispatchResult:
+        success = True
+        message = "smoke test preview"
+        data = {
+            "prepared": {
+                "ready": True,
+                "message": "smoke test preview",
+                "script": "#!/bin/bash\nhostname\n",
+            },
+            "script": "#!/bin/bash\nhostname\n",
+            "uploaded_files": [],
+            "source_text": "hostname smoke test",
+        }
+
+    calls = []
+
+    try:
+        def fake_dispatch(*args, **kwargs):
+            calls.append((args, kwargs))
+            return FakeDispatchResult()
+
+        agent_runtime.dispatch_tool_request = fake_dispatch
+        result = execute_submit_preview(
+            "一键测试超算提交流程",
+            "test_hpc_submission",
+            state=None,
+        )
+    finally:
+        agent_runtime.dispatch_tool_request = original_dispatch
+
+    assert result.handled
+    assert result.success
+    assert calls[0][0][1] == "submit_job"
+    assert calls[0][0][0] == "一键测试超算提交流程"
+    assert result.data["requires_confirmation"]
+    assert result.data["pending_submission"]["kind"] == "slurm"
+    assert "最小 hostname 作业" in result.answer
+
+
 def test_execute_vasp_submit_preview_keeps_auto_analyze():
     original_dispatch = agent_runtime.dispatch_tool_request
 
@@ -206,8 +345,11 @@ if __name__ == "__main__":
     test_can_preview_submit_intent_marks_submit_intents()
     test_execute_clarify_intent_does_not_need_llm()
     test_execute_diagnose_intent_uses_injected_diagnoser()
+    test_execute_diagnose_job_intent_uses_job_diagnosis()
+    test_execute_current_config_intent_reports_models()
     test_execute_job_output_returns_job_id_and_live_log()
     test_execute_cleanup_preview_returns_pending_payload()
     test_execute_submit_preview_returns_pending_submission()
+    test_execute_hpc_submission_test_returns_pending_submission()
     test_execute_vasp_submit_preview_keeps_auto_analyze()
     print("All agent runtime checks passed.")

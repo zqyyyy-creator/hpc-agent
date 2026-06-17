@@ -88,6 +88,22 @@ def format_vasp_diagnosis(diagnosis: dict | None):
     return "\n".join(lines)
 
 
+def format_failure_next_steps(job_id: str, *, is_vasp: bool = False):
+    lines = [
+        f"读取 {job_id} 的错误日志",
+        f"读取 {job_id} 的输出",
+        f"诊断作业 {job_id}",
+    ]
+
+    if is_vasp:
+        lines.extend([
+            f"同步 VASP 作业 {job_id} 输出到本地",
+            f"帮我分析 VASP 作业 {job_id}",
+        ])
+
+    return "\n".join(f"- {line}" for line in lines)
+
+
 def format_monitor_snapshot(
     snapshot: dict,
     position: int,
@@ -121,10 +137,11 @@ def format_monitor_snapshot(
 
     failure_note = ""
     if snapshot.get("failure_detected") and not snapshot.get("is_completed"):
+        diagnosis = snapshot.get("vasp_diagnosis") or {}
+        is_vasp = bool(diagnosis.get("is_vasp"))
         failure_note = (
-            "\n\n检测到失败/异常信号。可输入："
-            f"\n读取 {snapshot['job_id']} 的错误日志"
-            "\n或粘贴错误日志让 Agent 诊断。"
+            "\n\n检测到失败/异常信号。建议下一步：\n"
+            f"{format_failure_next_steps(snapshot['job_id'], is_vasp=is_vasp)}"
         )
 
     error_note = ""

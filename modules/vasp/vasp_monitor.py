@@ -170,6 +170,7 @@ def diagnose_remote_vasp_job(
     log_output: str = "",
     log_error: str = "",
     run_remote_command=None,
+    job_is_terminal: bool = True,
 ):
     diagnosis = {
         "is_vasp": False,
@@ -229,7 +230,7 @@ def diagnose_remote_vasp_job(
             "recommendation": "结合 stderr/vasp.out 查看启动阶段报错；若 OSZICAR 也为空，优先检查 INCAR/POSCAR/KPOINTS/POTCAR。",
         })
 
-    if oszicar_size == 0:
+    if oszicar_size == 0 and job_is_terminal:
         diagnosis["issues"].append({
             "severity": "warning",
             "id": "empty_oszicar",

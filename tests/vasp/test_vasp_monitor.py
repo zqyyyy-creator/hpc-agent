@@ -46,6 +46,48 @@ def test_brmix_warning_is_warning():
     assert any(issue["id"] == "brmix" for issue in diagnosis["issues"])
 
 
+def test_empty_oszicar_is_suppressed_for_running_job():
+    def fake_run_remote_command(command):
+        output = "\n".join([
+            "FILE\tOUTCAR\t40960\t1780000000",
+            "FILE\tOSZICAR\t0\t1780000000",
+            "__TAIL_OUTCAR__",
+            "vasp.6.2.1 running",
+        ])
+        return output, ""
+
+    diagnosis = diagnose_remote_vasp_job(
+        "/remote/vasp-hpc-jobs-output/running",
+        run_remote_command=fake_run_remote_command,
+        job_is_terminal=False,
+    )
+
+    assert diagnosis["is_vasp"]
+    assert diagnosis["severity"] == "ok"
+    assert not any(issue["id"] == "empty_oszicar" for issue in diagnosis["issues"])
+
+
+def test_empty_oszicar_is_warning_for_terminal_job():
+    def fake_run_remote_command(command):
+        output = "\n".join([
+            "FILE\tOUTCAR\t40960\t1780000000",
+            "FILE\tOSZICAR\t0\t1780000000",
+            "__TAIL_OUTCAR__",
+            "vasp.6.2.1 finished without iterations",
+        ])
+        return output, ""
+
+    diagnosis = diagnose_remote_vasp_job(
+        "/remote/vasp-hpc-jobs-output/terminal",
+        run_remote_command=fake_run_remote_command,
+        job_is_terminal=True,
+    )
+
+    assert diagnosis["is_vasp"]
+    assert diagnosis["severity"] == "warning"
+    assert any(issue["id"] == "empty_oszicar" for issue in diagnosis["issues"])
+
+
 def test_non_vasp_directory_stays_unknown():
     def fake_run_remote_command(command):
         return "FILE\ttrain.out\t1024\t1780000000\nall good\n", ""

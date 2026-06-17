@@ -24,6 +24,8 @@ SLURM_KIND_ALIASES = {"slurm", "普通", "普通作业", "job"}
 GENERIC_CONFIRMATIONS = {
     "确认", "确认执行", "执行", "继续", "确定", "可以", "好的", "好",
     "确认提交", "确认清理", "确认清理全部",
+    "确认归档", "确认归档本地作业记录",
+    "确认恢复", "确认恢复本地作业记录归档",
     "yes", "y", "ok", "okay", "submit", "confirm",
 }
 GENERIC_CANCELLATIONS = {

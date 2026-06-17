@@ -220,7 +220,7 @@ def ask_llm(question, retrieved_docs, conversation_state=None):
     )
 
     response = client.chat.completions.create(
-        model="DeepSeek-V4-Pro",
+        model=os.getenv("PARATERA_MODEL", "DeepSeek-V4-Pro"),
         messages=messages,
         max_tokens=1024,
         stream=False,

@@ -25,7 +25,7 @@ Example user requests:
 
 - "帮我提交一个 VASP 结构优化任务，1 个节点 32 核，运行 24 小时"
 - "Generate a Slurm script for VASP using 64 cores"
-- "我想运行 VASP 静态计算，命令是 mpirun /public1/soft/vasp"
+- "我想运行 VASP 静态计算，命令是 mpirun /path/to/vasp/bin/vasp_std"
 
 ## Inputs to Extract
 
@@ -38,7 +38,7 @@ Identify these parameters from the user request:
 - `partition`: only if the user or cluster config provides it
 - `vasp_setup_command`: environment setup command, if configured
 - `vasp_module`: software module to load, only if configured
-- `command`: VASP command, such as `mpirun /public1/soft/vasp`
+- `command`: VASP command, such as `mpirun /path/to/vasp/bin/vasp_std`
 - `calculation_type`: structure optimization, static, band, DOS, or unknown
 
 ## Default Values
@@ -50,7 +50,7 @@ Use conservative defaults when the user does not provide values:
 - `ntasks_per_node`: `32`
 - `time`: `24:00:00`
 - `vasp_setup_command`: configured setup command, defaulting to Intel 2020u4 `compilervars.sh`
-- `command`: configured default VASP command, otherwise `mpirun /public1/soft/vasp`
+- `command`: configured default VASP command, otherwise a site-specific VASP command from `.env`
 - `output_file`: `%x_%j.out`
 - `error_file`: `%x_%j.err`
 

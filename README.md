@@ -4,14 +4,14 @@ HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保
 
 核心功能覆盖 Slurm 知识问答、sbatch 脚本生成、普通作业提交/查询/清理、VASP 固定目录作业提交、VASP 输出同步与报告生成，以及基于 Claude Code 的 VASP 计算结果分析。
 
-详细操作请看 [USER_GUIDE.md](USER_GUIDE.md)。
+详细操作请看 [docs/USER_GUIDE.md](docs/USER_GUIDE.md)。
 
 ---
 
 ## 当前能力
 
 ### Slurm / HPC 知识问答
-* 基于 RAG（TF-IDF + DeepSeek-V4-Pro）的 Slurm/HPC 知识库问答
+* 基于 RAG（TF-IDF + `PARATERA_MODEL`）的 Slurm/HPC 知识库问答
 * 知识库文档涵盖：集群信息、常见错误、GPU 使用、sbatch 提交、作业状态、作业取消
 
 ### 普通 Slurm 作业
@@ -21,14 +21,17 @@ HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保
 * 普通作业文件上传到远端独立作业目录
 * 支持 `.py`、`.sh`、`.slurm`、`.sbatch` 文件类型
 * 危险命令检测（拒绝生成 `rm -rf`、`shutdown`、`reboot`、`mkfs` 等脚本）
+* 新手自检：查看当前模型/配置、检查超算配置、一键 hostname 提交流程测试
 
 ### 作业查询与监控
 * 查询作业状态（squeue / sacct）
 * 读取 stdout / stderr
-* Textual TUI 实时 Job Monitor（右侧面板，15 秒自动刷新）
+* 支持 `诊断作业 JOBID` 汇总状态、错误日志、标准输出和下一步建议
+* 查看最近作业、查看作业详情、列出本地 VASP 作业
+* Textual TUI 实时 Job Monitor（右侧面板，5 秒自动刷新）
 * 同时监控多个运行中 Job，按 `Tab` 切换
 * 监控面板显示：Job ID、State、Elapsed、Remote Dir、stdout/stderr 尾部摘录
-* VASP 作业监控时附带实时诊断（错误/警告匹配）
+* 作业失败或异常时自动提示下一步命令；VASP 作业监控时附带实时诊断（错误/警告匹配）
 
 ### 远端作业管理
 * 列出远端普通作业编号
@@ -40,6 +43,7 @@ HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保
 
 ### VASP 作业
 * VASP sbatch 脚本生成（结构优化/静态计算/其他）
+* 根据本地 VASP 作业目录中已有 `POTCAR` 生成 `INCAR`、`KPOINTS`、`POSCAR`
 * VASP 固定目录提交：本地 input → 远端 input → 远端 output
 * 登记已有 VASP 作业，便于后续查询和同步
 * VASP 输出同步到本地（按 include/exclude 规则过滤文件）
@@ -67,6 +71,9 @@ HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保
 ### Job Registry
 * 基于 JSON 文件的本地作业登记
 * 记录 Job ID、类型（slurm/vasp）、远端路径、本地路径、上传文件
+* 查看本地作业记录状态、最近作业、作业详情、本地 VASP 作业列表
+* 预览并确认归档本地作业记录，只保留最近 N 个
+* 查看归档记录，预览并确认恢复归档记录
 
 ### 测试体系
 * 本地全量检查：Python 语法、Slurm Assistant、Error Diagnoser、VASP Assistant、Router Intent、Job Query、Submit Preview、HPC Env Config
@@ -100,6 +107,7 @@ python app.py
 ```env
 PARATERA_BASE_URL=https://your-api-base-url
 PARATERA_API_KEY=your-api-key
+PARATERA_MODEL=DeepSeek-V4-Pro
 
 HPC_HOST=your-hpc-host
 HPC_USERNAME=your-hpc-username
@@ -113,8 +121,8 @@ HPC_LOCAL_VASP_JOBS_OUTPUT_DIR=/path/to/local/vasp-jobs-output
 HPC_VASP_REMOTE_INPUT_DIR=/path/to/remote/vasp-hpc-jobs-input
 HPC_VASP_REMOTE_OUTPUT_DIR=/path/to/remote/vasp-hpc-jobs-output
 HPC_VASP_PARTITION=
-HPC_VASP_SETUP_COMMAND=source /public1/soft/intel/2020u4/compilers_and_libraries_2020.4.304/linux/bin/compilervars.sh intel64
-HPC_VASP_COMMAND=mpirun /public1/soft/vasp
+HPC_VASP_SETUP_COMMAND=source /path/to/vasp/env/setup.sh
+HPC_VASP_COMMAND=mpirun /path/to/vasp/bin/vasp_std
 HPC_VASP_MODULE=
 
 HPC_CLAUDE_CODE_COMMAND=claude
@@ -126,6 +134,7 @@ HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 
 * `PARATERA_BASE_URL`：LLM API 服务地址。
 * `PARATERA_API_KEY`：LLM API Key。
+* `PARATERA_MODEL`：Agent 主体使用的模型名，覆盖普通问答/RAG、意图分类 fallback 和脚本辅助生成；不影响 Claude Code VASP 报告模型。
 * `HPC_HOST`：超算 SSH 登录主机。
 * `HPC_USERNAME`：超算用户名。
 * `HPC_KEY_PATH`：本机 SSH 私钥绝对路径（Ed25519）。
@@ -138,7 +147,7 @@ HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 * `HPC_VASP_REMOTE_OUTPUT_DIR`：VASP 作业远端输出/运行根目录。
 * `HPC_VASP_PARTITION`：VASP 作业默认 partition；留空表示不写 `#SBATCH --partition`，使用集群默认分区。
 * `HPC_VASP_SETUP_COMMAND`：VASP 运行前的环境初始化命令。当前集群上 Intel MPI 的 `mpirun` 通常需要先 source Intel 环境。
-* `HPC_VASP_COMMAND`：VASP 主程序启动命令。普通 MPI 测试默认用 `srun`，VASP 默认保持 `mpirun /public1/soft/vasp`。
+* `HPC_VASP_COMMAND`：VASP 主程序启动命令。普通 MPI 测试默认用 `srun`，VASP 命令请按当前超算实际 VASP 安装路径填写。
 * `HPC_VASP_MODULE`：可选，留空表示不使用 `module load`。
 * `HPC_CLAUDE_CODE_COMMAND`：Claude Code 命令，默认 `claude`。
 * `HPC_CLAUDE_CODE_MODEL`：Claude Code 使用的模型名；留空时使用环境默认，Paratera 网关默认回退到 `DeepSeek-V4-Pro`。
@@ -169,9 +178,24 @@ Claude Code 报告生成会把 `PARATERA_API_KEY` 同时传给 `ANTHROPIC_API_KE
 查看 11814753 的状态
 读取 11814753 的输出
 读取 11814753 的错误日志
+诊断作业 11814753
 监控 11814753
 取消监控 11814753
+查看最近作业
+查看作业详情 11814753
+列出 VASP 作业
 列出远端作业编号
+```
+
+本地作业记录：
+
+```text
+查看本地作业记录状态
+预览归档本地作业记录，只保留最近 100 个
+确认归档本地作业记录
+查看归档记录
+预览恢复最近一次本地作业记录归档
+确认恢复本地作业记录归档
 ```
 
 远端普通作业清理：
@@ -186,6 +210,7 @@ Claude Code 报告生成会把 `PARATERA_API_KEY` 同时传给 `ANTHROPIC_API_KE
 VASP：
 
 ```text
+帮我生成我的 VASP 作业 Al_test 的配置文件
 帮我生成一个 VASP 结构优化脚本，1 个节点，每节点 32 核，运行 24 小时
 帮我提交 VASP 作业，目录名 si_static_test，1 个节点 32 核，运行 10 分钟
 登记 VASP 作业 11817144，目录名 si_static_test
@@ -251,7 +276,15 @@ $HPC_LOCAL_VASP_JOBS_INPUT_DIR/<job-folder>/
 
 VASP 标准输出、错误日志和运行结果写入远端 output 目录。Agent 不会生成真实 `POTCAR`，`POTCAR` 需要来自你有权限使用的 VASP 赝势库。
 
-当前建议的启动策略是：普通 Slurm/MPI 测试使用 `srun -n N ...`；VASP 使用 `HPC_VASP_SETUP_COMMAND` 初始化 Intel 环境后运行 `mpirun /public1/soft/vasp`。这两条路径不要混在一起配置。
+如果某个本地 VASP 作业目录里已经放好了真实 `POTCAR`，可以让 Agent 根据 `POTCAR` 的少量元信息生成其余三个输入文件：
+
+```text
+帮我生成我的 VASP 作业 Al_test 的配置文件
+```
+
+这会在 `$HPC_LOCAL_VASP_JOBS_INPUT_DIR/Al_test/` 中写入 `INCAR`、`KPOINTS`、`POSCAR`。如果没有提供结构参数，生成的是默认 smoke test 结构，只用于测试 VASP 启动、POTCAR 可读性和提交流程，不代表真实材料结构。
+
+当前建议的启动策略是：普通 Slurm/MPI 测试使用 `srun -n N ...`；VASP 使用 `HPC_VASP_SETUP_COMMAND` 初始化环境后运行 `HPC_VASP_COMMAND`。这两条路径不要混在一起配置。
 
 ### 输出同步
 
@@ -348,6 +381,16 @@ F10     退出
 q       退出
 ```
 
+### 新手自检命令
+
+```text
+查看当前模型
+检查我的超算配置
+一键测试超算提交流程
+```
+
+“查看当前模型”会显示 Agent 主体模型、Claude Code VASP 报告模型、LLM 网关和主要超算目录配置，不会显示 API Key 明文。“一键测试超算提交流程”会生成一个最小 `hostname` Slurm 作业预览，仍需确认后才会提交。
+
 ---
 
 ## 错误诊断
@@ -372,6 +415,22 @@ q       退出
 .venv/bin/python tests/run_all_checks.py
 ```
 
+### 路由回归测试
+
+自然语言意图样例集中在：
+
+```text
+tests/fixtures/route_cases.json
+```
+
+新增功能或修复误判时，先在这个 JSON 里加入用户可能会说的话、期望 intent，以及可选 risk：
+
+```json
+{"text": "诊断作业 11838843", "intent": "diagnose_job"}
+```
+
+对应测试会检查 `detect_intent()`、风险等级和路由解释是否仍然稳定。
+
 真实超算工作流检查：
 
 ```bash
@@ -395,7 +454,7 @@ hpc-agent/
 ├── modules/
 │   ├── core/                 # Agent runtime、上下文、确认状态、通用 tool calling
 │   ├── routing/              # 自然语言意图检测、LLM intent fallback、工具分发
-│   ├── slurm/                # Slurm 脚本、提交、查询、清理、远端操作、测试作业
+│   ├── slurm/                # Slurm 提交、查询、监控、清理、日志、作业生命周期
 │   ├── vasp/                 # VASP 脚本、监控、解析、报告上下文、Claude Code 报告
 │   ├── tui/                  # Textual TUI helper、formatter、monitor、workflow 状态
 │   └── knowledge/            # RAG 知识库和错误诊断
@@ -411,7 +470,8 @@ hpc-agent/
 │   ├── errors/
 │   │   └── errors_db.json    # 18 类错误诊断规则
 │   └── jobs/
-│       └── job_registry.json # 作业登记数据库
+│       ├── job_registry.json # 作业登记数据库
+│       └── archive/          # 本地作业记录归档文件
 │
 ├── skills/                   # Claude Code Skill 定义
 │   ├── diagnose_error/SKILL.md
@@ -427,6 +487,9 @@ hpc-agent/
 │   ├── vasp/
 │   └── knowledge/
 │
-├── README.md
-└── USER_GUIDE.md
+├── docs/
+│   ├── USER_GUIDE.md
+│   ├── LIVE_TEST_CHECKLIST.md
+│   └── VASP_TEST_TEMPLATES.md
+└── README.md
 ```

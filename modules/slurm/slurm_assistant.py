@@ -316,6 +316,19 @@ def generate_sbatch_script(user_request: str, *, allow_llm_fallback: bool = True
     if is_dangerous_command(user_request):
         return "这个命令风险过高，我不能为它生成 sbatch 脚本。请提供安全的运行命令。"
 
+    if _is_hpc_submission_smoke_test_request(user_request):
+        return "\n".join([
+            "#!/bin/bash",
+            "#SBATCH --job-name=hpc_agent_smoke_test",
+            "#SBATCH --cpus-per-task=1",
+            "#SBATCH --time=00:01:00",
+            f"#SBATCH --output={DEFAULT_OUTPUT_FILE}",
+            f"#SBATCH --error={DEFAULT_ERROR_FILE}",
+            "",
+            "hostname",
+            "",
+        ])
+
     job_name = extract_job_name(user_request)
     cpus = extract_cpu_count(user_request)
     memory = extract_memory(user_request)
@@ -354,6 +367,21 @@ def generate_sbatch_script(user_request: str, *, allow_llm_fallback: bool = True
             return llm_script
 
     return "请告诉我要运行的命令，例如：python train.py 或 bash run.sh。"
+
+
+def _is_hpc_submission_smoke_test_request(text: str) -> bool:
+    normalized = re.sub(r"\s+", "", text.lower())
+    markers = [
+        "一键测试超算提交流程",
+        "测试超算提交流程",
+        "测试提交作业流程",
+        "测试提交流程",
+        "测试超算能不能提交作业",
+        "测试这个超算能不能正常提交作业",
+        "一键测试提交",
+        "一键最小验证流程",
+    ]
+    return any(marker in normalized for marker in markers)
 
 
 def suggest_slurm_parameters(user_request: str) -> str:

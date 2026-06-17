@@ -31,6 +31,14 @@ def get_job(job_id: str):
     return registry.get(str(job_id))
 
 
+def list_jobs():
+    return _load_registry()
+
+
+def save_jobs(registry: dict):
+    _save_registry(registry)
+
+
 def register_vasp_job(job_id: str, local_job_dir: str, remote_workdir: str):
     register_job(
         job_id,

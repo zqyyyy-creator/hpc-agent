@@ -188,6 +188,84 @@ def handle_job_query_request(
     return execute_job_query_tool_call(call, state=state, query_funcs=query_funcs)
 
 
+def resolve_job_id_for_text(text: str, state: ConversationState | None = None, *, kind: str | None = None):
+    state = state or GLOBAL_CONVERSATION_STATE
+    job_id = extract_job_id(text)
+
+    if not job_id and _has_last_job_reference(text):
+        job_id = "last"
+
+    return state.resolve_job_id(job_id, kind=kind)
+
+
+def format_job_next_steps(job_id: str, *, is_vasp: bool = False) -> str:
+    lines = [
+        "建议下一步命令:",
+        f"- 读取 {job_id} 的错误日志",
+        f"- 读取 {job_id} 的输出",
+        f"- 诊断作业 {job_id}",
+    ]
+
+    if is_vasp:
+        lines.extend([
+            f"- 同步 VASP 作业 {job_id} 输出到本地",
+            f"- 帮我分析 VASP 作业 {job_id}",
+        ])
+
+    return "\n".join(lines)
+
+
+def diagnose_job_request(text: str, state: ConversationState | None = None) -> str:
+    from modules.slurm.job_registry import get_job
+
+    state = state or GLOBAL_CONVERSATION_STATE
+    job_id = resolve_job_id_for_text(text, state=state)
+
+    if not job_id:
+        return "请提供要诊断的 Job ID，例如：诊断作业 11838843。"
+
+    job = get_job(job_id) or {}
+    is_vasp = str(job.get("type", "")).lower() == "vasp"
+
+    if not is_vasp:
+        recent_vasp = state.get_recent_job(kind="vasp")
+        is_vasp = bool(recent_vasp and str(recent_vasp.get("job_id")) == str(job_id))
+
+    status = query_job_status(job_id)
+    output = query_job_output(job_id)
+    error = query_job_error(job_id)
+    state.record_job(
+        job_id,
+        metadata={"source": "diagnose_job", "kind": "vasp" if is_vasp else "slurm"},
+    )
+
+    sections = [
+        f"作业诊断摘要\n\nJob ID: {job_id}",
+        "状态检查:\n" + _compact_section(status),
+        "错误日志摘要:\n" + _compact_section(error),
+        "标准输出摘要:\n" + _compact_section(output),
+        format_job_next_steps(job_id, is_vasp=is_vasp),
+    ]
+
+    if is_vasp:
+        sections.insert(
+            1,
+            (
+                "这是 VASP 作业或疑似 VASP 作业。若日志摘要不够明确，"
+                "建议先同步输出，再运行一键分析。"
+            ),
+        )
+
+    return "\n\n".join(sections)
+
+
+def _compact_section(text: str, max_chars: int = 1400) -> str:
+    text = (text or "").strip()
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars].rstrip() + "\n...（已截断）"
+
+
 def make_cleanup_tool_call(text: str, intent: str) -> ToolCall:
     if intent == "cleanup_remote_job":
         return ToolCall(

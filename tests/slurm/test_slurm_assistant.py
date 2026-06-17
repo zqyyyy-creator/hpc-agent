@@ -56,6 +56,15 @@ def test_missing_command_still_generates():
     assert_contains(answer, "#!/bin/bash")
 
 
+def test_hpc_submission_smoke_test_generates_hostname_script():
+    answer = generate_sbatch_script("一键测试超算提交流程", allow_llm_fallback=False)
+
+    assert_contains(answer, "#!/bin/bash")
+    assert_contains(answer, "#SBATCH --job-name=hpc_agent_smoke_test")
+    assert_contains(answer, "hostname")
+    assert_not_contains(answer, "请告诉我要运行的命令")
+
+
 def test_dangerous_command_is_rejected():
     request = "帮我生成脚本运行 rm -rf /tmp/data"
     answer = generate_sbatch_script(request)
@@ -73,6 +82,7 @@ if __name__ == "__main__":
     test_gpu_python_script()
     test_memory_shell_script()
     test_missing_command_still_generates()
+    test_hpc_submission_smoke_test_generates_hostname_script()
     test_dangerous_command_is_rejected()
     test_resource_question_is_not_treated_as_submission()
     print("All slurm assistant skill checks passed.")

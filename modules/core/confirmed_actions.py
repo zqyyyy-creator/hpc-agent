@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from modules.core.conversation_state import GLOBAL_CONVERSATION_STATE, ConversationState
+from modules.slurm.job_lifecycle import archive_job_records, restore_job_records
 from modules.slurm.job_query import execute_cleanup_remote_jobs
 from modules.slurm.job_submitter import submit_prepared_script, submit_prepared_vasp_script
 
@@ -95,6 +96,39 @@ def execute_confirmed_action(
                 "cleanup_kind": payload.get("kind"),
             },
             raw=answer,
+        )
+
+    if kind == "archive_job_records":
+        executor = active_executors.get("archive_job_records", archive_job_records)
+        result = executor(payload)
+        return ConfirmedActionResult(
+            success=bool(result.get("success")),
+            message=result.get("message", ""),
+            kind=kind,
+            data={
+                "archive_path": result.get("archive_path"),
+                "archived_count": result.get("archived_count"),
+                "remaining_count": result.get("remaining_count"),
+                "archived_job_ids": result.get("archived_job_ids") or [],
+            },
+            raw=result,
+        )
+
+    if kind == "restore_job_records":
+        executor = active_executors.get("restore_job_records", restore_job_records)
+        result = executor(payload)
+        return ConfirmedActionResult(
+            success=bool(result.get("success")),
+            message=result.get("message", ""),
+            kind=kind,
+            data={
+                "archive_path": result.get("archive_path"),
+                "restored_count": result.get("restored_count"),
+                "skipped_count": result.get("skipped_count"),
+                "missing_count": result.get("missing_count"),
+                "restored_job_ids": result.get("restored_job_ids") or [],
+            },
+            raw=result,
         )
 
     return ConfirmedActionResult(

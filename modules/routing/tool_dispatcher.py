@@ -464,13 +464,25 @@ def _reconstruct_question(tool_call: ToolCall, intent: str) -> str:
 # handler routing.
 _NAMED_INTENTS = frozenset({
     "generate_sbatch",
+    "current_config",
+    "check_hpc_config",
+    "test_hpc_submission",
     "generate_vasp_job",
+    "generate_vasp_inputs",
     "generate_vasp_report",
     "analyze_vasp_job",
     "list_remote_jobs",
     "list_remote_vasp_jobs",
+    "recent_jobs",
+    "job_record_status",
+    "preview_archive_job_records",
+    "list_job_record_archives",
+    "preview_restore_job_records",
+    "job_detail",
+    "list_local_vasp_jobs",
     "suggest_params",
     "diagnose_error",
+    "diagnose_job",
     "troubleshoot_job",
 })
 
@@ -627,9 +639,11 @@ def _intent_from_tool_call(tool_call: ToolCall) -> str:
     # For direct intent tools (generate_sbatch, suggest_params, etc.)
     known_intents = {
         "submit_job", "submit_vasp_job", "generate_sbatch",
+        "current_config", "check_hpc_config", "test_hpc_submission",
         "generate_vasp_job", "generate_test_file",
-        "generate_vasp_report", "analyze_vasp_job",
+        "generate_vasp_inputs", "generate_vasp_report", "analyze_vasp_job",
         "suggest_params", "diagnose_error", "troubleshoot_job",
+        "diagnose_job",
         "list_remote_jobs", "list_remote_vasp_jobs",
     }
     if tool in known_intents:

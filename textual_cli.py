@@ -15,7 +15,7 @@ from modules.tui.tui_helpers import (
     _is_vasp_long_workflow_request,
     _uploaded_files_from_paths,
 )
-from modules.tui.tui_formatters import format_monitor_snapshot
+from modules.tui.tui_formatters import format_failure_next_steps, format_monitor_snapshot
 from modules.tui.tui_monitor import (
     active_monitor_job_id,
     active_refresh_job_ids,
@@ -33,6 +33,21 @@ from modules.tui.tui_vasp_workflow import (
 )
 
 jieba.setLogLevel(logging.ERROR)
+
+
+def _is_hpc_submission_smoke_test_request(text: str) -> bool:
+    normalized = re.sub(r"\s+", "", text.lower())
+    markers = [
+        "一键测试超算提交流程",
+        "测试超算提交流程",
+        "测试提交作业流程",
+        "测试提交流程",
+        "测试超算能不能提交作业",
+        "测试这个超算能不能正常提交作业",
+        "一键测试提交",
+        "一键最小验证流程",
+    ]
+    return any(marker in normalized for marker in markers)
 
 
 def run_textual_cli():
@@ -193,6 +208,7 @@ def run_textual_cli():
             self.diagnoser = ErrorDiagnoser()
             self.pending_submission = None
             self.pending_cleanup = None
+            self.pending_action = None
             self.current_job_id = None
             self.monitored_job_ids = []
             self.monitor_snapshots = {}
@@ -224,7 +240,7 @@ def run_textual_cli():
                 "中间是对话；右侧是显式 Job 监控区；底部输入命令。\n"
                 "输入“监控 JOBID”后，右侧会显示 squeue 状态、远端目录和 stdout/stderr 最近 50 行。"
             )
-            self.set_interval(15, self._schedule_monitor_refresh)
+            self.set_interval(5, self._schedule_monitor_refresh)
             self.query_one("#command-input", Input).focus()
 
         def _top_text(self):
@@ -303,6 +319,25 @@ def run_textual_cli():
                 self._write_system("已取消清理。")
                 return
 
+            if self.pending_action and GLOBAL_CONVERSATION_STATE.is_confirmation(question):
+                action_result = execute_confirmed_action(
+                    self.pending_action.get("kind", ""),
+                    self.pending_action.get("payload") or {},
+                    state=GLOBAL_CONVERSATION_STATE,
+                )
+                kind = self.pending_action.get("kind")
+                self.pending_action = None
+                GLOBAL_CONVERSATION_STATE.clear_pending_action(kind)
+                self._write_assistant(action_result.message)
+                return
+
+            if self.pending_action and GLOBAL_CONVERSATION_STATE.is_cancellation(question):
+                kind = self.pending_action.get("kind")
+                self.pending_action = None
+                GLOBAL_CONVERSATION_STATE.clear_pending_action(kind)
+                self._write_system("已取消待确认操作。")
+                return
+
             if self._is_cancel_monitor_request(question):
                 job_id = extract_job_id(question)
                 self._cancel_monitoring(job_id)
@@ -338,17 +373,23 @@ def run_textual_cli():
                         "live_log": None,
                         "pending_submission": None,
                         "pending_cleanup": None,
+                        "pending_action": None,
                     }
                 question = plan_step.get("route_text") or plan_step.get("text") or question
 
-            plan = analyze_plan(question)
-            intent = "multi_step_plan" if plan is not None else detect_intent(question)
+            if _is_hpc_submission_smoke_test_request(question):
+                plan = None
+                intent = "test_hpc_submission"
+            else:
+                plan = analyze_plan(question)
+                intent = "multi_step_plan" if plan is not None else detect_intent(question)
             result = {
                 "answer": "",
                 "job_id": None,
                 "live_log": None,
                 "pending_submission": None,
                 "pending_cleanup": None,
+                "pending_action": None,
             }
 
             try:
@@ -363,6 +404,15 @@ def run_textual_cli():
                 elif intent == "submit_vasp_job":
                     answer, pending_submission = self._prepare_submit_vasp_job(question)
                     result["pending_submission"] = pending_submission
+                elif intent == "test_hpc_submission":
+                    runtime_result = execute_submit_preview(
+                        question,
+                        intent,
+                        state=GLOBAL_CONVERSATION_STATE,
+                        confirmation_text="\n\n回复“确认提交”或按 Ctrl+S 提交；回复“取消提交”或按 Esc 取消。",
+                    )
+                    answer = runtime_result.answer
+                    result["pending_submission"] = runtime_result.data.get("pending_submission")
                 elif intent == "generate_test_file":
                     answer = dispatch_tool_request(
                         question,
@@ -382,6 +432,7 @@ def run_textual_cli():
                     answer = runtime_result.answer
                     result["job_id"] = runtime_result.data.get("job_id")
                     result["live_log"] = runtime_result.data.get("live_log")
+                    result["pending_action"] = runtime_result.data.get("pending_action")
                 elif can_preview_cleanup_intent(intent):
                     runtime_result = execute_cleanup_preview(
                         question,
@@ -415,6 +466,7 @@ def run_textual_cli():
                     "live_log": None,
                     "pending_submission": None,
                     "pending_cleanup": None,
+                    "pending_action": None,
                 }
 
             if not can_execute_plan_all(plan):
@@ -427,6 +479,7 @@ def run_textual_cli():
                     "live_log": None,
                     "pending_submission": None,
                     "pending_cleanup": None,
+                    "pending_action": None,
                 }
 
             answers = []
@@ -444,7 +497,7 @@ def run_textual_cli():
                 last_job_id = step_result.get("job_id") or last_job_id
                 live_log = step_result.get("live_log") or live_log
 
-                if step_result.get("pending_submission") or step_result.get("pending_cleanup"):
+                if step_result.get("pending_submission") or step_result.get("pending_cleanup") or step_result.get("pending_action"):
                     return {
                         "answer": (
                             "\n\n---\n\n".join(answers)
@@ -454,6 +507,7 @@ def run_textual_cli():
                         "live_log": live_log,
                         "pending_submission": step_result.get("pending_submission"),
                         "pending_cleanup": step_result.get("pending_cleanup"),
+                        "pending_action": step_result.get("pending_action"),
                     }
 
             return {
@@ -462,6 +516,7 @@ def run_textual_cli():
                 "live_log": live_log,
                 "pending_submission": None,
                 "pending_cleanup": None,
+                "pending_action": None,
             }
 
         def _apply_question_result(self, result: dict):
@@ -479,6 +534,14 @@ def run_textual_cli():
                     "cleanup",
                     self.pending_cleanup,
                     "远端清理预览，回复“确认执行”或“确认清理”后执行。",
+                )
+
+            if result.get("pending_action") is not None:
+                self.pending_action = result["pending_action"]
+                GLOBAL_CONVERSATION_STATE.record_pending_action(
+                    self.pending_action.get("kind", "action"),
+                    self.pending_action.get("payload") or {},
+                    self.pending_action.get("description", "待确认操作。"),
                 )
 
             answer = result.get("answer", "")
@@ -652,7 +715,9 @@ def run_textual_cli():
                     if job_id not in self.failure_notices_shown:
                         self.failure_notices_shown.add(job_id)
                         self._write_system(
-                            f"Job {job_id} 已失败，已从右侧监控移除。可诊断错误日志。"
+                            f"Job {job_id} 已失败，已从右侧监控移除。\n"
+                            "建议下一步：\n"
+                            f"{format_failure_next_steps(job_id)}"
                         )
                     continue
 
@@ -673,11 +738,15 @@ def run_textual_cli():
                     if vasp_diagnosis.get("is_vasp") and vasp_diagnosis.get("severity") in {"error", "warning"}:
                         self._write_system(
                             f"Job {job_id} 的 VASP 诊断发现 {vasp_diagnosis.get('severity')}: "
-                            f"{vasp_diagnosis.get('summary')}"
+                            f"{vasp_diagnosis.get('summary')}\n"
+                            "建议下一步：\n"
+                            f"{format_failure_next_steps(job_id, is_vasp=True)}"
                         )
                         continue
                     self._write_system(
-                        f"Job {job_id} 可能失败或出现异常，可诊断错误日志。"
+                        f"Job {job_id} 可能失败或出现异常。\n"
+                        "建议下一步：\n"
+                        f"{format_failure_next_steps(job_id)}"
                     )
 
             self._render_monitor_panel()
@@ -960,7 +1029,13 @@ def run_textual_cli():
                 self._write_system("已取消提交。")
             elif self.pending_cleanup:
                 self.pending_cleanup = None
+                GLOBAL_CONVERSATION_STATE.clear_pending_action("cleanup")
                 self._write_system("已取消清理。")
+            elif self.pending_action:
+                kind = self.pending_action.get("kind")
+                self.pending_action = None
+                GLOBAL_CONVERSATION_STATE.clear_pending_action(kind)
+                self._write_system("已取消待确认操作。")
 
         def action_next_monitor(self):
             if not self.monitored_job_ids:

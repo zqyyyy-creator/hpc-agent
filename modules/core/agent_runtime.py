@@ -2,16 +2,32 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from modules.knowledge.knowledge_base import ask_llm, retrieve
+from modules.core.environment_status import (
+    check_hpc_environment,
+    format_current_model_and_config,
+    format_hpc_environment_check,
+)
 from modules.routing.router import get_clarification
 from modules.slurm.slurm_assistant import generate_sbatch_script, suggest_slurm_parameters
 from modules.routing.tool_dispatcher import dispatch_tool_request
 from modules.vasp.vasp_assistant import generate_vasp_sbatch_script
+from modules.vasp.vasp_input_generator import generate_vasp_inputs_from_potcar_request
 from modules.slurm.job_query import (
     analyze_vasp_job,
+    diagnose_job_request,
     extract_job_id,
     generate_vasp_report,
     query_remote_agent_jobs,
     query_remote_vasp_jobs,
+)
+from modules.slurm.job_lifecycle import (
+    build_archive_job_records_preview,
+    build_restore_job_records_preview,
+    format_job_detail_for_request,
+    format_job_record_archives,
+    format_job_record_status,
+    format_recent_jobs,
+    format_vasp_jobs,
 )
 
 
@@ -19,19 +35,30 @@ ANSWER_INTENTS = {
     "rag_qa",
     "clarify",
     "generate_sbatch",
+    "current_config",
+    "check_hpc_config",
     "generate_vasp_job",
+    "generate_vasp_inputs",
     "generate_vasp_report",
     "analyze_vasp_job",
     "list_remote_jobs",
     "list_remote_vasp_jobs",
     "suggest_params",
     "diagnose_error",
+    "diagnose_job",
     "troubleshoot_job",
     "register_vasp_job",
     "sync_vasp_output",
     "job_status",
     "job_output",
     "job_error",
+    "recent_jobs",
+    "job_record_status",
+    "preview_archive_job_records",
+    "list_job_record_archives",
+    "preview_restore_job_records",
+    "job_detail",
+    "list_local_vasp_jobs",
 }
 
 CLEANUP_PREVIEW_INTENTS = {
@@ -55,7 +82,7 @@ CLEANUP_PENDING_DESCRIPTIONS = {
     "cleanup_all_remote_vasp_jobs": "远端 VASP 全部清理预览，回复“确认执行”或“确认清理全部”后执行。",
 }
 
-SUBMIT_PREVIEW_INTENTS = {"submit_job", "submit_vasp_job"}
+SUBMIT_PREVIEW_INTENTS = {"submit_job", "submit_vasp_job", "test_hpc_submission"}
 
 
 def can_preview_submit_intent(intent: str) -> bool:
@@ -148,12 +175,15 @@ def execute_submit_preview(
         return AgentRuntimeResult(handled=False, intent=intent, success=False)
 
     uploaded_files = list(uploaded_files or [])
+    dispatch_intent = "submit_job" if intent == "test_hpc_submission" else intent
+    dispatch_question = question
+
     dispatch_result = dispatch_tool_request(
-        question,
-        intent,
+        dispatch_question,
+        dispatch_intent,
         state=state,
         uploaded_files=uploaded_files,
-        source_text=source_text or question,
+        source_text=source_text or dispatch_question,
     )
     prepared = dispatch_result.data["prepared"]
     data = dict(dispatch_result.data)
@@ -198,7 +228,13 @@ def execute_submit_preview(
                 f"- {item}" for item in recommendation_details
             )
         uploaded_note = _format_file_list(data["uploaded_files"], uploaded_note_prefix)
-        answer = f"{prepared['message']}{command_note}{resource_note}{uploaded_note}{confirmation_text}"
+        intro = ""
+        if intent == "test_hpc_submission":
+            intro = (
+                "我将用一个最小 hostname 作业测试普通 Slurm 提交流程。"
+                "这只会提交一个短作业，用来验证 sbatch、远端目录和日志链路。\n\n"
+            )
+        answer = f"{intro}{prepared['message']}{command_note}{resource_note}{uploaded_note}{confirmation_text}"
 
     data["pending_submission"] = pending_submission
     data["requires_confirmation"] = True
@@ -233,8 +269,31 @@ def execute_answer_intent(
     if intent == "generate_sbatch":
         return AgentRuntimeResult(True, intent, generate_sbatch_script(question))
 
+    if intent == "current_config":
+        return AgentRuntimeResult(True, intent, format_current_model_and_config())
+
+    if intent == "check_hpc_config":
+        result = check_hpc_environment()
+        return AgentRuntimeResult(
+            True,
+            intent,
+            format_hpc_environment_check(result),
+            success=result["success"],
+            data=result,
+        )
+
     if intent == "generate_vasp_job":
         return AgentRuntimeResult(True, intent, generate_vasp_sbatch_script(question))
+
+    if intent == "generate_vasp_inputs":
+        result = generate_vasp_inputs_from_potcar_request(question)
+        return AgentRuntimeResult(
+            True,
+            intent,
+            result["message"],
+            success=result["success"],
+            data=result,
+        )
 
     if intent == "generate_vasp_report":
         return AgentRuntimeResult(True, intent, generate_vasp_report(question))
@@ -248,6 +307,66 @@ def execute_answer_intent(
     if intent == "list_remote_vasp_jobs":
         return AgentRuntimeResult(True, intent, query_remote_vasp_jobs())
 
+    if intent == "recent_jobs":
+        return AgentRuntimeResult(True, intent, format_recent_jobs())
+
+    if intent == "job_record_status":
+        return AgentRuntimeResult(True, intent, format_job_record_status())
+
+    if intent == "preview_archive_job_records":
+        preview = build_archive_job_records_preview(question)
+        data = dict(preview)
+        pending_action = None
+        if preview.get("requires_confirmation"):
+            pending_action = {
+                "kind": "archive_job_records",
+                "payload": {
+                    "keep_count": preview.get("keep_count"),
+                    "keep_job_ids": preview.get("keep_job_ids") or [],
+                    "archive_job_ids": preview.get("archive_job_ids") or [],
+                },
+                "description": "本地作业记录归档预览，回复“确认归档本地作业记录”后执行。",
+            }
+        data["pending_action"] = pending_action
+        return AgentRuntimeResult(
+            True,
+            intent,
+            preview["message"],
+            success=preview.get("success", True),
+            data=data,
+        )
+
+    if intent == "list_job_record_archives":
+        return AgentRuntimeResult(True, intent, format_job_record_archives())
+
+    if intent == "preview_restore_job_records":
+        preview = build_restore_job_records_preview(question)
+        data = dict(preview)
+        pending_action = None
+        if preview.get("requires_confirmation"):
+            pending_action = {
+                "kind": "restore_job_records",
+                "payload": {
+                    "archive_path": preview.get("archive_path"),
+                    "restore_job_ids": preview.get("restore_job_ids") or [],
+                },
+                "description": "本地作业记录恢复预览，回复“确认恢复本地作业记录归档”后执行。",
+            }
+        data["pending_action"] = pending_action
+        return AgentRuntimeResult(
+            True,
+            intent,
+            preview["message"],
+            success=preview.get("success", True),
+            data=data,
+        )
+
+    if intent == "job_detail":
+        return AgentRuntimeResult(True, intent, format_job_detail_for_request(question, state=state))
+
+    if intent == "list_local_vasp_jobs":
+        return AgentRuntimeResult(True, intent, format_vasp_jobs())
+
     if intent == "suggest_params":
         return AgentRuntimeResult(True, intent, suggest_slurm_parameters(question))
 
@@ -257,6 +376,9 @@ def execute_answer_intent(
             intent,
             diagnoser.format_results(diagnoser.diagnose(question)),
         )
+
+    if intent == "diagnose_job":
+        return AgentRuntimeResult(True, intent, diagnose_job_request(question, state=state))
 
     if intent in {"register_vasp_job", "sync_vasp_output", "job_status", "job_output", "job_error"}:
         if current_job_id and intent in {"job_status", "job_output", "job_error"} and not extract_job_id(question):

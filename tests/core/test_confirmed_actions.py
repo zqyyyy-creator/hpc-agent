@@ -71,6 +71,51 @@ def test_confirmed_cleanup_returns_answer_and_targets():
     assert result.data["cleanup_kind"] == "job"
 
 
+def test_confirmed_archive_job_records_returns_archive_result():
+    result = execute_confirmed_action(
+        "archive_job_records",
+        {"archive_job_ids": ["10001"], "keep_count": 2},
+        executors={
+            "archive_job_records": lambda payload: {
+                "success": True,
+                "message": "archived",
+                "archive_path": "/tmp/archive.json",
+                "archived_count": 1,
+                "remaining_count": 2,
+                "archived_job_ids": payload["archive_job_ids"],
+            },
+        },
+    )
+
+    assert result.success
+    assert result.message == "archived"
+    assert result.data["archive_path"] == "/tmp/archive.json"
+    assert result.data["archived_count"] == 1
+
+
+def test_confirmed_restore_job_records_returns_restore_result():
+    result = execute_confirmed_action(
+        "restore_job_records",
+        {"archive_path": "/tmp/archive.json", "restore_job_ids": ["10001"]},
+        executors={
+            "restore_job_records": lambda payload: {
+                "success": True,
+                "message": "restored",
+                "archive_path": payload["archive_path"],
+                "restored_count": 1,
+                "skipped_count": 0,
+                "missing_count": 0,
+                "restored_job_ids": payload["restore_job_ids"],
+            },
+        },
+    )
+
+    assert result.success
+    assert result.message == "restored"
+    assert result.data["archive_path"] == "/tmp/archive.json"
+    assert result.data["restored_count"] == 1
+
+
 def test_unknown_confirmed_action_is_rejected():
     result = execute_confirmed_action("unknown", {})
 
@@ -82,5 +127,7 @@ if __name__ == "__main__":
     test_confirmed_slurm_submit_records_job()
     test_confirmed_vasp_submit_records_vasp_job()
     test_confirmed_cleanup_returns_answer_and_targets()
+    test_confirmed_archive_job_records_returns_archive_result()
+    test_confirmed_restore_job_records_returns_restore_result()
     test_unknown_confirmed_action_is_rejected()
     print("All confirmed action checks passed.")

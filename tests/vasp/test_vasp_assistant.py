@@ -29,16 +29,24 @@ from modules.slurm.slurm_tools import (
     _local_vasp_raw_output_dir,
     _should_sync_vasp_output_file,
 )
-from modules.vasp.vasp_assistant import generate_vasp_sbatch_script
+from modules.vasp.vasp_assistant import (
+    DEFAULT_VASP_COMMAND,
+    DEFAULT_VASP_SETUP_COMMAND,
+    generate_vasp_sbatch_script,
+)
+from modules.vasp.vasp_input_generator import (
+    generate_vasp_inputs_from_potcar,
+    generate_vasp_inputs_from_potcar_request,
+    parse_potcar_entries,
+    recommended_encut,
+)
 from modules.vasp.vasp_report_context import generate_vasp_report_context
 from modules.slurm.job_query import _local_output_dir_for_input_path
 
 
-DEFAULT_VASP_SETUP = (
-    "source /public1/soft/intel/2020u4/compilers_and_libraries_2020.4.304/"
-    "linux/bin/compilervars.sh intel64"
-)
-DEFAULT_VASP_RUN = "mpirun /public1/soft/vasp > vasp.out"
+DEFAULT_VASP_SETUP = DEFAULT_VASP_SETUP_COMMAND
+DEFAULT_VASP_RUN = f"{DEFAULT_VASP_COMMAND} > vasp.out"
+EXPLICIT_VASP_RUN = "mpirun vasp_std > vasp.out"
 
 
 def assert_contains(text: str, expected: str):
@@ -64,19 +72,105 @@ def test_generate_vasp_script_defaults():
     assert_contains(script, "test -f POSCAR")
     assert_contains(script, "test -f POTCAR")
     assert_contains(script, "test -f KPOINTS")
-    assert_contains(script, DEFAULT_VASP_SETUP)
+    if DEFAULT_VASP_SETUP:
+        assert_contains(script, DEFAULT_VASP_SETUP)
     assert_contains(script, DEFAULT_VASP_RUN)
 
 
 def test_generate_vasp_script_extracts_resources():
-    request = "帮我生成 VASP 脚本，2 个节点，每节点 64 核，运行 48 小时，命令是 mpirun /public1/soft/vasp"
+    request = "帮我生成 VASP 脚本，2 个节点，每节点 64 核，运行 48 小时，命令是 mpirun vasp_std"
     script = generate_vasp_sbatch_script(request)
 
     assert detect_intent(request) == "generate_vasp_job"
     assert_contains(script, "#SBATCH --nodes=2")
     assert_contains(script, "#SBATCH --ntasks-per-node=64")
     assert_contains(script, "#SBATCH --time=48:00:00")
-    assert_contains(script, DEFAULT_VASP_RUN)
+    assert_contains(script, EXPLICIT_VASP_RUN)
+
+
+def test_parse_potcar_entries_extracts_metadata():
+    potcar = "\n".join([
+        "TITEL  = PAW_PBE Al 04Jan2001",
+        "ENMAX  = 240.000; ENMIN = 180.000",
+        "ZVAL   = 3.000",
+        "TITEL  = PAW_PBE O 08Apr2002",
+        "ENMAX  = 400.000; ENMIN = 300.000",
+        "ZVAL   = 6.000",
+    ])
+
+    entries = parse_potcar_entries(potcar)
+
+    assert [entry.element for entry in entries] == ["Al", "O"]
+    assert entries[0].label == "Al"
+    assert entries[1].enmax == 400.0
+    assert recommended_encut(entries) == 520
+
+
+def test_generate_vasp_inputs_from_single_element_potcar_writes_files():
+    with TemporaryDirectory() as tmpdir:
+        job_dir = _bootstrap.Path(tmpdir) / "Al_test"
+        job_dir.mkdir()
+        (job_dir / "POTCAR").write_text(
+            "\n".join([
+                "TITEL  = PAW_PBE Al 04Jan2001",
+                "ENMAX  = 240.000; ENMIN = 180.000",
+                "ZVAL   = 3.000",
+            ]),
+            encoding="utf-8",
+        )
+
+        result = generate_vasp_inputs_from_potcar(job_dir, user_request="帮我生成配置文件")
+
+        if not result["success"]:
+            raise AssertionError(result["message"])
+
+        incar = (job_dir / "INCAR").read_text(encoding="utf-8")
+        kpoints = (job_dir / "KPOINTS").read_text(encoding="utf-8")
+        poscar = (job_dir / "POSCAR").read_text(encoding="utf-8")
+
+        assert_contains(incar, "ENCUT = 320")
+        assert_contains(incar, "ISMEAR = 1")
+        assert_contains(kpoints, "6 6 6")
+        assert_contains(poscar, "Al fcc smoke test")
+        assert_contains(result["message"], "强提醒")
+
+
+def test_generate_vasp_inputs_request_resolves_named_job_dir():
+    with TemporaryDirectory() as tmpdir:
+        job_dir = _bootstrap.Path(tmpdir) / "Al_test"
+        job_dir.mkdir()
+        (job_dir / "POTCAR").write_text(
+            "TITEL  = PAW_PBE Al 04Jan2001\nENMAX  = 240.000; ENMIN = 180.000\n",
+            encoding="utf-8",
+        )
+
+        result = generate_vasp_inputs_from_potcar_request(
+            "帮我生成我的vasp作业Al_test的配置文件",
+            jobs_dir=tmpdir,
+        )
+
+        if not result["success"]:
+            raise AssertionError(result["message"])
+
+        assert (_bootstrap.Path(result["job_dir"]) / "INCAR").is_file()
+        assert result["elements"] == ["Al"]
+
+
+def test_generate_vasp_inputs_does_not_overwrite_without_explicit_request():
+    with TemporaryDirectory() as tmpdir:
+        job_dir = _bootstrap.Path(tmpdir) / "Al_test"
+        job_dir.mkdir()
+        (job_dir / "POTCAR").write_text(
+            "TITEL  = PAW_PBE Al 04Jan2001\nENMAX  = 240.000; ENMIN = 180.000\n",
+            encoding="utf-8",
+        )
+        (job_dir / "INCAR").write_text("ENCUT = 999\n", encoding="utf-8")
+
+        result = generate_vasp_inputs_from_potcar(job_dir, user_request="帮我生成配置文件")
+
+        assert not result["success"]
+        assert_contains(result["message"], "已经存在")
+        assert (job_dir / "INCAR").read_text(encoding="utf-8") == "ENCUT = 999\n"
 
 
 def test_submit_vasp_job_preview_handles_partition():
@@ -94,7 +188,8 @@ def test_submit_vasp_job_preview_handles_partition():
     assert_contains(prepared["script"], "#SBATCH --nodes=1")
     assert_contains(prepared["script"], "#SBATCH --ntasks-per-node=32")
     assert_contains(prepared["script"], "#SBATCH --time=00:10:00")
-    assert_contains(prepared["script"], DEFAULT_VASP_SETUP)
+    if DEFAULT_VASP_SETUP:
+        assert_contains(prepared["script"], DEFAULT_VASP_SETUP)
     assert_contains(prepared["script"], DEFAULT_VASP_RUN)
     if prepared["local_jobs_dir"] != str(_bootstrap.Path(VASP_LOCAL_JOBS_DIR).resolve()):
         raise AssertionError(f"Unexpected VASP local jobs dir: {prepared['local_jobs_dir']}")
@@ -109,7 +204,7 @@ def test_submit_vasp_job_preview_handles_partition():
 
 
 def test_vasp_submit_path_does_not_replace_runtime_command():
-    request = "提交 VASP 作业，路径为 /home/qyz/vasp-jobs-input/si_static_test，帮我运行并分析"
+    request = "提交 VASP 作业，路径为 /tmp/hpc-agent-test/vasp-jobs-input/si_static_test，帮我运行并分析"
     prepared = prepare_vasp_submit_script(request)
 
     if not prepared["ready"]:
@@ -117,7 +212,7 @@ def test_vasp_submit_path_does_not_replace_runtime_command():
 
     assert_contains(prepared["script"], "#SBATCH --time=00:10:00")
     assert_contains(prepared["script"], DEFAULT_VASP_RUN)
-    assert_not_contains(prepared["script"], "/home/qyz/vasp-jobs-input")
+    assert_not_contains(prepared["script"], "/tmp/hpc-agent-test/vasp-jobs-input")
     assert_not_contains(prepared["script"], "帮我运行并分析 > vasp.out")
 
 
@@ -543,6 +638,10 @@ def test_outcar_parser_reports_failure_on_missing_outcar():
 if __name__ == "__main__":
     test_generate_vasp_script_defaults()
     test_generate_vasp_script_extracts_resources()
+    test_parse_potcar_entries_extracts_metadata()
+    test_generate_vasp_inputs_from_single_element_potcar_writes_files()
+    test_generate_vasp_inputs_request_resolves_named_job_dir()
+    test_generate_vasp_inputs_does_not_overwrite_without_explicit_request()
     test_submit_vasp_job_preview_handles_partition()
     test_vasp_submit_path_does_not_replace_runtime_command()
     test_vasp_runtime_script_syncs_input_folder_after_sbatch_directives()
