@@ -104,6 +104,7 @@ PARATERA_API_KEY=your-api-key
 HPC_HOST=your-hpc-host
 HPC_USERNAME=your-hpc-username
 HPC_KEY_PATH=/path/to/your/private/key
+HPC_LOCAL_WORKDIR=/path/to/local/hpc-agent-jobs
 HPC_REMOTE_WORKDIR=/path/to/remote/hpc-agent-jobs
 HPC_DEFAULT_PARTITION=
 
@@ -117,7 +118,7 @@ HPC_VASP_COMMAND=mpirun /public1/soft/vasp
 HPC_VASP_MODULE=
 
 HPC_CLAUDE_CODE_COMMAND=claude
-HPC_CLAUDE_CODE_MODEL=
+HPC_CLAUDE_CODE_MODEL=DeepSeek-V4-Pro
 HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 ```
 
@@ -128,6 +129,7 @@ HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 * `HPC_HOST`：超算 SSH 登录主机。
 * `HPC_USERNAME`：超算用户名。
 * `HPC_KEY_PATH`：本机 SSH 私钥绝对路径（Ed25519）。
+* `HPC_LOCAL_WORKDIR`：本地普通作业/测试文件工作目录；裸文件名查找会同时搜索当前启动目录和该目录。
 * `HPC_REMOTE_WORKDIR`：普通 Slurm 作业远端根目录。
 * `HPC_DEFAULT_PARTITION`：普通作业默认 partition；留空表示不写 `#SBATCH --partition`，使用集群默认分区。
 * `HPC_LOCAL_VASP_JOBS_INPUT_DIR`：本地 VASP 输入作业根目录。
@@ -135,12 +137,14 @@ HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 * `HPC_VASP_REMOTE_INPUT_DIR`：VASP 作业远端输入根目录。
 * `HPC_VASP_REMOTE_OUTPUT_DIR`：VASP 作业远端输出/运行根目录。
 * `HPC_VASP_PARTITION`：VASP 作业默认 partition；留空表示不写 `#SBATCH --partition`，使用集群默认分区。
-* `HPC_VASP_SETUP_COMMAND`：VASP 运行前的环境初始化命令。
-* `HPC_VASP_COMMAND`：VASP 主程序启动命令。
+* `HPC_VASP_SETUP_COMMAND`：VASP 运行前的环境初始化命令。当前集群上 Intel MPI 的 `mpirun` 通常需要先 source Intel 环境。
+* `HPC_VASP_COMMAND`：VASP 主程序启动命令。普通 MPI 测试默认用 `srun`，VASP 默认保持 `mpirun /public1/soft/vasp`。
 * `HPC_VASP_MODULE`：可选，留空表示不使用 `module load`。
 * `HPC_CLAUDE_CODE_COMMAND`：Claude Code 命令，默认 `claude`。
 * `HPC_CLAUDE_CODE_MODEL`：Claude Code 使用的模型名；留空时使用环境默认，Paratera 网关默认回退到 `DeepSeek-V4-Pro`。
 * `HPC_CLAUDE_CODE_TIMEOUT_SECONDS`：Claude Code 报告生成超时时间，默认 1800 秒。
+
+Claude Code 报告生成会把 `PARATERA_API_KEY` 同时传给 `ANTHROPIC_API_KEY` 和 `ANTHROPIC_AUTH_TOKEN`，并把 `PARATERA_BASE_URL` 传给 `ANTHROPIC_BASE_URL`。如果报告生成报认证错误，优先检查 `.env` 中的 `PARATERA_API_KEY` 是否过期，以及该 key 是否支持 `HPC_CLAUDE_CODE_MODEL`。
 
 `.env` 不应提交到 Git。
 
@@ -154,6 +158,7 @@ HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 跑 train.py，4核，15分钟
 帮我提交 ./run.sh，2核，30分钟
 帮我提交一个作业运行 python train.py，8核，1小时，16G内存
+创建 srun -n 4 hostname 测试脚本并运行
 确认提交
 取消提交
 ```
@@ -218,6 +223,8 @@ hpc_agent_job_<jobid>.err
 
 普通作业支持 `.py`、`.sh`、`.slurm`、`.sbatch` 这类本地文件路径。没有显式指定 CPU、时间、内存、GPU 时，Agent 会尝试根据文件内容给出推荐参数；用户显式指定的参数优先。
 
+当用户只写裸 Python 文件名（例如 `运行 test.py`）或上传 `.py` 文件但没有写运行命令时，Agent 默认推断为 `python3 test.py`。如果用户明确写了 `python train.py`，Agent 会尊重用户写出的命令。
+
 ---
 
 ## VASP 固定目录流程
@@ -243,6 +250,8 @@ $HPC_LOCAL_VASP_JOBS_INPUT_DIR/<job-folder>/
 3. 在远端 `$HPC_VASP_REMOTE_OUTPUT_DIR/<job-folder>` 写入并运行 `job.sh`。
 
 VASP 标准输出、错误日志和运行结果写入远端 output 目录。Agent 不会生成真实 `POTCAR`，`POTCAR` 需要来自你有权限使用的 VASP 赝势库。
+
+当前建议的启动策略是：普通 Slurm/MPI 测试使用 `srun -n N ...`；VASP 使用 `HPC_VASP_SETUP_COMMAND` 初始化 Intel 环境后运行 `mpirun /public1/soft/vasp`。这两条路径不要混在一起配置。
 
 ### 输出同步
 
@@ -300,6 +309,8 @@ VASP 确定性事实从 OUTCAR/OSZICAR 解析获得，包括：
 - DAV/RMM 迭代次数
 
 Claude Code 报告生成加载 `skills/vasp_report/SKILL.md`，该 skill 严格约束只使用 `analysis/report_context.md` 中的内容，避免把大体积 VASP 原始输出直接塞进模型上下文，也禁止编造未在上下文中确认的结果。
+
+报告生成以 `analysis/report_context.md` 为受控输入：数值结果来自确定性解析器，Claude Code 只负责组织中文报告和英文 methods/results 文本。调用 Claude Code 时使用 `--bare` 模式并要求只返回 JSON，最终的 `report.md`、`paper_methods.md`、`paper_results.md` 由 Python 写入。
 
 ---
 

@@ -1,8 +1,38 @@
 import base64
+import os
 import re
 import shutil
 import subprocess
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
+
+SEARCH_EXCLUDED_DIRS = {
+    ".git",
+    ".hg",
+    ".svn",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "node_modules",
+}
+
+
+def _local_file_search_roots():
+    roots = [Path.cwd()]
+    local_workdir = Path(os.getenv("HPC_LOCAL_WORKDIR", "~/hpc-local-jobs")).expanduser()
+
+    if local_workdir not in roots:
+        roots.append(local_workdir)
+
+    return roots
 
 
 def _extract_local_file_candidates(text: str):
@@ -21,13 +51,76 @@ def _extract_local_file_candidates(text: str):
     return cleaned_candidates
 
 
+def _find_files_by_name(file_name: str, root: Path | None = None, limit: int | None = None):
+    matches = []
+    roots = [root] if root is not None else _local_file_search_roots()
+
+    for search_root in roots:
+        search_root = search_root.expanduser()
+        if not search_root.exists():
+            continue
+
+        root_resolved = search_root.resolve()
+
+        for path in root_resolved.rglob(file_name):
+            if not path.is_file():
+                continue
+
+            try:
+                relative_parts = path.relative_to(root_resolved).parts
+            except ValueError:
+                relative_parts = path.parts
+
+            if any(part in SEARCH_EXCLUDED_DIRS for part in relative_parts[:-1]):
+                continue
+
+            if path not in matches:
+                matches.append(path)
+
+            if limit is not None and len(matches) >= limit:
+                return matches
+
+    return matches
+
+
+def _find_unique_file_by_name(file_name: str, root: Path | None = None):
+    matches = _find_files_by_name(file_name, root, limit=2)
+
+    return matches[0] if len(matches) == 1 else None
+
+
+def _has_ambiguous_local_file_candidate(candidate: str):
+    if any(separator in candidate for separator in ("/", "\\")):
+        return False
+
+    return len(_find_files_by_name(candidate, limit=2)) > 1
+
+
+def _resolve_local_file_candidate(candidate: str):
+    path = Path(candidate).expanduser()
+
+    if path.is_file():
+        return path
+
+    for root in _local_file_search_roots():
+        rooted_path = (root / candidate).expanduser()
+
+        if rooted_path.is_file():
+            return rooted_path
+
+    if any(separator in candidate for separator in ("/", "\\")):
+        return None
+
+    return _find_unique_file_by_name(candidate)
+
+
 def _extract_local_file_paths(text: str):
     paths = []
 
     for candidate in _extract_local_file_candidates(text):
-        path = Path(candidate).expanduser()
+        path = _resolve_local_file_candidate(candidate)
 
-        if path.is_file():
+        if path is not None:
             paths.append(path)
 
     return paths
@@ -38,6 +131,18 @@ def _has_explicit_run_command(text: str):
         re.search(r"\bpython(?:3)?\s+\S+\.py\b", text)
         or re.search(r"\bbash\s+\S+\.sh\b", text)
         or re.search(r"\./[A-Za-z0-9_./-]+", text)
+    )
+
+
+def _requests_no_upload(text: str):
+    normalized = text.lower().replace(" ", "")
+    return any(
+        marker in normalized
+        for marker in (
+            "不要上传", "别上传", "不用上传", "无需上传",
+            "不要传文件", "别传文件", "不要上传文件", "别上传文件",
+            "noupload", "donotupload", "don'tupload",
+        )
     )
 
 
@@ -56,7 +161,7 @@ def _infer_run_command(uploaded_files):
         name = item["name"]
 
         if name.endswith(".py"):
-            return f"python {name}"
+            return f"python3 {name}"
 
     for item in uploaded_files:
         name = item["name"]

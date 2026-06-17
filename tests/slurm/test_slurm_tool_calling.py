@@ -58,9 +58,17 @@ def test_prepare_slurm_job_tool_call_missing_command_matches_existing_message():
     assert prepared["tool_call"]["tool"] == "prepare_slurm_job"
 
 
+def test_bare_python_file_command_uses_python3():
+    prepared = prepare_submit_script("帮我运行 test.py，1 核，1 分钟")
+
+    assert prepared["ready"]
+    assert "python3 test.py" in prepared["script"]
+
+
 if __name__ == "__main__":
     test_prepare_slurm_job_tool_call_extracts_arguments()
     test_execute_prepare_slurm_job_tool_call_returns_preview_result()
     test_prepare_submit_script_keeps_existing_response_shape()
     test_prepare_slurm_job_tool_call_missing_command_matches_existing_message()
+    test_bare_python_file_command_uses_python3()
     print("All Slurm tool calling checks passed.")

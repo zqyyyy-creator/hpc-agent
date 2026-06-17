@@ -12,7 +12,7 @@ load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 DEFAULT_TEST_FILE_NAME = "test.py"
 MAX_SLEEP_SECONDS = 24 * 60 * 60
-SUPPORTED_TEST_COMMANDS_TEXT = "sleep N 秒、hostname、mpirun -np N hostname"
+SUPPORTED_TEST_COMMANDS_TEXT = "sleep N 秒、hostname、srun -n N hostname"
 ASCII_LEFT_BOUNDARY = r"(?<![A-Za-z0-9_])"
 ASCII_RIGHT_BOUNDARY = r"(?![A-Za-z0-9_])"
 TEST_TOOL_GENERATE = "generate_test_file"
@@ -110,6 +110,14 @@ def _parse_mpi_hostname_tasks(text: str) -> int | None:
         tasks = int(match.group(1))
         return tasks if 1 <= tasks <= 1024 else None
 
+    match = re.search(
+        rf"{ASCII_LEFT_BOUNDARY}srun\s+-n\s+(\d+)\s+hostname{ASCII_RIGHT_BOUNDARY}",
+        normalized,
+    )
+    if match:
+        tasks = int(match.group(1))
+        return tasks if 1 <= tasks <= 1024 else None
+
     match = re.search(r"(\d+)\s*(?:个|个)?\s*(?:mpi)?\s*(?:进程|任务|核|process|processes|rank|ranks).{0,20}(?:hostname|主机名|节点名)", normalized)
     if match:
         tasks = int(match.group(1))
@@ -138,7 +146,7 @@ def get_test_command_spec(text: str) -> dict | None:
         return {
             "kind": "mpi_hostname",
             "tasks": mpi_tasks,
-            "command": f"mpirun -np {mpi_tasks} hostname",
+            "command": f"srun -n {mpi_tasks} hostname",
             "cpus": mpi_tasks,
             "time": "00:01:00",
             "job_name": f"hpc_test_mpi_hostname_{mpi_tasks}",
@@ -201,7 +209,7 @@ def _spec_from_tool_arguments(arguments: dict) -> dict | None:
         return {
             "kind": "mpi_hostname",
             "tasks": tasks,
-            "command": f"mpirun -np {tasks} hostname",
+            "command": f"srun -n {tasks} hostname",
             "cpus": tasks,
             "time": "00:01:00",
             "job_name": f"hpc_test_mpi_hostname_{tasks}",
@@ -227,14 +235,22 @@ def _has_test_action(text: str) -> bool:
 
 
 def _has_test_target(text: str) -> bool:
-    normalized = text.lower().replace(" ", "")
+    text_without_paths = re.sub(
+        r"(?:~|/|\./|\../)?[A-Za-z0-9_./-]+\.(?:py|sh|slurm|sbatch)",
+        "",
+        text.lower(),
+    )
+    normalized = text_without_paths.replace(" ", "")
     target_keywords = [
-        "测试", "test", "smoketest", "smoke测试",
+        "测试", "smoketest", "smoke测试",
         "测试文件", "测试脚本", "测试作业", "测试任务",
         "testjob", "testscript",
     ]
 
-    return any(keyword in normalized for keyword in target_keywords)
+    return (
+        any(keyword in normalized for keyword in target_keywords)
+        or re.search(rf"{ASCII_LEFT_BOUNDARY}test{ASCII_RIGHT_BOUNDARY}", text_without_paths) is not None
+    )
 
 
 def is_test_file_request(text: str) -> bool:
@@ -377,7 +393,7 @@ def validate_test_tool_call(tool_call: dict | ToolCall | None) -> ToolCall:
             arguments={
                 "question": (
                     "你想生成哪类测试作业？目前支持 sleep N 秒、hostname、"
-                    "mpirun -np N hostname。"
+                    "srun -n N hostname。"
                 ),
             },
             source="validator",
@@ -469,7 +485,7 @@ def test_file_run_command(file_name: str) -> str:
     suffix = Path(file_name).suffix.lower()
 
     if suffix == ".py":
-        return f"python {file_name}"
+        return f"python3 {file_name}"
 
     if suffix == ".sh":
         return f"bash {file_name}"
@@ -497,7 +513,7 @@ print(socket.gethostname())
         return """#!/usr/bin/env python3
 import subprocess
 
-subprocess.run(["mpirun", "-np", "{tasks}", "hostname"], check=True)
+subprocess.check_call(["srun", "-n", "{tasks}", "hostname"])
 """.format(tasks=spec["tasks"])
 
     raise ValueError("不支持的测试命令。")

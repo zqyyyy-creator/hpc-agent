@@ -66,7 +66,7 @@ INTENT_CATALOGUE = {
     "cleanup_remote_vasp_job": "清理特定 VASP 作业的远端 input/output 目录。VASP + 清理/删除。",
     "cleanup_all_remote_vasp_jobs": "一键清理远端全部 VASP 作业目录。VASP + 清理全部。",
     "generate_sbatch": "生成 Slurm sbatch 脚本但不提交。关键词：生成脚本、写sbatch、预览脚本。",
-    "generate_test_file": "生成 HPC 测试文件。关键词：生成测试、写个test、创建测试脚本。支持的测试类型：sleep N秒、hostname、mpirun hostname。",
+    "generate_test_file": "生成 HPC 测试文件。关键词：生成测试、写个test、创建测试脚本。支持的测试类型：sleep N秒、hostname、srun hostname。",
     "suggest_params": "建议 Slurm 资源参数。关键词：多少核、多少内存、需要几个节点、cpus-per-task、申请多久、跑多久。",
     "diagnose_error": "诊断粘贴的错误日志。用户粘贴了 error/traceback/OOM/permission denied 等内容。",
     "troubleshoot_job": "排查作业 Pending/卡住/不运行的原因。关键词：一直pending、卡住、排队很久、为什么不跑、没反应、不开始。",

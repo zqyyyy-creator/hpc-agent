@@ -225,7 +225,7 @@ EXPLANATION_KEYWORDS: dict[str, list[str]] = {
     "submit_job": ["提交", "运行", "跑到超算", ".py", ".sh"],
     "submit_vasp_job": ["提交", "运行", "vasp", "第一性原理", "dft"],
     "generate_vasp_job": ["vasp", "dft", "结构优化", "弛豫", "生成脚本"],
-    "generate_test_file": ["测试", "sleep", "hostname", "mpirun"],
+    "generate_test_file": ["测试", "sleep", "hostname", "mpirun", "srun"],
     "job_status": ["状态", "算完没", "跑完没", "进度", "刚才"],
     "job_output": ["输出", "结果", "stdout", "它"],
     "job_error": ["错误日志", "报错", "stderr"],
@@ -332,6 +332,9 @@ def _build_context(question: str) -> RouteContext:
 
 
 def _file_submit_request(ctx: RouteContext) -> bool:
+    if _explicit_sbatch_request(ctx) or _preview_only_submit_request(ctx):
+        return False
+
     file_run_pattern = r"(跑|运行|执行|提交|submit|run).{0,40}[A-Za-z0-9_./~-]+\.(py|sh|slurm|sbatch)"
     file_run_pattern_reversed = r"[A-Za-z0-9_./~-]+\.(py|sh|slurm|sbatch).{0,40}(跑|运行|执行|提交|submit|run)"
     return bool(
@@ -342,6 +345,21 @@ def _file_submit_request(ctx: RouteContext) -> bool:
 
 def _explicit_sbatch_request(ctx: RouteContext) -> bool:
     return ctx.match_any([kw for kw in KEYWORDS["sbatch"] if kw != "我想提交"])
+
+
+def _preview_only_submit_request(ctx: RouteContext) -> bool:
+    if not ctx.match_any(KEYWORDS["submit"]):
+        return False
+
+    return any(
+        marker in ctx.q_no_space
+        for marker in (
+            "先别运行", "先不要运行", "别运行", "不要运行",
+            "先别跑", "先不要跑", "别跑", "不要跑",
+            "只生成脚本", "只预览", "先预览",
+            "不要真的提交", "别真的提交",
+        )
+    )
 
 
 def _job_id_status_request(ctx: RouteContext) -> bool:
@@ -444,13 +462,14 @@ ROUTE_RULES: tuple[RouteRule, ...] = (
     RouteRule("analyze_vasp_job", "analyze_vasp_job", lambda ctx: ctx.is_vasp_request and ctx.match_any(KEYWORDS["analyze_vasp"])),
     RouteRule("generate_vasp_job", "generate_vasp_job", lambda ctx: ctx.is_vasp_request and ctx.match_any(KEYWORDS["sbatch"])),
     RouteRule("vasp_fallback", "generate_vasp_job", lambda ctx: ctx.is_vasp_request),
-    RouteRule("generate_test_file", "generate_test_file", lambda ctx: is_test_file_request(ctx.question)),
     RouteRule("troubleshoot_job", "troubleshoot_job", lambda ctx: ctx.match_any(KEYWORDS["troubleshoot"])),
     RouteRule("suggest_params", "suggest_params", lambda ctx: ctx.match_any(KEYWORDS["params"])),
     RouteRule("howto_or_concept", "rag_qa", lambda ctx: ctx.is_howto_or_concept),
-    RouteRule("generate_sbatch", "generate_sbatch", _explicit_sbatch_request),
     RouteRule("negated_submit_howto", "rag_qa", lambda ctx: ctx.negated_submit and ctx.is_howto_or_concept),
+    RouteRule("preview_only_submit", "generate_sbatch", _preview_only_submit_request),
     RouteRule("file_submit", "submit_job", _file_submit_request),
+    RouteRule("generate_test_file", "generate_test_file", lambda ctx: is_test_file_request(ctx.question)),
+    RouteRule("generate_sbatch", "generate_sbatch", _explicit_sbatch_request),
     RouteRule("submit_job", "submit_job", lambda ctx: ctx.match_any(KEYWORDS["submit"])),
     RouteRule("explicit_job_output", "job_output", lambda ctx: ctx.match_any(["作业输出", "作业结果"])),
     RouteRule("last_job_output", "job_output", lambda ctx: _last_job_reference(ctx) and ctx.match_any(KEYWORDS["job_output"] + ["输出", "结果"])),
@@ -546,6 +565,30 @@ def _split_plan_segments(question: str) -> list[tuple[str, str | None]]:
     return segments
 
 
+def _route_followup_to_previous_job(text: str, previous_steps: list[RoutePlanStep]) -> str:
+    if not previous_steps:
+        return text
+
+    previous_action = previous_steps[-1].intent
+    if previous_action not in {"submit_job", "submit_vasp_job", "generate_test_file"}:
+        return text
+
+    ctx = _build_context(text)
+    if ctx.has_job_id or _last_job_reference(ctx):
+        return text
+
+    if ctx.match_any(KEYWORDS["job_output"] + ["输出", "结果"]):
+        return f"刚才那个作业{text}"
+
+    if ctx.match_any(KEYWORDS["job_error"] + ["错误", "报错", "日志"]):
+        return f"刚才那个作业{text}"
+
+    if ctx.match_any(KEYWORDS["job_status"] + ["状态", "作业", "任务"]):
+        return f"刚才那个作业{text}"
+
+    return text
+
+
 def analyze_plan(question: str) -> RoutePlan | None:
     if not _has_plan_markers(question):
         return None
@@ -559,6 +602,8 @@ def analyze_plan(question: str) -> RoutePlan | None:
         segment_text = text
         if full_context.is_vasp_request and not _build_context(segment_text).is_vasp_request:
             segment_text = f"上次 VASP 作业 {segment_text}"
+        else:
+            segment_text = _route_followup_to_previous_job(segment_text, steps)
 
         decision = analyze_intent(segment_text)
         if decision.intent == "rag_qa" and len(text) <= 4:

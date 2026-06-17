@@ -1,6 +1,5 @@
 import logging
 import re
-from pathlib import Path
 
 import jieba
 
@@ -8,8 +7,11 @@ from modules.tui.tui_helpers import (
     _copy_to_clipboard,
     _extract_local_file_candidates,
     _extract_local_file_paths,
+    _has_ambiguous_local_file_candidate,
     _has_explicit_run_command,
     _infer_run_command,
+    _requests_no_upload,
+    _resolve_local_file_candidate,
     _is_vasp_long_workflow_request,
     _uploaded_files_from_paths,
 )
@@ -787,12 +789,32 @@ def run_textual_cli():
 
         def _prepare_submit_job(self, question: str):
             candidates = _extract_local_file_candidates(question)
-            paths = _extract_local_file_paths(question)
+            no_upload = _requests_no_upload(question)
+            paths = [] if no_upload else _extract_local_file_paths(question)
+            ambiguous_candidates = [
+                candidate
+                for candidate in candidates
+                if not no_upload and _has_ambiguous_local_file_candidate(candidate)
+            ]
             invalid_candidates = [
                 candidate
                 for candidate in candidates
-                if not Path(candidate).expanduser().is_file()
+                if not no_upload
+                and _resolve_local_file_candidate(candidate) is None
+                and candidate not in ambiguous_candidates
             ]
+
+            if no_upload:
+                invalid_candidates = []
+
+            if ambiguous_candidates:
+                return (
+                    "没有提交作业，因为在当前本地目录下找到多个同名文件，无法安全判断要上传哪一个：\n"
+                    + "\n".join(f"- {candidate}" for candidate in ambiguous_candidates)
+                    + "\n\n请提供更具体的相对路径或绝对路径，例如：\n"
+                    "跑 ./jobs/test.py，4核，15分钟",
+                    None,
+                )
 
             if invalid_candidates and ("上传" in question or not _has_explicit_run_command(question)):
                 return (

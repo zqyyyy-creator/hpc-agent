@@ -313,9 +313,10 @@ def run_router_checks():
         "生成一个打印节点名的测试脚本": "generate_test_file",
         "生成hostname测试作业": "generate_test_file",
         "帮我生成 hostname 测试文件，文件名 node_check.sh": "generate_test_file",
+        "创建 srun -n 4 hostname 测试脚本": "generate_test_file",
+        "创建 srun -n 4 hostname 测试脚本并运行": "generate_test_file",
+        "创建srun -n 4 hostname测试脚本并运行": "generate_test_file",
         "创建 mpirun -np 4 hostname 测试脚本": "generate_test_file",
-        "创建 mpirun -np 4 hostname 测试脚本并运行": "generate_test_file",
-        "创建mpirun -np 4 hostname测试脚本并运行": "generate_test_file",
         "生成一个 8 个 MPI 进程打印节点名的测试脚本": "generate_test_file",
         "跑个测试任务": "generate_test_file",
         "查看刚才那个作业": "job_status",
@@ -465,7 +466,7 @@ def run_submit_preview_checks():
         uploaded_files,
     )
 
-    if inferred_command != "python train.py":
+    if inferred_command != "python3 train.py":
         raise AssertionError(f"Expected inferred command, got {inferred_command!r}")
 
     prepared_from_upload = prepare_submit_script(submit_request)
@@ -475,9 +476,9 @@ def run_submit_preview_checks():
             f"Uploaded file submit script should be ready: {prepared_from_upload['message']}"
         )
 
-    if "python train.py" not in prepared_from_upload["script"]:
+    if "python3 train.py" not in prepared_from_upload["script"]:
         raise AssertionError(
-            "Expected script generated from uploaded train.py to run python train.py:\n"
+            "Expected script generated from uploaded train.py to run python3 train.py:\n"
             + prepared_from_upload["script"]
         )
 

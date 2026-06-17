@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 
 from modules.core.conversation_state import GLOBAL_CONVERSATION_STATE
 from modules.routing.router import analyze_intent, detect_intent, get_intent_risk
+from modules.routing.router import analyze_plan
 from modules.slurm import job_registry
 
 
@@ -59,6 +60,39 @@ def test_negated_actions_change_or_block_intent():
 
     for request, expected_intent in cases.items():
         assert detect_intent(request) == expected_intent
+
+
+def test_file_named_test_py_routes_to_submit_not_test_generation():
+    cases = {
+        "帮我运行一个名字为 test.py 的文件": "submit_job",
+        "帮我运行一个名字叫 test.py 的文件": "submit_job",
+        "帮我运行 test.py": "submit_job",
+        "帮我运行 test.py，不是生成测试文件": "submit_job",
+        "帮我找一下 test.py, 然后运行": "submit_job",
+        "test.py 帮我跑一下": "submit_job",
+    }
+
+    for request, expected_intent in cases.items():
+        assert detect_intent(request) == expected_intent
+
+
+def test_preview_only_submit_routes_to_sbatch_generation():
+    cases = {
+        "不要提交，只生成脚本运行 python train.py": "generate_sbatch",
+        "帮我提交 train.py，但先别运行": "generate_sbatch",
+    }
+
+    for request, expected_intent in cases.items():
+        assert detect_intent(request) == expected_intent
+
+
+def test_plan_output_step_references_previous_submit():
+    plan = analyze_plan("先运行 test.py，然后看输出")
+
+    assert plan is not None
+    assert [step.intent for step in plan.steps] == ["submit_job", "job_output"]
+    assert plan.steps[1].route_text == "刚才那个作业看输出"
+    assert not plan.steps[1].needs_clarification
 
 
 def test_ambiguous_requests_ask_for_clarification():
@@ -123,6 +157,9 @@ if __name__ == "__main__":
     test_resource_questions_beat_submit_phrases()
     test_unrelated_delete_or_local_cleanup_is_not_remote_cleanup()
     test_negated_actions_change_or_block_intent()
+    test_file_named_test_py_routes_to_submit_not_test_generation()
+    test_preview_only_submit_routes_to_sbatch_generation()
+    test_plan_output_step_references_previous_submit()
     test_ambiguous_requests_ask_for_clarification()
     test_route_decision_exposes_reason_keywords_and_risk()
     test_analyze_job_id_routes_to_vasp_when_registry_marks_job_as_vasp()

@@ -212,7 +212,7 @@ def extract_job_name(text: str) -> str:
 
 
 def extract_command(text: str):
-    match = re.search(r"(python\s+\S+\.py)", text)
+    match = re.search(r"(python(?:3)?\s+\S+\.py)", text)
     if match:
         return match.group(1)
 
@@ -222,7 +222,7 @@ def extract_command(text: str):
 
     match = re.search(r"(?:跑|运行|执行|提交|run|submit)\s*([A-Za-z0-9_./-]+\.py)", text, re.IGNORECASE)
     if match:
-        return f"python {Path(match.group(1)).name}"
+        return f"python3 {Path(match.group(1)).name}"
 
     match = re.search(r"(?:跑|运行|执行|提交|run|submit)\s*([A-Za-z0-9_./-]+\.sh)", text, re.IGNORECASE)
     if match:

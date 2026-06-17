@@ -68,6 +68,9 @@ STRICT RULES:
 7. If logs show a POTCAR input conversion error, say the remote POTCAR was
    present but unreadable, invalid, placeholder, corrupted, or incompatible
    unless more detail is known.
+8. Do not write files, use tools, or ask for write permission. Return only the
+   JSON object; the Python caller writes report.md, paper_methods.md, and
+   paper_results.md under analysis/.
 
 Return only one valid JSON object. Do not wrap it in Markdown fences.
 The JSON object must have exactly these string keys:
@@ -167,8 +170,13 @@ def _build_claude_env() -> dict:
     if not env.get("ANTHROPIC_BASE_URL") and env.get("PARATERA_BASE_URL"):
         env["ANTHROPIC_BASE_URL"] = env["PARATERA_BASE_URL"]
 
-    if not env.get("ANTHROPIC_AUTH_TOKEN") and env.get("PARATERA_API_KEY"):
-        env["ANTHROPIC_AUTH_TOKEN"] = env["PARATERA_API_KEY"]
+    paratera_key = env.get("PARATERA_API_KEY")
+
+    if paratera_key:
+        env["ANTHROPIC_AUTH_TOKEN"] = paratera_key
+        env["ANTHROPIC_API_KEY"] = paratera_key
+    elif env.get("ANTHROPIC_API_KEY") and not env.get("ANTHROPIC_AUTH_TOKEN"):
+        env["ANTHROPIC_AUTH_TOKEN"] = env["ANTHROPIC_API_KEY"]
 
     model = (
         env.get("HPC_CLAUDE_CODE_MODEL")
@@ -208,6 +216,7 @@ def generate_report_with_claude(
     report_context = report_context_path.read_text(encoding="utf-8", errors="replace")
     prompt = _build_prompt(report_context)
     command = _resolve_claude_command(claude_cmd) + [
+        "--bare",
         "-p",
         "--output-format",
         "text",

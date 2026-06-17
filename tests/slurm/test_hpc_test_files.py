@@ -101,14 +101,16 @@ def test_hostname_natural_language_variants():
 
 def test_mpi_hostname_test_file():
     def check(workdir: Path):
-        request = "创建 mpirun -np 4 hostname 测试脚本"
+        request = "创建 srun -n 4 hostname 测试脚本"
         answer = generate_hpc_test_file(request)
         path = workdir / "test.py"
         content = path.read_text(encoding="utf-8")
 
         assert detect_intent(request) == "generate_test_file"
-        assert '["mpirun", "-np", "4", "hostname"]' in content
-        assert "mpirun -np 4 hostname" in answer
+        assert '["srun", "-n", "4", "hostname"]' in content
+        assert "subprocess.check_call" in content
+        assert "subprocess.run" not in content
+        assert "srun -n 4 hostname" in answer
 
     with_temp_workdir(check)
 
@@ -121,8 +123,21 @@ def test_mpi_hostname_natural_language_with_task_count():
         content = path.read_text(encoding="utf-8")
 
         assert detect_intent(request) == "generate_test_file"
-        assert '["mpirun", "-np", "8", "hostname"]' in content
-        assert "mpirun -np 8 hostname" in answer
+        assert '["srun", "-n", "8", "hostname"]' in content
+        assert "srun -n 8 hostname" in answer
+
+    with_temp_workdir(check)
+
+
+def test_mpirun_request_is_accepted_but_generates_srun():
+    def check(workdir: Path):
+        request = "创建 mpirun -np 4 hostname 测试脚本"
+        answer = generate_hpc_test_file(request)
+        content = (workdir / "test.py").read_text(encoding="utf-8")
+
+        assert detect_intent(request) == "generate_test_file"
+        assert '["srun", "-n", "4", "hostname"]' in content
+        assert "srun -n 4 hostname" in answer
 
     with_temp_workdir(check)
 
@@ -153,7 +168,7 @@ def test_sleep_test_file_and_run_uses_normal_submit_flow():
         assert is_test_run_request(request)
         assert detect_intent(request) == "generate_test_file"
         assert path.is_file()
-        assert "python test.py" in captured["script"]
+        assert "python3 test.py" in captured["script"]
         assert "#SBATCH --job-name=hpc_test_sleep_60" in captured["script"]
         assert "#SBATCH --cpus-per-task=1" in captured["script"]
         assert "#SBATCH --time=00:02:00" in captured["script"]
@@ -176,13 +191,13 @@ def test_mpi_test_file_and_run_requests_four_cpus():
             captured["uploaded_files"] = uploaded_files or []
             return {"success": True, "job_id": "12346", "answer": "Job ID: 12346"}
 
-        request = "创建mpirun -np 4 hostname测试脚本并运行"
+        request = "创建srun -n 4 hostname测试脚本并运行"
         answer = submit_hpc_test_file(request, submit_func=fake_submit)
 
         assert "#SBATCH --job-name=hpc_test_mpi_hostname" in captured["script"]
         assert "#SBATCH --cpus-per-task=4" in captured["script"]
-        assert "python test.py" in captured["script"]
-        assert b"mpirun" in captured["uploaded_files"][0]["content"]
+        assert "python3 test.py" in captured["script"]
+        assert b"srun" in captured["uploaded_files"][0]["content"]
         assert "Job ID: 12346" in answer
 
     with_temp_workdir(check)
@@ -294,6 +309,7 @@ if __name__ == "__main__":
     test_hostname_natural_language_variants()
     test_mpi_hostname_test_file()
     test_mpi_hostname_natural_language_with_task_count()
+    test_mpirun_request_is_accepted_but_generates_srun()
     test_sleep_test_file_and_run_uses_normal_submit_flow()
     test_mpi_test_file_and_run_requests_four_cpus()
     test_variable_sleep_run_uses_dynamic_job_time()

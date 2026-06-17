@@ -222,10 +222,18 @@ def test_generate_report_with_claude_writes_three_markdown_files():
         )
 
         def fake_runner(command, **kwargs):
+            if "--bare" not in command:
+                raise AssertionError("Expected Claude Code report generation to run in bare mode.")
             if kwargs.get("timeout") != 1800:
                 raise AssertionError(f"Unexpected Claude timeout: {kwargs.get('timeout')}")
-            if not kwargs.get("env", {}).get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"):
+            env = kwargs.get("env", {})
+            if not env.get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"):
                 raise AssertionError("Expected Claude environment hardening flags.")
+            if env.get("PARATERA_API_KEY"):
+                if env.get("ANTHROPIC_API_KEY") != env["PARATERA_API_KEY"]:
+                    raise AssertionError("Expected Claude Code to receive PARATERA_API_KEY as ANTHROPIC_API_KEY.")
+                if env.get("ANTHROPIC_AUTH_TOKEN") != env["PARATERA_API_KEY"]:
+                    raise AssertionError("Expected Claude Code to receive PARATERA_API_KEY as ANTHROPIC_AUTH_TOKEN.")
             payload = {
                 "report_md": "# 用户报告\n\n计算失败。",
                 "paper_methods_md": "The calculation did not complete successfully.",

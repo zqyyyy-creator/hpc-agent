@@ -16,7 +16,7 @@ def infer_run_command_from_uploaded_files(uploaded_files):
         name = item["name"]
 
         if name.endswith(".py"):
-            return f"python {name}"
+            return f"python3 {name}"
 
     for item in uploaded_files:
         name = item["name"]

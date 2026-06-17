@@ -420,7 +420,7 @@ def _reconstruct_question(tool_call: ToolCall, intent: str) -> str:
             parts.append(f"生成 sleep {seconds} 秒测试文件" if seconds else "生成 sleep 测试文件")
         elif test_kind == "mpi_hostname":
             tasks = args.get("mpi_tasks") or args.get("tasks") or 4
-            parts.append(f"生成 mpirun -np {tasks} hostname 测试文件")
+            parts.append(f"生成 srun -n {tasks} hostname 测试文件")
         elif test_kind == "hostname":
             parts.append("生成 hostname 测试文件")
         else:
