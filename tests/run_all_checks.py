@@ -50,6 +50,7 @@ PYTHON_FILES = [
     "tests/core/test_confirmed_actions.py",
     "tests/core/test_conversation_state.py",
     "tests/core/test_environment_status.py",
+    "tests/core/test_packaging.py",
     "tests/core/test_tool_calling.py",
     "tests/knowledge/test_error_diagnoser_skill.py",
     "tests/knowledge/test_knowledge_base_context.py",
@@ -160,6 +161,14 @@ def run_tool_calling_checks():
     checks.test_tool_registry_executes_registered_handler()
 
     print("OK tool calling framework checks passed")
+
+
+def run_packaging_checks():
+    from tests.core import test_packaging as checks
+
+    checks.test_console_script_points_to_app_main()
+
+    print("OK packaging checks passed")
 
 
 def run_confirmed_action_checks():
@@ -565,6 +574,7 @@ CHECKS = [
     ("2b. Agent runtime checks", run_agent_runtime_checks),
     ("3. HPC test file checks", run_hpc_test_file_checks),
     ("4. Tool calling framework checks", run_tool_calling_checks),
+    ("4b. Packaging checks", run_packaging_checks),
     ("5. Confirmed action checks", run_confirmed_action_checks),
     ("6. Conversation state checks", run_conversation_state_checks),
     ("6b. Knowledge base context checks", run_knowledge_base_context_checks),

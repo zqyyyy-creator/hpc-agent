@@ -25,3 +25,12 @@ dependencies = [
     "scikit-learn>=1.9.0",
     "textual>=6.0.0",
 ]
+
+[project.scripts]
+hpc-agent = "app:main"
+
+[tool.setuptools]
+py-modules = ["app", "textual_cli"]
+
+[tool.setuptools.packages.find]
+include = ["modules*"]
