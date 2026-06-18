@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from datetime import datetime, timezone
 
 
 REGISTRY_PATH = Path(__file__).resolve().parents[2] / "data" / "jobs" / "job_registry.json"
@@ -22,7 +23,14 @@ def _save_registry(registry):
 
 def register_job(job_id: str, metadata: dict):
     registry = _load_registry()
-    registry[str(job_id)] = metadata
+    key = str(job_id)
+    now = datetime.now(timezone.utc).isoformat()
+    previous = registry.get(key, {})
+    registry[key] = {
+        **metadata,
+        "registered_at": previous.get("registered_at") or metadata.get("registered_at") or now,
+        "updated_at": now,
+    }
     _save_registry(registry)
 
 

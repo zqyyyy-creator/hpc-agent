@@ -15,6 +15,7 @@ PYTHON_FILES = [
     "modules/core/hpc_config.py",
     "modules/core/llm_fallback.py",
     "modules/core/tool_calling.py",
+    "modules/knowledge/error_case_manager.py",
     "modules/knowledge/error_diagnoser.py",
     "modules/knowledge/knowledge_base.py",
     "modules/routing/intent_classifier.py",
@@ -110,6 +111,7 @@ def run_agent_runtime_checks():
         checks.test_can_preview_submit_intent_marks_submit_intents,
         checks.test_execute_clarify_intent_does_not_need_llm,
         checks.test_execute_diagnose_intent_uses_injected_diagnoser,
+        checks.test_execute_prepare_error_case_returns_pending_action,
         checks.test_execute_diagnose_job_intent_uses_job_diagnosis,
         checks.test_execute_current_config_intent_reports_models,
         checks.test_execute_archive_preview_returns_pending_action,
@@ -119,8 +121,10 @@ def run_agent_runtime_checks():
         checks.test_execute_submit_preview_returns_pending_submission,
         checks.test_execute_hpc_submission_test_returns_pending_submission,
         checks.test_execute_vasp_submit_preview_keeps_auto_analyze,
+        checks.test_execute_vasp_input_existing_files_returns_overwrite_pending_action,
         env_checks.test_current_model_config_masks_api_key,
         env_checks.test_hpc_environment_check_uses_injected_remote_runner,
+        env_checks.test_environment_recovery_suggestions_cover_common_config_errors,
     ]:
         check()
 
@@ -166,6 +170,8 @@ def run_confirmed_action_checks():
     checks.test_confirmed_cleanup_returns_answer_and_targets()
     checks.test_confirmed_archive_job_records_returns_archive_result()
     checks.test_confirmed_restore_job_records_returns_restore_result()
+    checks.test_confirmed_add_error_case_writes_case()
+    checks.test_confirmed_vasp_input_overwrite_generates_files()
     checks.test_unknown_confirmed_action_is_rejected()
 
     print("OK confirmed action checks passed")
@@ -281,6 +287,18 @@ def run_error_diagnoser_checks():
     checks.test_invalid_partition_does_not_invent_cluster_name()
     checks.test_disk_quota_does_not_recommend_rm_rf()
     checks.test_unknown_log_asks_for_more_complete_logs()
+    checks.test_real_case_missing_vasp_potcar_has_context()
+    checks.test_real_case_vasp_mpi_setup_failure()
+    checks.test_real_case_partition_failure_precedes_generic_case()
+    checks.test_real_case_ssh_key_permissions()
+    checks.test_real_case_api_gateway_error()
+    checks.test_real_cases_schema_is_complete()
+    checks.test_new_agent_workflow_real_cases_match()
+    checks.test_error_case_draft_from_inline_log_uses_pending_action()
+    checks.test_error_case_draft_uses_previous_error_turn()
+    checks.test_append_real_case_writes_valid_json()
+    checks.test_default_error_knowledge_base_uses_generic_errors_file()
+    checks.test_legacy_errors_db_path_is_still_supported()
 
     print("OK error diagnoser skill checks passed")
 
@@ -295,6 +313,7 @@ def run_vasp_assistant_checks():
     checks.test_parse_potcar_entries_extracts_metadata()
     checks.test_generate_vasp_inputs_from_single_element_potcar_writes_files()
     checks.test_generate_vasp_inputs_request_resolves_named_job_dir()
+    checks.test_generate_vasp_inputs_selector_before_vasp_input_phrase()
     checks.test_generate_vasp_inputs_does_not_overwrite_without_explicit_request()
     checks.test_submit_vasp_job_preview_handles_partition()
     checks.test_vasp_submit_path_does_not_replace_runtime_command()
@@ -303,6 +322,7 @@ def run_vasp_assistant_checks():
     checks.test_vasp_submit_stops_when_local_inputs_missing()
     checks.test_resolve_vasp_job_input_dir_selects_latest_complete_job()
     checks.test_resolve_vasp_job_input_dir_uses_named_child()
+    checks.test_resolve_vasp_job_input_dir_uses_named_vasp_task()
     checks.test_register_existing_vasp_job_from_text_writes_registry()
     checks.test_generate_vasp_report_context_under_analysis()
     checks.test_generate_report_with_claude_writes_three_markdown_files()
@@ -311,6 +331,7 @@ def run_vasp_assistant_checks():
     checks.test_vasp_input_path_maps_to_local_output_dir_for_reports()
     checks.test_generate_vasp_report_intent_prefers_report_over_script_generation()
     checks.test_analyze_vasp_job_intent()
+    checks.test_vasp_report_selector_uses_last_vasp_job_reference()
     monitor_checks.test_potcar_input_conversion_is_error()
     monitor_checks.test_brmix_warning_is_warning()
     monitor_checks.test_empty_oszicar_is_suppressed_for_running_job()
@@ -390,6 +411,7 @@ def run_job_lifecycle_checks():
     from tests.slurm import test_job_lifecycle as checks
 
     checks.test_recent_jobs_lists_latest_local_records()
+    checks.test_recent_jobs_prefers_registry_update_time_over_vasp_mtime()
     checks.test_vasp_jobs_filters_non_vasp_records()
     checks.test_job_detail_reports_paths_and_next_steps()
     checks.test_job_record_status_summarizes_registry()

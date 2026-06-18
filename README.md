@@ -4,7 +4,7 @@ HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保
 
 核心功能覆盖 Slurm 知识问答、sbatch 脚本生成、普通作业提交/查询/清理、VASP 固定目录作业提交、VASP 输出同步与报告生成，以及基于 Claude Code 的 VASP 计算结果分析。
 
-详细操作请看 [docs/USER_GUIDE.md](docs/USER_GUIDE.md)。
+文档入口请看 [docs/README.md](docs/README.md)，详细操作请看 [docs/USER_GUIDE.md](docs/USER_GUIDE.md)。
 
 ---
 
@@ -44,7 +44,11 @@ HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保
 ### VASP 作业
 * VASP sbatch 脚本生成（结构优化/静态计算/其他）
 * 根据本地 VASP 作业目录中已有 `POTCAR` 生成 `INCAR`、`KPOINTS`、`POSCAR`
+* 支持通过自然语言或 `/vasp gen` 覆盖 `ENCUT`、`KPOINTS`、计算类型等输入参数
+* 已有 VASP 配置文件时会先确认，回复 `确认覆盖` 或 `覆盖已有配置文件` 后才会覆盖
 * VASP 固定目录提交：本地 input → 远端 input → 远端 output
+* 重复提交同名 VASP 作业时支持覆盖旧结果、自动创建新 run name 或取消
+* 覆盖旧结果会先清空远端 input/output 同名目录和本地 output 同名目录，避免新旧文件混用
 * 登记已有 VASP 作业，便于后续查询和同步
 * VASP 输出同步到本地（按 include/exclude 规则过滤文件）
 * VASP 远程文件探针与实时诊断（POTCAR、Fortran severe、OOM、Segfault、Disk full、Walltime 等）
@@ -54,13 +58,17 @@ HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保
 * 一键分析：自动完成同步 → report_context → Claude Code 报告全流程
 
 ### 错误诊断
-* 基于规则匹配的错误日志诊断（18 类错误模式）
+* 基于真实案例库 + 通用错误库的错误日志诊断
+* 配置检查会覆盖 `.env`、SSH key、本地/远端目录、VASP 命令、partition、Claude Code/API 等常见问题，并给出修复建议
+* 支持把新的真实错误半自动整理为案例草稿，确认后写入 `data/errors/real_cases.json`
 * 自动修复 sbatch 脚本（OOM → 提高内存、TIME → 延长时间、partition → 修正分区等）
 * Pending / 不运行作业排查
 
 ### TUI 交互入口
 * **Textual TUI**：全屏终端界面，含 Chat 面板和 Job Monitor 面板
-* 支持确认/取消状态机（提交确认、清理确认）
+* 支持确认/取消状态机（提交确认、清理确认、覆盖确认）
+* Chat 结果区支持鼠标选择文本；`Ctrl+Y` 会优先复制选中文本，没有选中文本时复制上一条 Agent 回复
+* 支持 `/help`、`/help job`、`/help vasp` 等快捷帮助入口
 
 ### Claude Code 集成
 * 通过 `skills/vasp_report/SKILL.md` 定义分析 Skill
@@ -211,8 +219,13 @@ VASP：
 
 ```text
 帮我生成我的 VASP 作业 Al_test 的配置文件
+帮我生成 Al_test 的 VASP 输入，ENCUT 400，KPOINTS 2x2x2，静态计算
+/vasp gen Al_test --type static --encut 400 --kpoints 2x2x2
+覆盖已有配置文件
+确认覆盖
 帮我生成一个 VASP 结构优化脚本，1 个节点，每节点 32 核，运行 24 小时
 帮我提交 VASP 作业，目录名 si_static_test，1 个节点 32 核，运行 10 分钟
+确认提交
 登记 VASP 作业 11817144，目录名 si_static_test
 同步 VASP 作业 11817144 输出到本地
 生成 VASP 作业 si_static_test 报告
@@ -280,9 +293,13 @@ VASP 标准输出、错误日志和运行结果写入远端 output 目录。Agen
 
 ```text
 帮我生成我的 VASP 作业 Al_test 的配置文件
+帮我生成 Al_test 的 VASP 输入，ENCUT 400，KPOINTS 2x2x2，静态计算
+/vasp gen Al_test --type static --encut 400 --kpoints 2x2x2
 ```
 
-这会在 `$HPC_LOCAL_VASP_JOBS_INPUT_DIR/Al_test/` 中写入 `INCAR`、`KPOINTS`、`POSCAR`。如果没有提供结构参数，生成的是默认 smoke test 结构，只用于测试 VASP 启动、POTCAR 可读性和提交流程，不代表真实材料结构。
+这会在 `$HPC_LOCAL_VASP_JOBS_INPUT_DIR/Al_test/` 中写入 `INCAR`、`KPOINTS`、`POSCAR`。如果目录里已存在这些配置文件，Agent 不会直接覆盖，会先提示确认；回复 `确认覆盖` 或 `覆盖已有配置文件` 后才会重新生成并写入。如果没有提供结构参数，生成的是默认 smoke test 结构，只用于测试 VASP 启动、POTCAR 可读性和提交流程，不代表真实材料结构。
+
+重复提交同名 VASP 作业时，如果远端 output 或本地 output 已存在，Agent 会提示选择覆盖旧结果、自动创建新 run name 或取消。选择覆盖旧结果时，会先清空远端 input/output 同名目录和本地 output 同名目录，再重新上传和提交，避免旧结果文件残留。
 
 当前建议的启动策略是：普通 Slurm/MPI 测试使用 `srun -n N ...`；VASP 使用 `HPC_VASP_SETUP_COMMAND` 初始化环境后运行 `HPC_VASP_COMMAND`。这两条路径不要混在一起配置。
 
@@ -372,7 +389,7 @@ Textual TUI 当前布局：
 
 ```text
 Ctrl+R  手动刷新当前监控 Job
-Ctrl+Y  复制上一条 Agent 回复
+Ctrl+Y  复制选中文本；没有选中文本时复制上一条 Agent 回复
 Ctrl+S  确认提交等待中的作业
 Tab     切换右侧正在监控的 Job
 Esc     取消当前等待确认的操作
@@ -387,15 +404,27 @@ q       退出
 查看当前模型
 检查我的超算配置
 一键测试超算提交流程
+/help
+/help job
+/help vasp
 ```
 
-“查看当前模型”会显示 Agent 主体模型、Claude Code VASP 报告模型、LLM 网关和主要超算目录配置，不会显示 API Key 明文。“一键测试超算提交流程”会生成一个最小 `hostname` Slurm 作业预览，仍需确认后才会提交。
+“查看当前模型”会显示 Agent 主体模型、Claude Code VASP 报告模型、LLM 网关和主要超算目录配置，不会显示 API Key 明文。“检查我的超算配置”会检查 `.env`、SSH key、本地/远端目录、VASP 命令、partition、Claude Code/API 等常见配置问题，并给出修复建议，但不会自动修改配置。“一键测试超算提交流程”会生成一个最小 `hostname` Slurm 作业预览，仍需确认后才会提交。
 
 ---
 
 ## 错误诊断
 
-错误诊断基于 `data/errors/errors_db.json` 中的 18 类错误模式，通过正则匹配识别问题并给出修复建议。覆盖类别：内存、权限、Slurm 配置、存储、文件、Python 环境、编译、GPU、SSH 等。
+错误诊断基于统一错误知识库：`data/errors/real_cases.json` 优先匹配整个 Agent 的真实错误案例，`data/errors/generic_errors.json` 作为通用 HPC/Slurm/Linux/Python 错误兜底。诊断结果会给出原因、修复建议和排查命令。
+
+遇到新的真实错误时，可以让 Agent 生成案例草稿：
+
+```text
+把这个错误整理成案例：<粘贴真实错误日志>
+把这个错误整理成案例
+```
+
+Agent 会先生成草稿并等待确认，只有回复 `确认` 后才会写入 `data/errors/real_cases.json`。草稿会尽量脱敏本地路径、用户名、主机名、API key 等敏感信息。
 
 除了粘贴错误日志直接诊断外，还能对已生成的 sbatch 脚本自动修改：
 - OOM → 添加 `--mem` 或提高内存
@@ -468,7 +497,9 @@ hpc-agent/
 │   │   ├── slurm_status.txt
 │   │   └── slurm_cancel.txt
 │   ├── errors/
-│   │   └── errors_db.json    # 18 类错误诊断规则
+│   │   ├── README.md         # 错误知识库维护说明
+│   │   ├── real_cases.json   # 真实错误案例库
+│   │   └── generic_errors.json # 通用错误诊断规则
 │   └── jobs/
 │       ├── job_registry.json # 作业登记数据库
 │       └── archive/          # 本地作业记录归档文件

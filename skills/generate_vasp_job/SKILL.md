@@ -3,7 +3,7 @@ name: generate-vasp-job
 description: Generate a safe minimal Slurm sbatch script for VASP jobs.
 metadata:
   version: "0.1"
-  author: "QYz"
+  author: "HPC Agent"
 ---
 
 # Generate VASP Job Skill

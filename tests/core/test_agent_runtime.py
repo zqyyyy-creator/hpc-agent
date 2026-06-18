@@ -9,6 +9,7 @@ from modules.core.agent_runtime import (
     execute_cleanup_preview,
     execute_submit_preview,
 )
+from modules.core.conversation_state import ConversationState
 
 
 class DummyDiagnoser:
@@ -20,15 +21,33 @@ class DummyDiagnoser:
 
 
 def test_can_answer_intent_marks_only_answer_intents():
+    assert can_answer_intent("shortcut_help")
     assert can_answer_intent("generate_sbatch")
     assert can_answer_intent("current_config")
     assert can_answer_intent("check_hpc_config")
     assert can_answer_intent("troubleshoot_job")
+    assert can_answer_intent("prepare_error_case")
     assert can_answer_intent("rag_qa")
     assert can_answer_intent("job_status")
     assert can_answer_intent("sync_vasp_output")
     assert not can_answer_intent("submit_job")
     assert not can_answer_intent("cleanup_remote_job")
+
+
+def test_execute_shortcut_help_returns_static_help():
+    result = execute_answer_intent(
+        "/help vasp",
+        "shortcut_help",
+        documents=[],
+        sources=[],
+        diagnoser=DummyDiagnoser(),
+        state=None,
+    )
+
+    assert result.handled
+    assert result.intent == "shortcut_help"
+    assert "/vasp gen <name>" in result.answer
+    assert "POTCAR" in result.answer
 
 
 def test_can_preview_cleanup_intent_marks_cleanup_intents():
@@ -71,6 +90,24 @@ def test_execute_diagnose_intent_uses_injected_diagnoser():
 
     assert result.handled
     assert result.answer == "diagnosed: CUDA out of memory"
+
+
+def test_execute_prepare_error_case_returns_pending_action():
+    state = ConversationState()
+    result = execute_answer_intent(
+        "把这个错误整理成案例：CustomRuntimeError: example failed",
+        "prepare_error_case",
+        documents=[],
+        sources=[],
+        diagnoser=DummyDiagnoser(),
+        state=state,
+    )
+
+    assert result.handled
+    assert result.success
+    assert "案例草稿" in result.answer
+    assert result.data["pending_action"]["kind"] == "add_error_case"
+    assert result.data["pending_action"]["payload"]["case"]["patterns"]
 
 
 def test_execute_diagnose_job_intent_uses_job_diagnosis():
@@ -339,12 +376,41 @@ def test_execute_vasp_submit_preview_keeps_auto_analyze():
     assert "自动进入长流程" in result.answer
 
 
+def test_execute_vasp_input_existing_files_returns_overwrite_pending_action():
+    original = agent_runtime.generate_vasp_inputs_from_potcar_request
+
+    try:
+        agent_runtime.generate_vasp_inputs_from_potcar_request = lambda question: {
+            "success": False,
+            "message": "没有写入文件，因为作业目录中已经存在 VASP 配置文件。",
+            "job_dir": "/tmp/MgO_test",
+            "existing_files": ["INCAR", "KPOINTS", "POSCAR"],
+        }
+        result = execute_answer_intent(
+            "帮我生成我的vasp作业MgO_test的配置文件",
+            "generate_vasp_inputs",
+            documents=[],
+            sources=[],
+            diagnoser=DummyDiagnoser(),
+            state=ConversationState(),
+        )
+    finally:
+        agent_runtime.generate_vasp_inputs_from_potcar_request = original
+
+    assert result.handled
+    assert not result.success
+    assert result.data["pending_action"]["kind"] == "generate_vasp_inputs_overwrite"
+    assert result.data["pending_action"]["payload"]["job_dir"] == "/tmp/MgO_test"
+    assert "确认覆盖" in result.answer
+
+
 if __name__ == "__main__":
     test_can_answer_intent_marks_only_answer_intents()
     test_can_preview_cleanup_intent_marks_cleanup_intents()
     test_can_preview_submit_intent_marks_submit_intents()
     test_execute_clarify_intent_does_not_need_llm()
     test_execute_diagnose_intent_uses_injected_diagnoser()
+    test_execute_prepare_error_case_returns_pending_action()
     test_execute_diagnose_job_intent_uses_job_diagnosis()
     test_execute_current_config_intent_reports_models()
     test_execute_job_output_returns_job_id_and_live_log()
@@ -352,4 +418,5 @@ if __name__ == "__main__":
     test_execute_submit_preview_returns_pending_submission()
     test_execute_hpc_submission_test_returns_pending_submission()
     test_execute_vasp_submit_preview_keeps_auto_analyze()
+    test_execute_vasp_input_existing_files_returns_overwrite_pending_action()
     print("All agent runtime checks passed.")

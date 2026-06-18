@@ -77,6 +77,16 @@ KEYWORDS: dict[str, list[str]] = {
         "permission denied", "out of memory", "oom",
         "time limit", "segmentation fault", "not found",
     ],
+    "prepare_error_case": [
+        "把这个错误整理成案例", "把这个报错整理成案例",
+        "生成案例草稿", "加入错误案例库", "添加到错误案例库",
+        "收录错误", "收录这个错误", "整理成错误案例",
+        "整理成案例", "errorcase", "add error case",
+    ],
+    "shortcut_help": [
+        "/help", "help", "帮助", "快捷命令", "命令帮助",
+        "slashcommand", "slashcommands",
+    ],
     "submit": [
         "提交作业", "提交到超算", "运行到超算",
         "提交任务", "提交并分析", "运行并分析",
@@ -315,6 +325,7 @@ EXPLANATION_KEYWORDS: dict[str, list[str]] = {
     "generate_vasp_report": ["报告", "论文格式", "methods", "results"],
     "analyze_vasp_job": ["分析", "一键分析", "自动分析"],
     "diagnose_error": ["error", "failed", "traceback", "报错", "oom"],
+    "prepare_error_case": ["错误案例", "案例草稿", "加入错误案例库"],
     "diagnose_job": ["诊断", "排查", "作业", "任务"],
     "clarify": ["缺少文件/命令/job_id"],
     "rag_qa": ["fallback"],
@@ -324,11 +335,13 @@ EXPLANATION_KEYWORDS: dict[str, list[str]] = {
 INTENT_RISKS = {
     "rag_qa": "none",
     "clarify": "clarify_required",
+    "shortcut_help": "read_only",
     "suggest_params": "none",
     "current_config": "read_only",
     "check_hpc_config": "read_only",
     "test_hpc_submission": "confirm_required",
     "diagnose_error": "read_only",
+    "prepare_error_case": "confirm_required",
     "diagnose_job": "read_only",
     "troubleshoot_job": "read_only",
     "job_status": "read_only",
@@ -386,6 +399,98 @@ def _has_negated_submit(q_no_space: str) -> bool:
     return any(marker in q_no_space for marker in KEYWORDS["negated_submit"])
 
 
+def expand_shortcut_command(question: str) -> str:
+    text = question.strip()
+    if not text.startswith("/"):
+        return question
+
+    parts = text.split()
+    command = parts[0].lower()
+    args = parts[1:]
+
+    if command == "/help":
+        return question
+
+    if command == "/model":
+        return "查看当前模型"
+
+    if command == "/config":
+        if args and args[0].lower() == "check":
+            return "检查我的超算配置"
+        return "查看当前模型"
+
+    if command == "/job":
+        subcommand = args[0].lower() if args else ""
+        value = args[1] if len(args) > 1 else ""
+        if subcommand == "recent":
+            return "查看最近作业"
+        if subcommand == "status" and value:
+            return f"查看 {value} 的状态"
+        if subcommand == "out" and value:
+            return f"读取 {value} 的输出"
+        if subcommand == "err" and value:
+            return f"读取 {value} 的错误日志"
+        if subcommand == "detail" and value:
+            return f"查看作业详情 {value}"
+        if subcommand == "diagnose" and value:
+            return f"诊断作业 {value}"
+        if subcommand == "records":
+            return "查看本地作业记录状态"
+        if subcommand == "archive":
+            keep_count = _extract_keep_count_arg(args[1:])
+            if keep_count:
+                return f"预览归档本地作业记录，只保留最近 {keep_count} 个"
+        if subcommand == "archives":
+            return "查看归档记录"
+        if subcommand == "restore":
+            return "预览恢复最近一次本地作业记录归档"
+
+    if command == "/vasp":
+        subcommand = args[0].lower() if args else ""
+        value = args[1] if len(args) > 1 else ""
+        if subcommand == "list":
+            return "列出 VASP 作业"
+        if subcommand == "gen" and value:
+            extra = " ".join(args[2:])
+            suffix = f"，参数 {extra}" if extra else ""
+            return f"帮我生成我的 VASP 作业 {value} 的配置文件{suffix}"
+        if subcommand == "submit" and value:
+            return f"帮我提交 VASP 作业 {value}"
+        if subcommand == "sync" and value:
+            return f"同步 VASP 作业 {value} 输出到本地"
+        if subcommand == "analyze" and value:
+            return f"帮我分析 VASP 作业 {value}"
+        if subcommand == "report" and value:
+            return f"生成 VASP 作业 {value} 报告"
+        if subcommand == "remote":
+            return "远端 VASP 目录有什么"
+        if subcommand == "clean" and value:
+            return f"清理远端 VASP 作业 {value} 的文件"
+
+    if command == "/clean":
+        subcommand = args[0].lower() if args else ""
+        value = args[1] if len(args) > 1 else ""
+        if subcommand == "job" and value:
+            return f"清理远端作业 {value} 的文件"
+        if subcommand == "jobs":
+            return "清理远端普通作业目录下所有作业文件"
+        if subcommand == "vasp-all":
+            return "清理全部远端 VASP 作业文件"
+        if subcommand == "vasp" and value:
+            return f"清理远端 VASP 作业 {value} 的文件"
+
+    return question
+
+
+def _extract_keep_count_arg(args: list[str]) -> str | None:
+    for index, arg in enumerate(args):
+        if arg.startswith("--keep="):
+            return arg.split("=", 1)[1]
+        if arg == "--keep" and index + 1 < len(args):
+            return args[index + 1]
+    return None
+
+
 def _looks_like_clarify_request(q_no_space: str, q_normalized: str) -> str | None:
     if q_normalized in {"帮我跑", "跑", "运行", "提交", "提交这个", "提交这", "运行这个", "运行这", "跑这个", "跑这"}:
         return "你想提交哪个文件或运行哪条命令？请补充文件路径、命令和资源需求。"
@@ -400,6 +505,7 @@ def _looks_like_clarify_request(q_no_space: str, q_normalized: str) -> str | Non
 
 
 def _build_context(question: str) -> RouteContext:
+    question = expand_shortcut_command(question)
     q = question.lower()
     q_no_space = q.replace(" ", "")
     q_normalized = _normalize_chinese(q_no_space)
@@ -497,6 +603,14 @@ def _generic_vasp_directory_cleanup_request(ctx: RouteContext) -> bool:
     )
 
 
+def _vasp_input_generation_request(ctx: RouteContext) -> bool:
+    if not ctx.is_vasp_request:
+        return False
+    if ctx.match_any(KEYWORDS["vasp_input_generation"]):
+        return True
+    return "生成" in ctx.q_no_space and any(keyword in ctx.q_no_space for keyword in ("输入", "input"))
+
+
 def _extract_first_job_id(text: str) -> str | None:
     match = re.search(r"(?<!\d)(\d{4,})(?!\d)", text)
 
@@ -566,7 +680,7 @@ ROUTE_RULES: tuple[RouteRule, ...] = (
     RouteRule("list_remote", "list_remote_jobs", lambda ctx: ctx.match_any(KEYWORDS["list_remote_job"])),
     RouteRule("register_vasp_job", "register_vasp_job", lambda ctx: ctx.is_vasp_request and (ctx.match_any(KEYWORDS["register_vasp"]) or (ctx.has_job_id and ctx.match_any(KEYWORDS["register_vasp_loose"])))),
     RouteRule("generate_vasp_report", "generate_vasp_report", lambda ctx: ctx.is_vasp_request and ctx.match_any(KEYWORDS["vasp_report"])),
-    RouteRule("generate_vasp_inputs", "generate_vasp_inputs", lambda ctx: ctx.is_vasp_request and ctx.match_any(KEYWORDS["vasp_input_generation"])),
+    RouteRule("generate_vasp_inputs", "generate_vasp_inputs", _vasp_input_generation_request),
     RouteRule("submit_vasp_job", "submit_vasp_job", lambda ctx: ctx.is_vasp_request and ctx.match_any(KEYWORDS["submit"])),
     RouteRule("analyze_vasp_job_by_reference", "analyze_vasp_job", _route_to_vasp_analysis_by_reference),
     RouteRule("analyze_vasp_job", "analyze_vasp_job", lambda ctx: ctx.is_vasp_request and ctx.match_any(KEYWORDS["analyze_vasp"])),
@@ -591,6 +705,7 @@ ROUTE_RULES: tuple[RouteRule, ...] = (
     RouteRule("job_status", "job_status", lambda ctx: ctx.match_any(KEYWORDS["job_status"])),
     RouteRule("job_output", "job_output", lambda ctx: ctx.match_any(KEYWORDS["job_output"])),
     RouteRule("job_error", "job_error", lambda ctx: ctx.match_any(KEYWORDS["job_error"])),
+    RouteRule("prepare_error_case", "prepare_error_case", lambda ctx: ctx.match_any(KEYWORDS["prepare_error_case"])),
     RouteRule("diagnose_error", "diagnose_error", lambda ctx: any(keyword in ctx.q for keyword in KEYWORDS["error"])),
     RouteRule("generate_sbatch_second_chance", "generate_sbatch", lambda ctx: ctx.match_any(KEYWORDS["sbatch"])),
 )
@@ -598,6 +713,9 @@ ROUTE_RULES: tuple[RouteRule, ...] = (
 
 def _detect_intent_only(question: str) -> str:
     ctx = _build_context(question)
+
+    if _shortcut_help_request(ctx):
+        return "shortcut_help"
 
     if _looks_like_clarify_request(ctx.q_no_space, ctx.q_normalized):
         return "clarify"
@@ -607,6 +725,16 @@ def _detect_intent_only(question: str) -> str:
             return rule.intent
 
     return "rag_qa"
+
+
+def _shortcut_help_request(ctx: RouteContext) -> bool:
+    stripped = ctx.question.strip().lower()
+    compact = stripped.replace(" ", "")
+    return (
+        stripped in {"/help", "/help job", "/help vasp", "/help cleanup", "/help config"}
+        or compact in {"/helpjob", "/helpvasp", "/helpcleanup", "/helpconfig"}
+        or compact in {"帮助", "快捷命令", "命令帮助"}
+    )
 
 
 def get_intent_risk(intent: str) -> str:

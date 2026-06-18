@@ -42,6 +42,32 @@ def test_recent_jobs_lists_latest_local_records():
     _with_temp_registry(run)
 
 
+def test_recent_jobs_prefers_registry_update_time_over_vasp_mtime():
+    def run(tmpdir: Path):
+        vasp_output = tmpdir / "vasp-output"
+        vasp_output.mkdir()
+        job_registry.save_jobs({
+            "20002": {
+                "type": "vasp",
+                "job_id": "20002",
+                "local_output_dir": str(vasp_output),
+            },
+            "30003": {
+                "type": "slurm",
+                "job_id": "30003",
+                "remote_workdir": "/remote/hpc-agent-jobs/test",
+            },
+        })
+
+        text = format_recent_jobs(limit=2)
+        lines = [line for line in text.splitlines() if line.startswith("- ")]
+
+        assert "30003 | slurm" in lines[0]
+        assert "20002 | VASP" in lines[1]
+
+    _with_temp_registry(run)
+
+
 def test_vasp_jobs_filters_non_vasp_records():
     def run(tmpdir: Path):
         output_dir = tmpdir / "MgO_test"

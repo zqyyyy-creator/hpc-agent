@@ -1,5 +1,8 @@
 import logging
 import re
+import shlex
+import shutil
+from pathlib import Path
 
 import jieba
 
@@ -53,8 +56,8 @@ def _is_hpc_submission_smoke_test_request(text: str) -> bool:
 def run_textual_cli():
     try:
         from textual.app import App, ComposeResult
-        from textual.containers import Horizontal, Vertical
-        from textual.widgets import Header, Input, RichLog, Static
+        from textual.containers import Horizontal, Vertical, VerticalScroll
+        from textual.widgets import Header, Input, Static
     except ModuleNotFoundError:
         print(
             "Textual 依赖尚未安装。\n\n"
@@ -74,6 +77,7 @@ def run_textual_cli():
         query_job_output,
         query_job_status,
     )
+    from modules.core.hpc_config import VASP_LOCAL_OUTPUT_DIR, VASP_REMOTE_INPUT_DIR, VASP_REMOTE_OUTPUT_DIR
     from modules.core.conversation_state import GLOBAL_CONVERSATION_STATE
     from modules.core.agent_runtime import (
         can_answer_intent,
@@ -88,6 +92,7 @@ def run_textual_cli():
         analyze_plan,
         can_execute_plan_all,
         detect_intent,
+        expand_shortcut_command,
         format_route_plan,
         get_clarification,
         parse_plan_step_selection,
@@ -103,10 +108,19 @@ def run_textual_cli():
         REMOTE_WORKDIR,
         USERNAME,
         get_job_monitor_snapshot,
+        run_remote_command,
         validate_monitorable_job,
     )
+    from modules.slurm.job_submitter import (
+        resolve_vasp_job_input_dir,
+        vasp_auto_run_name,
+    )
+    from modules.slurm.job_cleanup import cleanup_remote_agent_targets
 
     class HPCAgentTUI(App):
+        SELECT_AUTO_SCROLL_LINES = 2
+        SELECT_AUTO_SCROLL_SPEED = 18.0
+
         CSS = """
         Screen {
             layout: vertical;
@@ -160,15 +174,22 @@ def run_textual_cli():
             text-style: bold;
         }
 
-        RichLog {
+        #chat-scroll {
             height: 1fr;
+            background: #14181b;
+            scrollbar-background: #14181b;
+            scrollbar-color: #3cd6b5;
+        }
+
+        #chat-log {
+            width: 100%;
             padding: 0 1;
             background: #14181b;
             color: #f1f5f2;
         }
 
-        #chat-log {
-            overflow-x: hidden;
+        #chat-log:focus {
+            background: #14181b;
         }
 
         #monitor {
@@ -192,7 +213,7 @@ def run_textual_cli():
 
         BINDINGS = [
             ("ctrl+r", "refresh_status", "刷新状态"),
-            ("ctrl+y", "copy_last_reply", "复制回复"),
+            ("ctrl+y", "copy_selection_or_last_reply", "复制选中"),
             ("ctrl+s", "submit_pending", "提交作业"),
             ("escape", "cancel_pending", "返回/取消"),
             ("tab", "next_monitor", "切换监控"),
@@ -219,6 +240,7 @@ def run_textual_cli():
             self.vasp_workflows = {}
             self.history = []
             self.last_assistant_reply = None
+            self.chat_transcript = []
 
         def compose(self) -> ComposeResult:
             yield Header(show_clock=True)
@@ -226,12 +248,13 @@ def run_textual_cli():
             with Horizontal(id="body"):
                 with Vertical(id="chat-pane"):
                     yield Static("Chat", classes="pane-title")
-                    yield RichLog(id="chat-log", wrap=True, highlight=True, markup=True, min_width=1)
+                    with VerticalScroll(id="chat-scroll"):
+                        yield Static("", id="chat-log", markup=False)
                 with Vertical(id="right-pane"):
                     yield Static("Job Monitor", classes="pane-title")
                     yield Static("输入“监控 JOBID”开始监控。", id="monitor")
             with Vertical(id="input-bar"):
-                yield Input(placeholder="Command HPC Agent...  Ctrl+R 刷新状态 / Ctrl+Y 复制回复 / Ctrl+S 提交", id="command-input")
+                yield Input(placeholder="Command HPC Agent...  Ctrl+R 刷新状态 / Ctrl+Y 复制选中/回复 / Ctrl+S 提交", id="command-input")
 
         def on_mount(self):
             self.documents, self.sources = load_documents()
@@ -246,18 +269,23 @@ def run_textual_cli():
         def _top_text(self):
             return (
                 f"HPC: {HOST or '-'}    User: {USERNAME or '-'}    "
-                f"Remote: {REMOTE_WORKDIR or '-'}    Keys: Ctrl+R 刷新 / Ctrl+Y 复制 / Ctrl+S 提交 / Tab 切换"
+                f"Remote: {REMOTE_WORKDIR or '-'}    Keys: Ctrl+R 刷新 / Ctrl+Y 复制选中 / Ctrl+S 提交 / Tab 切换"
             )
 
         def _write_user(self, text: str):
-            self.query_one("#chat-log", RichLog).write(f"[bold #67e8c9]你:[/bold #67e8c9] {text}")
+            self._append_chat(f"你: {text}")
 
         def _write_assistant(self, text: str):
             self.last_assistant_reply = text
-            self.query_one("#chat-log", RichLog).write(f"[bold #b8f26a]HPC Agent:[/bold #b8f26a]\n{text}")
+            self._append_chat(f"HPC Agent:\n{text}")
 
         def _write_system(self, text: str):
-            self.query_one("#chat-log", RichLog).write(f"[bold #f5b84b]{text}[/bold #f5b84b]")
+            self._append_chat(f"[系统] {text}")
+
+        def _append_chat(self, text: str):
+            self.chat_transcript.append(text)
+            self.query_one("#chat-log", Static).update("\n\n".join(self.chat_transcript))
+            self.call_after_refresh(self.query_one("#chat-scroll", VerticalScroll).scroll_end, animate=False)
 
         def on_key(self, event):
             if event.key == "tab":
@@ -290,6 +318,10 @@ def run_textual_cli():
             self.history.append(question)
             GLOBAL_CONVERSATION_STATE.remember_turn("user", question)
             self._write_user(question)
+
+            if self.pending_submission and self.pending_submission.get("kind") == "vasp_collision":
+                self._handle_vasp_collision_choice(question)
+                return
 
             if self.pending_submission and GLOBAL_CONVERSATION_STATE.is_confirmation(question):
                 self._submit_pending()
@@ -376,6 +408,8 @@ def run_textual_cli():
                         "pending_action": None,
                     }
                 question = plan_step.get("route_text") or plan_step.get("text") or question
+            else:
+                question = expand_shortcut_command(question)
 
             if _is_hpc_submission_smoke_test_request(question):
                 plan = None
@@ -947,7 +981,186 @@ def run_textual_cli():
             if not prepared["ready"]:
                 return runtime_result.answer, None
 
-            return runtime_result.answer, runtime_result.data["pending_submission"]
+            pending_submission = runtime_result.data["pending_submission"]
+            collision = self._build_vasp_run_collision(question)
+
+            if collision and collision["has_collision"]:
+                pending_submission = {
+                    "kind": "vasp_collision",
+                    "pending_vasp": pending_submission,
+                    "collision": collision,
+                }
+                return self._format_vasp_collision_prompt(collision), pending_submission
+
+            return runtime_result.answer, pending_submission
+
+        def _build_vasp_run_collision(self, question: str):
+            resolved = resolve_vasp_job_input_dir(question)
+            if not resolved["success"]:
+                return None
+
+            local_job_dir = resolved["input_dir"]
+            run_name = local_job_dir.name
+            local_output_dir = Path(VASP_LOCAL_OUTPUT_DIR).expanduser() / run_name
+            remote_input_dir = f"{VASP_REMOTE_INPUT_DIR}/{run_name}" if VASP_REMOTE_INPUT_DIR else None
+            remote_output_dir = f"{VASP_REMOTE_OUTPUT_DIR}/{run_name}" if VASP_REMOTE_OUTPUT_DIR else None
+
+            local_output_exists = local_output_dir.exists() and any(local_output_dir.iterdir()) if local_output_dir.is_dir() else local_output_dir.exists()
+            remote_status = self._check_remote_vasp_run_dirs([remote_input_dir, remote_output_dir])
+            remote_collisions = [
+                path
+                for path, exists in remote_status.items()
+                if exists is True
+            ]
+
+            has_collision = bool(local_output_exists or remote_collisions)
+            return {
+                "has_collision": has_collision,
+                "run_name": run_name,
+                "auto_run_name": vasp_auto_run_name(run_name),
+                "local_job_dir": str(local_job_dir),
+                "local_output_dir": str(local_output_dir),
+                "local_output_exists": local_output_exists,
+                "remote_input_dir": remote_input_dir,
+                "remote_output_dir": remote_output_dir,
+                "remote_status": remote_status,
+                "remote_collisions": remote_collisions,
+            }
+
+        def _check_remote_vasp_run_dirs(self, paths):
+            paths = [path for path in paths if path]
+            if not paths:
+                return {}
+
+            command = (
+                "for d in "
+                + " ".join(shlex.quote(path) for path in paths)
+                + "; do [ -e \"$d\" ] && printf 'EXISTS\\t%s\\n' \"$d\" || printf 'MISSING\\t%s\\n' \"$d\"; done"
+            )
+
+            try:
+                output, error = run_remote_command(command)
+                status = {}
+                for line in output.splitlines():
+                    if line.startswith("EXISTS\t"):
+                        status[line.split("\t", 1)[1]] = True
+                    elif line.startswith("MISSING\t"):
+                        status[line.split("\t", 1)[1]] = False
+                if error.strip():
+                    self._write_system(f"远端重复目录检查有 stderr：{error.strip()}")
+                return status
+            except Exception as error:
+                self._write_system(f"远端重复目录检查失败，仅检查本地输出目录：{type(error).__name__}: {error}")
+                return {path: None for path in paths}
+
+        def _format_vasp_collision_prompt(self, collision):
+            lines = [
+                "检测到同名 VASP 运行目录已经存在，暂不提交。",
+                "",
+                f"作业输入目录: {collision['local_job_dir']}",
+                f"默认 run name: {collision['run_name']}",
+                "",
+                "已存在/可能冲突:",
+            ]
+
+            if collision["local_output_exists"]:
+                lines.append(f"- 本地输出目录: {collision['local_output_dir']}")
+
+            for path in collision["remote_collisions"]:
+                lines.append(f"- 远端目录: {path}")
+
+            unknown_remote = [
+                path
+                for path, exists in collision["remote_status"].items()
+                if exists is None
+            ]
+            for path in unknown_remote:
+                lines.append(f"- 远端目录未能确认: {path}")
+
+            lines.extend([
+                "",
+                "请选择下一步:",
+                "1. 回复“覆盖旧结果”：先清空同名远端 input/output 和本地 output，再提交。",
+                f"2. 回复“自动创建新 run name”：使用 {collision['auto_run_name']} 提交。",
+                "3. 回复“取消”：放弃本次提交。",
+            ])
+            return "\n".join(lines)
+
+        def _handle_vasp_collision_choice(self, question: str):
+            pending = self.pending_submission
+            collision = pending["collision"]
+            choice = question.strip().lower().replace(" ", "")
+
+            if GLOBAL_CONVERSATION_STATE.is_cancellation(question) or choice in {"3", "取消"}:
+                self.pending_submission = None
+                GLOBAL_CONVERSATION_STATE.clear_pending_action("submit")
+                self._write_system("已取消 VASP 提交。")
+                return
+
+            if choice in {"1", "覆盖", "覆盖旧结果", "复用", "复用同名目录"}:
+                cleaned, message = self._clean_vasp_run_collision(collision)
+                self._write_system(message)
+                if not cleaned:
+                    self.pending_submission = pending
+                    return
+
+                self.pending_submission = pending["pending_vasp"]
+                self._write_system("已清理旧结果，将使用同名 run name 重新提交。")
+                self._submit_pending()
+                return
+
+            if choice in {"2", "自动创建新runname", "自动创建新run名", "自动创建新目录", "新runname", "新目录"}:
+                next_pending = dict(pending["pending_vasp"])
+                next_pending["run_name"] = collision["auto_run_name"]
+                self.pending_submission = next_pending
+                self._write_system(f"将使用新 run name：{collision['auto_run_name']}")
+                self._submit_pending()
+                return
+
+            self._write_system("请回复：覆盖旧结果 / 自动创建新 run name / 取消")
+
+        def _clean_vasp_run_collision(self, collision):
+            local_output_dir = Path(collision["local_output_dir"]).expanduser()
+            removed_local = False
+
+            if local_output_dir.exists():
+                try:
+                    if local_output_dir.is_dir():
+                        shutil.rmtree(local_output_dir)
+                    else:
+                        local_output_dir.unlink()
+                    removed_local = True
+                except OSError as error:
+                    return False, f"本地输出目录清理失败，未提交：{type(error).__name__}: {error}"
+
+            remote_targets = []
+            for root_path in [collision.get("remote_input_dir"), collision.get("remote_output_dir")]:
+                if not root_path:
+                    continue
+                root = Path(root_path)
+                remote_targets.append({
+                    "kind": "dir",
+                    "path": root.name,
+                    "remote_workdir": str(root.parent),
+                })
+
+            remote_result = None
+            if remote_targets:
+                remote_result = cleanup_remote_agent_targets(remote_targets)
+                if not remote_result.get("success"):
+                    return (
+                        False,
+                        "远端 input/output 清理失败，未提交。\n"
+                        f"错误: {remote_result.get('error') or '未知错误'}"
+                    )
+
+            deleted_remote = len(remote_result.get("deleted", [])) if remote_result else 0
+            return (
+                True,
+                "旧 VASP 结果已清理。\n"
+                f"- 本地输出目录: {'已删除' if removed_local else '不存在，无需删除'}\n"
+                f"- 远端目录目标: {deleted_remote} 个",
+            )
 
         def _submit_pending(self):
             if not self.pending_submission:
@@ -965,6 +1178,7 @@ def run_textual_cli():
                         {
                             "script": pending["script"],
                             "source_text": pending.get("source_text", ""),
+                            "run_name": pending.get("run_name"),
                         },
                         state=GLOBAL_CONVERSATION_STATE,
                     )
@@ -1054,16 +1268,30 @@ def run_textual_cli():
             self._schedule_monitor_refresh()
             self._write_system(f"正在刷新监控任务。当前显示 Job {job_id}。")
 
-        def action_copy_last_reply(self):
-            if not self.last_assistant_reply:
-                self._write_system("还没有可复制的 Agent 回复。")
-                return
+        def action_copy_selection_or_last_reply(self):
+            selected_text = self.screen.get_selected_text()
+            text_to_copy = selected_text.strip() if selected_text else ""
+            source = "选中文本"
 
-            copied, error = _copy_to_clipboard(self.last_assistant_reply)
+            if not text_to_copy:
+                if not self.last_assistant_reply:
+                    self._write_system("还没有可复制的选中文本或 Agent 回复。")
+                    return
+                text_to_copy = self.last_assistant_reply
+                source = "上一条 Agent 回复"
+
+            copied, error = _copy_to_clipboard(text_to_copy)
 
             if copied:
-                self._write_system("已复制上一条 Agent 回复。")
+                self._write_system(f"已复制{source}。")
             else:
-                self._write_system(f"当前环境没有可用剪贴板：{error}")
+                try:
+                    self.copy_to_clipboard(text_to_copy)
+                    self._write_system(f"已通过终端剪贴板复制{source}。")
+                except Exception as copy_error:
+                    self._write_system(
+                        "当前环境没有可用剪贴板："
+                        f"{error}; terminal clipboard: {type(copy_error).__name__}: {copy_error}"
+                    )
 
     HPCAgentTUI().run()

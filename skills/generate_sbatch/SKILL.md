@@ -3,7 +3,7 @@ name: generate-sbatch
 description: Generate a safe Slurm sbatch script for HPC jobs based on user requirements.
 metadata:
   version: "0.1"
-  author: "QYz"
+  author: "HPC Agent"
 ---
 
 # Generate SBATCH Skill

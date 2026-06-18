@@ -2,9 +2,11 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from modules.core.conversation_state import GLOBAL_CONVERSATION_STATE, ConversationState
+from modules.knowledge.error_case_manager import append_real_case
 from modules.slurm.job_lifecycle import archive_job_records, restore_job_records
 from modules.slurm.job_query import execute_cleanup_remote_jobs
 from modules.slurm.job_submitter import submit_prepared_script, submit_prepared_vasp_script
+from modules.vasp.vasp_input_generator import generate_vasp_inputs_from_potcar
 
 
 @dataclass
@@ -59,6 +61,7 @@ def execute_confirmed_action(
         result = executor(
             payload.get("script", ""),
             payload.get("source_text", ""),
+            run_name=payload.get("run_name"),
         )
         success = bool(result.get("success"))
         job_id = result.get("job_id")
@@ -127,6 +130,40 @@ def execute_confirmed_action(
                 "skipped_count": result.get("skipped_count"),
                 "missing_count": result.get("missing_count"),
                 "restored_job_ids": result.get("restored_job_ids") or [],
+            },
+            raw=result,
+        )
+
+    if kind == "add_error_case":
+        executor = active_executors.get("add_error_case", append_real_case)
+        result = executor(
+            payload.get("case") or {},
+            path=payload.get("path") or "data/errors/real_cases.json",
+        )
+        return ConfirmedActionResult(
+            success=bool(result.get("success")),
+            message=result.get("message", ""),
+            kind=kind,
+            data={
+                "case_id": (result.get("case") or {}).get("id"),
+                "path": result.get("path") or payload.get("path"),
+            },
+            raw=result,
+        )
+
+    if kind == "generate_vasp_inputs_overwrite":
+        executor = active_executors.get("generate_vasp_inputs_overwrite", generate_vasp_inputs_from_potcar)
+        result = executor(
+            payload.get("job_dir", ""),
+            user_request=f"{payload.get('user_request', '')} 覆盖已有配置文件",
+        )
+        return ConfirmedActionResult(
+            success=bool(result.get("success")),
+            message=result.get("message", ""),
+            kind=kind,
+            data={
+                "job_dir": result.get("job_dir"),
+                "written_files": result.get("written_files") or [],
             },
             raw=result,
         )

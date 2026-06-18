@@ -35,13 +35,15 @@ from modules.vasp.vasp_assistant import (
     generate_vasp_sbatch_script,
 )
 from modules.vasp.vasp_input_generator import (
+    extract_vasp_input_generation_selector,
     generate_vasp_inputs_from_potcar,
     generate_vasp_inputs_from_potcar_request,
     parse_potcar_entries,
     recommended_encut,
 )
 from modules.vasp.vasp_report_context import generate_vasp_report_context
-from modules.slurm.job_query import _local_output_dir_for_input_path
+from modules.slurm.job_query import _extract_vasp_report_selector, _local_output_dir_for_input_path
+from modules.core.conversation_state import GLOBAL_CONVERSATION_STATE
 
 
 DEFAULT_VASP_SETUP = DEFAULT_VASP_SETUP_COMMAND
@@ -156,6 +158,14 @@ def test_generate_vasp_inputs_request_resolves_named_job_dir():
         assert result["elements"] == ["Al"]
 
 
+def test_generate_vasp_inputs_selector_before_vasp_input_phrase():
+    selector = extract_vasp_input_generation_selector(
+        "帮我生成 Al_test 的 VASP 输入，ENCUT 400，KPOINTS 2x2x2，静态计算"
+    )
+
+    assert selector == "Al_test"
+
+
 def test_generate_vasp_inputs_does_not_overwrite_without_explicit_request():
     with TemporaryDirectory() as tmpdir:
         job_dir = _bootstrap.Path(tmpdir) / "Al_test"
@@ -171,6 +181,60 @@ def test_generate_vasp_inputs_does_not_overwrite_without_explicit_request():
         assert not result["success"]
         assert_contains(result["message"], "已经存在")
         assert (job_dir / "INCAR").read_text(encoding="utf-8") == "ENCUT = 999\n"
+
+
+def test_generate_vasp_inputs_applies_user_parameter_overrides():
+    with TemporaryDirectory() as tmpdir:
+        job_dir = _bootstrap.Path(tmpdir) / "Si_relax"
+        job_dir.mkdir()
+        (job_dir / "POTCAR").write_text(
+            "TITEL  = PAW_PBE Si 05Jan2001\nENMAX  = 245.000; ENMIN = 180.000\n",
+            encoding="utf-8",
+        )
+
+        result = generate_vasp_inputs_from_potcar(
+            job_dir,
+            user_request=(
+                "帮我生成配置文件，结构优化，ENCUT 400，KPOINTS 2x2x2，"
+                "NSW 20，EDIFF 1e-6，ISMEAR 0，SIGMA 0.05"
+            ),
+        )
+
+        if not result["success"]:
+            raise AssertionError(result["message"])
+
+        incar = (job_dir / "INCAR").read_text(encoding="utf-8")
+        kpoints = (job_dir / "KPOINTS").read_text(encoding="utf-8")
+
+        assert_contains(incar, "ENCUT = 400")
+        assert_contains(incar, "EDIFF = 1E-6")
+        assert_contains(incar, "ISMEAR = 0")
+        assert_contains(incar, "SIGMA = 0.05")
+        assert_contains(incar, "IBRION = 2")
+        assert_contains(incar, "NSW = 20")
+        assert_contains(kpoints, "2 2 2")
+        assert result["encut_source"] == "用户参数"
+        assert result["options"]["kpoints"] == (2, 2, 2)
+        assert_contains(result["message"], "ENCUT: 400 eV（来源: 用户参数）")
+
+
+def test_generate_vasp_inputs_rejects_invalid_user_parameters():
+    with TemporaryDirectory() as tmpdir:
+        job_dir = _bootstrap.Path(tmpdir) / "Al_test"
+        job_dir.mkdir()
+        (job_dir / "POTCAR").write_text(
+            "TITEL  = PAW_PBE Al 04Jan2001\nENMAX  = 240.000; ENMIN = 180.000\n",
+            encoding="utf-8",
+        )
+
+        result = generate_vasp_inputs_from_potcar(
+            job_dir,
+            user_request="帮我生成配置文件，ENCUT 50，KPOINTS 0x2x2",
+        )
+
+        assert not result["success"]
+        assert_contains(result["message"], "参数不合法")
+        assert not (job_dir / "INCAR").exists()
 
 
 def test_submit_vasp_job_preview_handles_partition():
@@ -466,6 +530,27 @@ def test_resolve_vasp_job_input_dir_uses_named_child():
             raise AssertionError(f"Expected {selected_dir}, got {resolved['input_dir']}")
 
 
+def test_resolve_vasp_job_input_dir_uses_named_vasp_task():
+    with TemporaryDirectory() as jobs_dir:
+        selected_dir = _bootstrap.Path(jobs_dir) / "Al_test"
+        selected_dir.mkdir()
+
+        other_dir = _bootstrap.Path(jobs_dir) / "NaCl_test"
+        other_dir.mkdir()
+
+        for directory in [selected_dir, other_dir]:
+            for name in ["INCAR", "POSCAR", "POTCAR", "KPOINTS"]:
+                (directory / name).write_text(f"{name}\n", encoding="utf-8")
+
+        resolved = resolve_vasp_job_input_dir("提交并运行vasp任务Al_test，10分钟", jobs_dir)
+
+        if not resolved["success"]:
+            raise AssertionError(f"Expected named VASP task to resolve: {resolved}")
+
+        if resolved["input_dir"] != selected_dir:
+            raise AssertionError(f"Expected {selected_dir}, got {resolved['input_dir']}")
+
+
 def test_extract_source_dir_prefers_absolute_path():
     text = "帮我提交 VASP 作业，目录 /tmp/vasp-jobs/si_static_test"
     source_dir = extract_source_dir_from_text(text)
@@ -523,6 +608,23 @@ def test_analyze_vasp_job_intent():
     request = "一键分析 VASP 作业 si_static_test"
     if detect_intent(request) != "analyze_vasp_job":
         raise AssertionError(f"Expected analyze_vasp_job intent for {request!r}")
+
+
+def test_vasp_report_selector_uses_last_vasp_job_reference():
+    original_last_vasp_job_id = GLOBAL_CONVERSATION_STATE.last_vasp_job_id
+    original_recent_jobs = list(GLOBAL_CONVERSATION_STATE.recent_jobs)
+
+    try:
+        GLOBAL_CONVERSATION_STATE.last_vasp_job_id = None
+        GLOBAL_CONVERSATION_STATE.recent_jobs = []
+        GLOBAL_CONVERSATION_STATE.record_job("11841952", metadata={"type": "vasp", "source": "submit"})
+
+        selector = _extract_vasp_report_selector("分析上一个作业")
+
+        assert selector == {"kind": "job_id", "value": "11841952"}
+    finally:
+        GLOBAL_CONVERSATION_STATE.last_vasp_job_id = original_last_vasp_job_id
+        GLOBAL_CONVERSATION_STATE.recent_jobs = original_recent_jobs
 
 
 def test_outcar_parser_extracts_deterministic_energies():
@@ -641,7 +743,10 @@ if __name__ == "__main__":
     test_parse_potcar_entries_extracts_metadata()
     test_generate_vasp_inputs_from_single_element_potcar_writes_files()
     test_generate_vasp_inputs_request_resolves_named_job_dir()
+    test_generate_vasp_inputs_selector_before_vasp_input_phrase()
     test_generate_vasp_inputs_does_not_overwrite_without_explicit_request()
+    test_generate_vasp_inputs_applies_user_parameter_overrides()
+    test_generate_vasp_inputs_rejects_invalid_user_parameters()
     test_submit_vasp_job_preview_handles_partition()
     test_vasp_submit_path_does_not_replace_runtime_command()
     test_vasp_runtime_script_syncs_input_folder_after_sbatch_directives()
@@ -656,11 +761,13 @@ if __name__ == "__main__":
     test_vasp_submit_stops_when_local_inputs_missing()
     test_resolve_vasp_job_input_dir_selects_latest_complete_job()
     test_resolve_vasp_job_input_dir_uses_named_child()
+    test_resolve_vasp_job_input_dir_uses_named_vasp_task()
     test_extract_source_dir_prefers_absolute_path()
     test_register_existing_vasp_job_from_text_writes_registry()
     test_sync_vasp_output_intent_requires_vasp_and_job_id()
     test_generate_vasp_report_intent_prefers_report_over_script_generation()
     test_analyze_vasp_job_intent()
+    test_vasp_report_selector_uses_last_vasp_job_reference()
     test_outcar_parser_extracts_deterministic_energies()
     test_outcar_parser_handles_converged_calculation()
     test_outcar_parser_reports_failure_on_missing_outcar()

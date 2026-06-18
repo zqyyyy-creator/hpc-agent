@@ -1,4 +1,5 @@
 import re
+import time
 from pathlib import Path
 
 from modules.core.hpc_config import (
@@ -19,6 +20,7 @@ from modules.slurm.slurm_assistant import (
     generate_sbatch_script,
 )
 from modules.core.tool_calling import ToolCall, ToolResult, ensure_allowed_tool
+from modules.slurm.remote_utils import safe_remote_dir_name
 from modules.vasp.vasp_assistant import prepare_vasp_submit_script as prepare_vasp_script
 
 
@@ -389,12 +391,16 @@ def extract_vasp_job_selector(text: str):
 
     patterns = [
         r"(?:作业目录|子目录|目录名|编号|job)\s*[:：=]?\s*([A-Za-z0-9_.-]+)",
+        r"(?:vasp|VASP)\s*(?:任务|作业|计算)?\s*([A-Za-z0-9_.-]+)",
+        r"(?:提交|运行|跑)\s*(?:并运行)?\s*(?:vasp|VASP)\s*(?:任务|作业|计算)?\s*([A-Za-z0-9_.-]+)",
     ]
 
     for pattern in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
-            return match.group(1)
+            value = match.group(1)
+            if value.lower() not in {"任务", "作业", "计算", "job", "input", "output"}:
+                return value
 
     return None
 
@@ -535,7 +541,13 @@ def extract_source_dir_from_text(text: str):
     return None
 
 
-def submit_prepared_vasp_script(script: str, selector_text: str = ""):
+def vasp_auto_run_name(base_name: str):
+    safe_name = safe_remote_dir_name(base_name)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    return f"{safe_name}_{timestamp}"
+
+
+def submit_prepared_vasp_script(script: str, selector_text: str = "", run_name: str | None = None):
     resolved = resolve_vasp_job_input_dir(selector_text)
 
     if not resolved["success"]:
@@ -560,11 +572,12 @@ def submit_prepared_vasp_script(script: str, selector_text: str = ""):
     local_job_dir = resolved["input_dir"]
     local_job_script = local_job_dir / "job.sh"
     local_job_script.write_text(script, encoding="utf-8")
+    selected_run_name = run_name or local_job_dir.name
 
     result = submit_vasp_script_text(
         script,
         local_job_dir,
-        run_name=local_job_dir.name,
+        run_name=selected_run_name,
     )
     result["local_job_dir"] = str(local_job_dir)
     result["archived_files"] = [

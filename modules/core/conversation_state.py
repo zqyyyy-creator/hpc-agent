@@ -26,6 +26,7 @@ GENERIC_CONFIRMATIONS = {
     "确认提交", "确认清理", "确认清理全部",
     "确认归档", "确认归档本地作业记录",
     "确认恢复", "确认恢复本地作业记录归档",
+    "确认覆盖", "覆盖已有配置文件",
     "yes", "y", "ok", "okay", "submit", "confirm",
 }
 GENERIC_CANCELLATIONS = {

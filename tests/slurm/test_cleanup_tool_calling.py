@@ -69,6 +69,18 @@ def test_cleanup_vasp_job_scope_and_selector():
     assert validated.arguments["scope"] == "output"
 
 
+def test_cleanup_vasp_job_input_and_output_scope():
+    call = make_cleanup_tool_call(
+        "清理远端vasp作业Al_test的input和output目录",
+        "cleanup_remote_vasp_job",
+    )
+    validated = validate_cleanup_tool_call(call)
+
+    assert validated.tool == "prepare_cleanup_remote_vasp_job"
+    assert validated.arguments["selector"] == "Al_test"
+    assert validated.arguments["scope"] == "both"
+
+
 def test_cleanup_all_vasp_jobs_requires_strong_confirmation():
     result = handle_cleanup_prepare_request(
         "清空远端 VASP input 下所有作业",
@@ -101,6 +113,7 @@ if __name__ == "__main__":
     test_cleanup_regular_job_prepare_result()
     test_cleanup_all_regular_jobs_requires_strong_confirmation()
     test_cleanup_vasp_job_scope_and_selector()
+    test_cleanup_vasp_job_input_and_output_scope()
     test_cleanup_all_vasp_jobs_requires_strong_confirmation()
     test_generic_vasp_directory_cleanup_routes_to_all_vasp_cleanup()
     test_cleanup_missing_job_id_asks_for_clarification()

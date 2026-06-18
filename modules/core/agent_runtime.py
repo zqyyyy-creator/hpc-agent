@@ -1,13 +1,14 @@
 from dataclasses import dataclass, field
 from typing import Any
 
+from modules.knowledge.error_case_manager import build_error_case_draft
 from modules.knowledge.knowledge_base import ask_llm, retrieve
 from modules.core.environment_status import (
     check_hpc_environment,
     format_current_model_and_config,
     format_hpc_environment_check,
 )
-from modules.routing.router import get_clarification
+from modules.routing.router import expand_shortcut_command, get_clarification
 from modules.slurm.slurm_assistant import generate_sbatch_script, suggest_slurm_parameters
 from modules.routing.tool_dispatcher import dispatch_tool_request
 from modules.vasp.vasp_assistant import generate_vasp_sbatch_script
@@ -34,6 +35,7 @@ from modules.slurm.job_lifecycle import (
 ANSWER_INTENTS = {
     "rag_qa",
     "clarify",
+    "shortcut_help",
     "generate_sbatch",
     "current_config",
     "check_hpc_config",
@@ -45,6 +47,7 @@ ANSWER_INTENTS = {
     "list_remote_vasp_jobs",
     "suggest_params",
     "diagnose_error",
+    "prepare_error_case",
     "diagnose_job",
     "troubleshoot_job",
     "register_vasp_job",
@@ -104,6 +107,84 @@ def can_answer_intent(intent: str) -> bool:
 
 def can_preview_cleanup_intent(intent: str) -> bool:
     return intent in CLEANUP_PREVIEW_INTENTS
+
+
+def format_shortcut_help(question: str = "") -> str:
+    normalized = question.strip().lower().replace(" ", "")
+    if normalized == "/helpjob":
+        return "\n".join([
+            "Job 快捷命令",
+            "",
+            "/job recent                 查看最近作业",
+            "/job status <job_id>        查看作业状态",
+            "/job out <job_id>           读取标准输出",
+            "/job err <job_id>           读取错误日志",
+            "/job detail <job_id>        查看作业详情",
+            "/job diagnose <job_id>      诊断作业",
+            "/job records                查看本地作业记录状态",
+            "/job archive --keep 100     预览归档本地作业记录",
+            "/job archives               查看归档记录",
+            "/job restore                预览恢复最近一次归档",
+            "",
+            "说明: 这些是推荐快捷写法；当前也可以继续用自然语言表达同样操作。",
+        ])
+
+    if normalized == "/helpvasp":
+        return "\n".join([
+            "VASP 快捷命令",
+            "",
+            "/vasp list                  列出本地记录的 VASP 作业",
+            "/vasp gen <name>            根据已有 POTCAR 生成 INCAR/KPOINTS/POSCAR",
+            "/vasp gen <name> --encut 400 --kpoints 2x2x2 --type static",
+            "/vasp submit <name>         提交 VASP 作业",
+            "/vasp sync <job_id>         同步 VASP 输出到本地",
+            "/vasp analyze <job_id>      同步并分析 VASP 作业",
+            "/vasp report <job_id|name>  生成 VASP 报告",
+            "/vasp remote                查看远端 VASP input/output 目录",
+            "/vasp clean <job_id|name>   预览清理远端 VASP 作业",
+            "",
+            "说明: POTCAR 仍需要来自你有权限使用的赝势库；快捷命令不会绕过提交或清理确认。",
+        ])
+
+    if normalized == "/helpcleanup":
+        return "\n".join([
+            "清理快捷命令",
+            "",
+            "/clean job <job_id>         预览清理远端普通作业文件",
+            "/clean jobs                 预览清理远端普通作业根目录",
+            "/clean vasp <job_id|name>   预览清理远端 VASP 作业",
+            "/clean vasp-all             预览清理全部远端 VASP 作业",
+            "",
+            "说明: 清理类命令只会先生成预览，仍需要确认后才会执行。",
+        ])
+
+    if normalized == "/helpconfig":
+        return "\n".join([
+            "配置快捷命令",
+            "",
+            "/config                     查看当前模型和主要目录配置",
+            "/config check               检查超算配置",
+            "/model                      查看当前模型",
+            "",
+            "说明: 配置输出会隐藏 API Key 明文。",
+        ])
+
+    return "\n".join([
+        "常用快捷命令",
+        "",
+        "/job recent                 查看最近作业",
+        "/job detail <job_id>        查看作业详情",
+        "/job diagnose <job_id>      诊断作业",
+        "",
+        "/vasp gen <name>            根据已有 POTCAR 生成 VASP 输入文件",
+        "/vasp submit <name>         提交 VASP 作业",
+        "/vasp analyze <job_id>      同步并分析 VASP 作业",
+        "",
+        "/config check               检查超算配置",
+        "/model                      查看当前模型",
+        "",
+        "输入 /help job 或 /help vasp 查看更多。",
+    ])
 
 
 def _cleanup_pending_payload(intent: str, dispatch_data: dict[str, Any]) -> dict[str, Any]:
@@ -171,6 +252,8 @@ def execute_submit_preview(
     confirmation_text: str = "\n\n回复“确认提交”后，我会连接超算执行 sbatch。\n回复“取消提交”可以放弃本次提交。",
     uploaded_note_prefix: str = "\n\n将上传附件:\n",
 ) -> AgentRuntimeResult:
+    question = expand_shortcut_command(question)
+
     if not can_preview_submit_intent(intent):
         return AgentRuntimeResult(handled=False, intent=intent, success=False)
 
@@ -260,11 +343,16 @@ def execute_answer_intent(
     no_docs_message: str | None = None,
     current_job_id: str | None = None,
 ) -> AgentRuntimeResult:
+    question = expand_shortcut_command(question)
+
     if not can_answer_intent(intent):
         return AgentRuntimeResult(handled=False, intent=intent, success=False)
 
     if intent == "clarify":
         return AgentRuntimeResult(True, intent, get_clarification(question), success=False)
+
+    if intent == "shortcut_help":
+        return AgentRuntimeResult(True, intent, format_shortcut_help(question))
 
     if intent == "generate_sbatch":
         return AgentRuntimeResult(True, intent, generate_sbatch_script(question))
@@ -287,6 +375,21 @@ def execute_answer_intent(
 
     if intent == "generate_vasp_inputs":
         result = generate_vasp_inputs_from_potcar_request(question)
+        pending_action = None
+        if not result.get("success") and result.get("existing_files"):
+            pending_action = {
+                "kind": "generate_vasp_inputs_overwrite",
+                "payload": {
+                    "job_dir": result.get("job_dir"),
+                    "user_request": question,
+                },
+                "description": "VASP 输入文件覆盖确认，回复“确认覆盖”或“覆盖已有配置文件”后执行。",
+            }
+            result["pending_action"] = pending_action
+            result["message"] = (
+                result["message"]
+                + "\n\n如要覆盖并重新生成，请回复：“确认覆盖” 或 “覆盖已有配置文件”。"
+            )
         return AgentRuntimeResult(
             True,
             intent,
@@ -375,6 +478,16 @@ def execute_answer_intent(
             True,
             intent,
             diagnoser.format_results(diagnoser.diagnose(question)),
+        )
+
+    if intent == "prepare_error_case":
+        result = build_error_case_draft(question, state=state, diagnoser=diagnoser)
+        return AgentRuntimeResult(
+            True,
+            intent,
+            result["message"],
+            success=result["success"],
+            data=result,
         )
 
     if intent == "diagnose_job":

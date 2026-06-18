@@ -1,0 +1,654 @@
+[
+  {
+    "id": "VASP_REAL_001",
+    "domain": "vasp",
+    "title": "VASP 缺少 POTCAR",
+    "severity": "error",
+    "applies_to": ["vasp_input", "vasp_submit", "vasp_run"],
+    "confidence": "high",
+    "patterns": [
+      "Missing required VASP input file: POTCAR",
+      "POTCAR not found",
+      "Error reading item.*POTCAR",
+      "No POTCAR file found"
+    ],
+    "evidence": [
+      "stdout/stderr 中出现 POTCAR 缺失",
+      "远端运行目录缺少 POTCAR"
+    ],
+    "reason": "VASP 运行必须使用真实 POTCAR。Agent 可以生成 INCAR/KPOINTS/POSCAR，但不会生成或回显 POTCAR。",
+    "suggestions": [
+      "把真实 POTCAR 放入本地 VASP 输入目录对应作业子目录",
+      "确认提交时 POTCAR 已上传到远端 input 目录",
+      "不要使用空文件、占位符或非授权来源 POTCAR"
+    ],
+    "commands": [
+      "ls -lh $HPC_LOCAL_VASP_JOBS_INPUT_DIR/JOB_NAME/POTCAR",
+      "ls -lh $HPC_VASP_REMOTE_INPUT_DIR/JOB_NAME/POTCAR"
+    ],
+    "prevention": "提交前检查本地输入目录包含 INCAR、KPOINTS、POSCAR、POTCAR 四个文件。"
+  },
+  {
+    "id": "VASP_REAL_002",
+    "domain": "vasp",
+    "title": "POTCAR 为空或不是有效赝势",
+    "severity": "error",
+    "applies_to": ["vasp_input", "vasp_submit", "vasp_run"],
+    "confidence": "high",
+    "patterns": [
+      "POTCAR.*empty",
+      "Error reading POTCAR",
+      "POTCAR.*invalid",
+      "TITEL.*not found"
+    ],
+    "evidence": [
+      "POTCAR 文件存在但 VASP 或 Agent 无法读取赝势信息",
+      "POTCAR 中缺少 TITEL/ENMAX 等必要字段"
+    ],
+    "reason": "POTCAR 可能是空文件、占位符、下载不完整，或不是 VASP 赝势文件。",
+    "suggestions": [
+      "使用当前集群授权的真实 POTCAR",
+      "确认 POTCAR 文件非空并包含 TITEL、ENMAX 等字段",
+      "多元素体系要按 POSCAR 元素顺序拼接 POTCAR"
+    ],
+    "commands": [
+      "ls -lh $HPC_LOCAL_VASP_JOBS_INPUT_DIR/JOB_NAME/POTCAR",
+      "grep -E 'TITEL|ENMAX' $HPC_LOCAL_VASP_JOBS_INPUT_DIR/JOB_NAME/POTCAR"
+    ],
+    "prevention": "不要让 Agent 生成 POTCAR；只让 Agent 读取已有 POTCAR 元信息来生成其他输入。"
+  },
+  {
+    "id": "VASP_REAL_003",
+    "domain": "vasp",
+    "title": "VASP 命令不可用",
+    "severity": "error",
+    "applies_to": ["config_check", "vasp_submit", "vasp_run"],
+    "confidence": "high",
+    "patterns": [
+      "vasp_std: command not found",
+      "vasp_gam: command not found",
+      "vasp_ncl: command not found",
+      "mpirun .*vasp.*No such file or directory",
+      "Permission denied.*vasp"
+    ],
+    "evidence": [
+      "作业启动后 shell 报 vasp_std/vasp_gam/vasp_ncl 找不到",
+      "HPC_VASP_COMMAND 指向的路径不存在或不可执行"
+    ],
+    "reason": "VASP 可执行文件路径配置错误，或作业环境没有加载 VASP module。",
+    "suggestions": [
+      "检查 .env 中 HPC_VASP_COMMAND 是否是当前集群真实命令",
+      "如果使用绝对路径，确认文件存在且可执行",
+      "如果 VASP 需要 module/source 环境，先修复 HPC_VASP_SETUP_COMMAND"
+    ],
+    "commands": [
+      "command -v vasp_std",
+      "test -x /path/to/vasp_std",
+      "module avail vasp"
+    ],
+    "prevention": "配置完成后先运行“检查我的超算配置”，确认 HPC_VASP_COMMAND 通过远端检查。"
+  },
+  {
+    "id": "VASP_REAL_004",
+    "domain": "vasp",
+    "title": "VASP MPI 环境未初始化",
+    "severity": "error",
+    "applies_to": ["config_check", "vasp_submit", "vasp_run"],
+    "confidence": "high",
+    "patterns": [
+      "mpirun: command not found",
+      "orted: command not found",
+      "error while loading shared libraries",
+      "libmpi.*cannot open shared object file"
+    ],
+    "evidence": [
+      "日志显示 mpirun 不存在或 MPI 动态库缺失",
+      "VASP 作业在启动阶段失败"
+    ],
+    "reason": "当前作业环境没有加载 VASP 依赖的 MPI/编译器运行环境。",
+    "suggestions": [
+      "把集群推荐的 source/module 初始化命令写入 HPC_VASP_SETUP_COMMAND",
+      "确认 setup 执行后 command -v mpirun 可用",
+      "确认 setup 后 VASP 可执行文件能启动"
+    ],
+    "commands": [
+      "command -v mpirun",
+      "module list",
+      "ldd /path/to/vasp_std | grep 'not found'"
+    ],
+    "prevention": "普通 MPI 测试可以用 srun；VASP 作业按集群安装方式配置 HPC_VASP_SETUP_COMMAND 和 HPC_VASP_COMMAND。"
+  },
+  {
+    "id": "VASP_REAL_005",
+    "domain": "vasp",
+    "title": "POSCAR 元素顺序与 POTCAR 不一致",
+    "severity": "error",
+    "applies_to": ["vasp_input", "vasp_run", "vasp_analysis"],
+    "confidence": "high",
+    "patterns": [
+      "POSCAR.*POTCAR.*inconsistent",
+      "different number of atom types",
+      "POTCAR.*POSCAR.*mismatch",
+      "The number of types on POSCAR and POTCAR are different"
+    ],
+    "evidence": [
+      "VASP 报 POSCAR 和 POTCAR 元素类型数量或顺序不一致",
+      "多元素体系更常见"
+    ],
+    "reason": "POSCAR 中的元素列表必须和 POTCAR 拼接顺序一致。",
+    "suggestions": [
+      "检查 POSCAR 第 6 行元素顺序",
+      "按相同顺序重新拼接 POTCAR",
+      "重新生成 INCAR/KPOINTS/POSCAR 时不要覆盖正确 POTCAR"
+    ],
+    "commands": [
+      "sed -n '6,7p' $HPC_LOCAL_VASP_JOBS_INPUT_DIR/JOB_NAME/POSCAR",
+      "grep TITEL $HPC_LOCAL_VASP_JOBS_INPUT_DIR/JOB_NAME/POTCAR"
+    ],
+    "prevention": "多元素 VASP 测试先用 grep TITEL 确认 POTCAR 拼接顺序。"
+  },
+  {
+    "id": "VASP_REAL_006",
+    "domain": "vasp",
+    "title": "VASP 作业达到时间限制未完成",
+    "severity": "warning",
+    "applies_to": ["vasp_run", "vasp_monitor", "vasp_analysis"],
+    "confidence": "high",
+    "patterns": [
+      "DUE TO TIME LIMIT",
+      "TIME LIMIT",
+      "CANCELLED AT.*DUE TO TIME LIMIT",
+      "reached time limit"
+    ],
+    "evidence": [
+      "Slurm 状态为 TIMEOUT 或日志出现 time limit",
+      "OUTCAR/vasp.out 可能不完整"
+    ],
+    "reason": "申请运行时间不足，VASP 还没完成就被 Slurm 终止。",
+    "suggestions": [
+      "增加提交时长，例如 30 分钟或 1 小时",
+      "降低测试体系规模或减少 KPOINTS",
+      "分析前先确认 OUTCAR 是否完整"
+    ],
+    "commands": [
+      "sacct -j JOBID --format=JobID,State,Elapsed,Timelimit",
+      "tail -n 80 OUTCAR"
+    ],
+    "prevention": "smoke test 可以先 5-10 分钟；正式体系按上一次 Elapsed 预留更长时间。"
+  },
+  {
+    "id": "VASP_REAL_007",
+    "domain": "vasp",
+    "title": "VASP 常见电子收敛问题",
+    "severity": "warning",
+    "applies_to": ["vasp_run", "vasp_analysis"],
+    "confidence": "medium",
+    "patterns": [
+      "BRMIX: very serious problems",
+      "EDDRMM: call to ZHEGV failed",
+      "ZBRENT: fatal error",
+      "Sub-Space-Matrix is not hermitian"
+    ],
+    "evidence": [
+      "OSZICAR/OUTCAR 出现 BRMIX、EDDRMM、ZBRENT 等收敛错误",
+      "作业可能退出或结果不可信"
+    ],
+    "reason": "初始电荷、混合参数、结构质量、KPOINTS 或电子步设置不合适。",
+    "suggestions": [
+      "检查结构是否合理，避免原子距离过近",
+      "尝试调小 AMIX/BMIX 或修改 ALGO",
+      "静态计算失败时可先做小步结构优化"
+    ],
+    "commands": [
+      "grep -E 'BRMIX|EDDRMM|ZBRENT|DAV' OUTCAR",
+      "tail -n 40 OSZICAR"
+    ],
+    "prevention": "测试用例保持结构简单，正式体系不要直接依赖 smoke test 的默认 POSCAR。"
+  },
+  {
+    "id": "SLURM_REAL_001",
+    "domain": "slurm",
+    "title": "Slurm partition 不存在或无权限",
+    "severity": "error",
+    "applies_to": ["config_check", "slurm_submit", "vasp_submit"],
+    "confidence": "high",
+    "patterns": [
+      "Invalid partition name specified",
+      "invalid partition",
+      "Batch job submission failed: Invalid partition"
+    ],
+    "evidence": [
+      "sbatch 提交阶段直接失败",
+      "错误中包含 invalid partition"
+    ],
+    "reason": "脚本或 .env 中的 partition 不是当前集群可用分区，或当前账号无权限使用。",
+    "suggestions": [
+      "用 sinfo 查看可用 partition",
+      "修改 HPC_DEFAULT_PARTITION 或 HPC_VASP_PARTITION",
+      "如果不确定，先留空使用集群默认 partition"
+    ],
+    "commands": [
+      "sinfo",
+      "sinfo -o '%P %a %l %D'",
+      "scontrol show partition"
+    ],
+    "prevention": "不要照搬其他集群的 partition 名称；以当前超算 sinfo 为准。"
+  },
+  {
+    "id": "SLURM_REAL_002",
+    "domain": "slurm",
+    "title": "作业因内存不足被杀",
+    "severity": "error",
+    "applies_to": ["slurm_run", "slurm_monitor", "diagnose_job"],
+    "confidence": "high",
+    "patterns": [
+      "oom-kill",
+      "Out Of Memory",
+      "cgroup out-of-memory",
+      "Killed"
+    ],
+    "evidence": [
+      "slurmstepd 报 oom-kill",
+      "sacct 可能显示 OUT_OF_MEMORY"
+    ],
+    "reason": "程序实际内存超过 Slurm 申请限制，或并行进程数过多导致总内存不足。",
+    "suggestions": [
+      "提高 --mem 或 --mem-per-cpu",
+      "降低并行进程数量",
+      "用 sacct/seff 查看 MaxRSS 后再设置内存"
+    ],
+    "commands": [
+      "sacct -j JOBID --format=JobID,State,MaxRSS,Elapsed",
+      "seff JOBID"
+    ],
+    "prevention": "第一次跑新程序时保守申请内存，并记录 MaxRSS 作为下次参数依据。"
+  },
+  {
+    "id": "SLURM_REAL_003",
+    "domain": "slurm",
+    "title": "远端工作目录不可写",
+    "severity": "error",
+    "applies_to": ["config_check", "slurm_submit", "vasp_submit", "sync"],
+    "confidence": "high",
+    "patterns": [
+      "Permission denied.*hpc-agent",
+      "cannot create directory.*Permission denied",
+      "mkdir: cannot create directory.*Permission denied"
+    ],
+    "evidence": [
+      "上传或创建远端目录时报 Permission denied",
+      "远端根目录不属于当前用户或不可写"
+    ],
+    "reason": "HPC_REMOTE_WORKDIR 或 VASP 远端 input/output 配到了不可写位置。",
+    "suggestions": [
+      "把远端目录改到当前账号有权限的位置",
+      "登录超算后手动 mkdir -p 测试",
+      "确认 .env 中普通作业目录和 VASP input/output 目录分开"
+    ],
+    "commands": [
+      "mkdir -p $HPC_REMOTE_WORKDIR",
+      "test -w $HPC_REMOTE_WORKDIR",
+      "mkdir -p $HPC_VASP_REMOTE_INPUT_DIR $HPC_VASP_REMOTE_OUTPUT_DIR"
+    ],
+    "prevention": "配置后先运行“检查我的超算配置”。"
+  },
+  {
+    "id": "CONFIG_REAL_001",
+    "domain": "config",
+    "title": ".env 缺少 HPC 关键字段",
+    "severity": "error",
+    "applies_to": ["startup", "config_check", "slurm_submit", "vasp_submit"],
+    "confidence": "high",
+    "patterns": [
+      "HPC_HOST.*未配置",
+      "HPC_USERNAME.*未配置",
+      "HPC_KEY_PATH.*未配置",
+      "请检查本地 \\.env"
+    ],
+    "evidence": [
+      "配置体检或远端访问错误提示关键字段未配置",
+      "Agent 无法建立 SSH 连接"
+    ],
+    "reason": "当前进程没有读取到完整 .env，或字段名拼写错误。",
+    "suggestions": [
+      "检查项目根目录 .env 是否存在",
+      "补齐 HPC_HOST、HPC_USERNAME、HPC_KEY_PATH、HPC_REMOTE_WORKDIR",
+      "保存后重启 TUI"
+    ],
+    "commands": [
+      "grep -E '^HPC_(HOST|USERNAME|KEY_PATH|REMOTE_WORKDIR)=' .env",
+      "realpath -e /path/to/private/key"
+    ],
+    "prevention": "不要把 .env 放到 docs 或其他目录；Agent 默认读取项目根目录 .env。"
+  },
+  {
+    "id": "CONFIG_REAL_002",
+    "domain": "config",
+    "title": "SSH 私钥权限过宽",
+    "severity": "error",
+    "applies_to": ["config_check", "ssh", "slurm_submit", "vasp_submit"],
+    "confidence": "high",
+    "patterns": [
+      "UNPROTECTED PRIVATE KEY FILE",
+      "Permissions .* are too open",
+      "bad permissions",
+      "权限 .* 过宽"
+    ],
+    "evidence": [
+      "SSH 拒绝使用该私钥",
+      "配置体检提示 key 权限过宽"
+    ],
+    "reason": "SSH 私钥对 group/other 开放了读写执行权限，ssh 客户端会拒绝使用。",
+    "suggestions": [
+      "把私钥权限改为 600",
+      "确认 HPC_KEY_PATH 指向私钥而不是 .pub 文件",
+      "重试 SSH 或重新运行配置体检"
+    ],
+    "commands": [
+      "chmod 600 /path/to/private/key",
+      "ssh -i /path/to/private/key -l USER HOST"
+    ],
+    "prevention": "新建或拷贝私钥后立即检查 ls -l 权限。"
+  },
+  {
+    "id": "CLAUDE_REAL_001",
+    "domain": "claude",
+    "title": "Claude Code 命令不存在",
+    "severity": "warning",
+    "applies_to": ["vasp_analysis", "claude_report"],
+    "confidence": "high",
+    "patterns": [
+      "Claude Code command not found",
+      "No such file or directory: 'claude'",
+      "claude 不在 PATH",
+      "HPC_CLAUDE_CODE_COMMAND"
+    ],
+    "evidence": [
+      "VASP 一键分析同步成功，但报告生成失败",
+      "本地找不到 claude 命令"
+    ],
+    "reason": "本地没有安装 Claude Code，或 HPC_CLAUDE_CODE_COMMAND 指向错误命令。",
+    "suggestions": [
+      "确认本地 command -v claude 可用",
+      "如果使用自定义路径，把绝对路径写入 HPC_CLAUDE_CODE_COMMAND",
+      "普通提交和同步不受影响，可以先查看 raw_output"
+    ],
+    "commands": [
+      "command -v claude",
+      "echo $HPC_CLAUDE_CODE_COMMAND"
+    ],
+    "prevention": "跑 LIVE_TEST_CHECKLIST 的 VASP 分析前先检查 Claude Code 命令。"
+  },
+  {
+    "id": "CLAUDE_REAL_002",
+    "domain": "claude",
+    "title": "API Key 或模型网关配置错误",
+    "severity": "error",
+    "applies_to": ["startup", "config_check", "llm", "claude_report"],
+    "confidence": "high",
+    "patterns": [
+      "401 Unauthorized",
+      "invalid x-api-key",
+      "authentication_error",
+      "model.*not found",
+      "PARATERA_API_KEY"
+    ],
+    "evidence": [
+      "模型调用返回 401/认证错误",
+      "配置体检提示 PARATERA_API_KEY 或 PARATERA_BASE_URL 未配置"
+    ],
+    "reason": "API Key 过期、Base URL 错误，或当前 key 不支持配置的模型。",
+    "suggestions": [
+      "检查 PARATERA_BASE_URL、PARATERA_API_KEY、PARATERA_MODEL",
+      "确认 HPC_CLAUDE_CODE_MODEL 是网关支持的模型",
+      "替换 key 后重启 TUI"
+    ],
+    "commands": [
+      "grep -E '^PARATERA_(BASE_URL|MODEL)=' .env",
+      "grep -E '^HPC_CLAUDE_CODE_MODEL=' .env"
+    ],
+    "prevention": "不要在输出中打印 API Key 明文；只检查字段是否配置。"
+  },
+  {
+    "id": "VASP_REAL_008",
+    "domain": "vasp",
+    "title": "VASP 分析缺少 OUTCAR",
+    "severity": "warning",
+    "applies_to": ["vasp_sync", "vasp_analysis"],
+    "confidence": "high",
+    "patterns": [
+      "OUTCAR.*not found",
+      "缺少 OUTCAR",
+      "No OUTCAR",
+      "OUTCAR.*missing"
+    ],
+    "evidence": [
+      "本地 raw_output 或远端 output 中没有 OUTCAR",
+      "报告上下文无法提取能量、收敛状态或结构信息"
+    ],
+    "reason": "VASP 作业可能启动前失败、输出还没同步回来，或同步规则没有拿到 OUTCAR。",
+    "suggestions": [
+      "先读取远端 stdout/stderr，确认 VASP 是否真正启动",
+      "同步远端输出后再分析",
+      "如果远端也没有 OUTCAR，优先诊断作业启动错误"
+    ],
+    "commands": [
+      "ls -lh $HPC_VASP_REMOTE_OUTPUT_DIR/JOB_NAME/OUTCAR",
+      "ls -lh $HPC_LOCAL_VASP_JOBS_OUTPUT_DIR/JOB_NAME/raw_output/OUTCAR",
+      "tail -n 80 $HPC_VASP_REMOTE_OUTPUT_DIR/JOB_NAME/*.err"
+    ],
+    "prevention": "分析前先确认作业完成，并同步到本地 raw_output。"
+  },
+  {
+    "id": "VASP_REAL_009",
+    "domain": "vasp",
+    "title": "VASP 报告上下文生成失败",
+    "severity": "warning",
+    "applies_to": ["vasp_analysis", "claude_report"],
+    "confidence": "medium",
+    "patterns": [
+      "report_context\\.md.*not found",
+      "报告上下文.*生成失败",
+      "failed to generate report context",
+      "analysis/report_context\\.md"
+    ],
+    "evidence": [
+      "analysis/report_context.md 不存在或为空",
+      "Claude Code 报告阶段缺少输入上下文"
+    ],
+    "reason": "同步输出不完整、OUTCAR/OSZICAR 缺失，或 VASP 解析阶段没有可用数据。",
+    "suggestions": [
+      "重新同步远端输出",
+      "确认 raw_output 中存在 OUTCAR、OSZICAR、vasp.out 或 Slurm 日志",
+      "先诊断 VASP 作业是否正常完成"
+    ],
+    "commands": [
+      "find $HPC_LOCAL_VASP_JOBS_OUTPUT_DIR/JOB_NAME -maxdepth 3 -type f | sort",
+      "ls -lh $HPC_LOCAL_VASP_JOBS_OUTPUT_DIR/JOB_NAME/analysis/report_context.md"
+    ],
+    "prevention": "一键分析前保持 output/raw_output/analysis 三层目录完整。"
+  },
+  {
+    "id": "SYNC_REAL_001",
+    "domain": "sync",
+    "title": "远端输出同步为空",
+    "severity": "warning",
+    "applies_to": ["sync", "vasp_sync", "vasp_analysis"],
+    "confidence": "high",
+    "patterns": [
+      "同步文件数: 0",
+      "No files synced",
+      "remote output.*empty",
+      "远端输出目录.*为空"
+    ],
+    "evidence": [
+      "同步结果显示文件数为 0",
+      "本地 raw_output 没有新增结果文件"
+    ],
+    "reason": "作业可能没有写入输出、远端 output 目录选错，或作业还没真正开始运行。",
+    "suggestions": [
+      "确认 Job ID 对应的远端输出目录",
+      "检查作业是否已经完成或是否失败在提交阶段",
+      "读取远端 stdout/stderr 或 Slurm accounting"
+    ],
+    "commands": [
+      "ls -lah $HPC_VASP_REMOTE_OUTPUT_DIR/JOB_NAME",
+      "sacct -j JOBID --format=JobID,State,Elapsed,ExitCode",
+      "squeue -j JOBID"
+    ],
+    "prevention": "提交成功后记录 Job ID 和作业目录；分析前先监控或查询作业状态。"
+  },
+  {
+    "id": "SYNC_REAL_002",
+    "domain": "sync",
+    "title": "SFTP/SSH 传输失败",
+    "severity": "error",
+    "applies_to": ["slurm_submit", "vasp_submit", "sync", "cleanup"],
+    "confidence": "medium",
+    "patterns": [
+      "SFTP.*failed",
+      "SSHException",
+      "Channel closed",
+      "Connection reset by peer",
+      "No existing session"
+    ],
+    "evidence": [
+      "上传、下载或清理远端文件时 SSH/SFTP 连接中断",
+      "远端目录可能只完成了部分传输"
+    ],
+    "reason": "网络连接中断、SSH 会话超时、key 配置异常，或远端文件系统临时不可用。",
+    "suggestions": [
+      "重新运行同一个同步或提交动作",
+      "如果持续失败，先运行配置体检",
+      "检查远端目录是否存在半上传文件，必要时清理后重试"
+    ],
+    "commands": [
+      "ssh -i /path/to/private/key -l USER HOST hostname",
+      "ls -lah $HPC_REMOTE_WORKDIR",
+      "ls -lah $HPC_VASP_REMOTE_OUTPUT_DIR/JOB_NAME"
+    ],
+    "prevention": "大文件同步前确认网络和远端文件系统稳定；失败后避免直接假设本地输出完整。"
+  },
+  {
+    "id": "AGENT_REAL_001",
+    "domain": "agent",
+    "title": "同名作业目录混入旧结果",
+    "severity": "warning",
+    "applies_to": ["slurm_submit", "vasp_submit", "sync", "vasp_analysis"],
+    "confidence": "medium",
+    "patterns": [
+      "旧结果",
+      "残留文件",
+      "同名目录",
+      "overwrite.*existing",
+      "already exists.*output"
+    ],
+    "evidence": [
+      "同一个作业名重复提交到同名 input/output 目录",
+      "新旧 Slurm 日志或 VASP 输出同时出现在同一目录"
+    ],
+    "reason": "重复运行时没有清空旧目录，或用户选择复用同名 run name。",
+    "suggestions": [
+      "选择覆盖旧结果时先清空远端 input/output 和本地 output",
+      "更稳妥的方式是自动创建新的 run name",
+      "分析报告中发现多个 Job ID 日志时先确认目标作业"
+    ],
+    "commands": [
+      "find $HPC_VASP_REMOTE_OUTPUT_DIR/JOB_NAME -maxdepth 1 -type f -printf '%f\\n' | sort",
+      "find $HPC_LOCAL_VASP_JOBS_OUTPUT_DIR/JOB_NAME -maxdepth 2 -type f | sort"
+    ],
+    "prevention": "重复提交同一 VASP 作业时优先选择自动新 run name，或确认覆盖逻辑已经清空旧目录。"
+  },
+  {
+    "id": "SLURM_REAL_004",
+    "domain": "slurm",
+    "title": "作业完成后 squeue 查不到",
+    "severity": "info",
+    "applies_to": ["slurm_monitor", "vasp_monitor", "diagnose_job"],
+    "confidence": "high",
+    "patterns": [
+      "Invalid job id specified",
+      "squeue.*not found",
+      "Job .* not found",
+      "已完成.*不在队列"
+    ],
+    "evidence": [
+      "squeue 不再显示该 Job ID",
+      "作业可能已经完成、失败或被取消"
+    ],
+    "reason": "squeue 只显示当前队列中的作业，已结束作业应使用 sacct 或查看输出目录。",
+    "suggestions": [
+      "使用 sacct 查看最终状态",
+      "读取远端 stdout/stderr 判断是否成功",
+      "如果是 VASP 作业，继续同步输出并分析"
+    ],
+    "commands": [
+      "sacct -j JOBID --format=JobID,State,Elapsed,ExitCode",
+      "tail -n 80 $HPC_REMOTE_WORKDIR/JOB_FOLDER/*.out",
+      "tail -n 80 $HPC_REMOTE_WORKDIR/JOB_FOLDER/*.err"
+    ],
+    "prevention": "监控面板发现作业离开队列后，下一步用 sacct 或输出日志判断最终状态。"
+  },
+  {
+    "id": "TUI_REAL_001",
+    "domain": "tui",
+    "title": "TUI 剪贴板不可用",
+    "severity": "warning",
+    "applies_to": ["tui", "copy"],
+    "confidence": "high",
+    "patterns": [
+      "剪贴板不可用",
+      "No clipboard mechanism",
+      "xclip.*not found",
+      "wl-copy.*not found",
+      "pyperclip"
+    ],
+    "evidence": [
+      "Ctrl+Y 复制失败或提示找不到剪贴板工具",
+      "终端环境没有可用的系统剪贴板后端"
+    ],
+    "reason": "当前终端或服务器环境缺少 pyperclip/xclip/xsel/wl-copy/pbcopy 等剪贴板工具。",
+    "suggestions": [
+      "优先使用终端鼠标选中文本后复制",
+      "本地环境可安装 pyperclip 或 xclip",
+      "远程 SSH 环境通常不能直接访问本机系统剪贴板"
+    ],
+    "commands": [
+      "command -v xclip",
+      "command -v wl-copy",
+      "python -c \"import pyperclip; print('pyperclip ok')\""
+    ],
+    "prevention": "需要长上下文复制时，优先使用 TUI 文本选择；Ctrl+Y 作为有剪贴板后端时的快捷方式。"
+  },
+  {
+    "id": "AGENT_REAL_002",
+    "domain": "agent",
+    "title": "找不到上一个作业记录",
+    "severity": "warning",
+    "applies_to": ["diagnose_job", "sync", "vasp_analysis", "job_registry"],
+    "confidence": "medium",
+    "patterns": [
+      "请提供 Job ID",
+      "找不到上一个作业",
+      "没有最近作业记录",
+      "No recent job",
+      "last job.*not found"
+    ],
+    "evidence": [
+      "用户输入“分析上一个作业”但当前会话没有 recent job",
+      "本地 registry 没有对应 Job ID 或作业目录"
+    ],
+    "reason": "Agent 的会话状态或本地作业 registry 中缺少可解析的最近作业。",
+    "suggestions": [
+      "直接提供 Job ID 或本地/远端作业目录名",
+      "查看本地作业记录确认最近提交",
+      "必要时先登记已有 VASP 作业"
+    ],
+    "commands": [
+      "查看本地作业记录状态",
+      "查看作业详情 JOBID",
+      "登记 VASP 作业 JOBID，目录名 JOB_NAME"
+    ],
+    "prevention": "跨会话分析作业时优先提供明确 Job ID 或目录名。"
+  }
+]

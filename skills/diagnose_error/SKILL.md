@@ -3,7 +3,7 @@ name: diagnose-error
 description: Diagnose common HPC, Slurm, CUDA, Python, permission, memory, and runtime errors from user-provided logs.
 metadata:
   version: "0.1"
-  author: "QYz"
+  author: "HPC Agent"
 ---
 
 # Diagnose Error Skill

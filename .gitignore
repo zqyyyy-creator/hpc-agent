@@ -16,6 +16,9 @@ data/cli_history.txt
 data/jobs/job_registry.json
 data/jobs/archive/
 job.sh
+hpc-local-jobs/
+vasp-jobs-input/
+vasp-jobs-output/
 
 # Slurm outputs
 slurm-*.out
@@ -24,3 +27,11 @@ agent_*.out
 agent_*.err
 hpc_agent_job_*.out
 hpc_agent_job_*.err
+
+# VASP licensed/large runtime files
+POTCAR
+WAVECAR
+CHGCAR
+CHG
+AECCAR*
+vasprun.xml

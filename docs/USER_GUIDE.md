@@ -39,7 +39,10 @@
 ### VASP 作业
 * VASP sbatch 脚本生成（结构优化/静态计算/其他计算类型）
 * 根据本地 VASP 作业目录中已有 `POTCAR` 生成 `INCAR`、`KPOINTS`、`POSCAR`
+* 支持通过自然语言或 `/vasp gen` 覆盖 `ENCUT`、`KPOINTS`、计算类型等输入参数
+* 已有 VASP 配置文件时先确认，回复 `确认覆盖` 或 `覆盖已有配置文件` 后才覆盖
 * VASP 固定目录提交：本地 input → 远端 input → 远端 output
+* 重复提交同名 VASP 作业时支持覆盖旧结果、自动创建新 run name 或取消
 * 登记已有 VASP 作业，便于继续查询和同步
 * VASP 输出同步到本地（按 include/exclude 规则过滤文件）
 * VASP 远程文件探针与错误诊断
@@ -48,7 +51,9 @@
 * 一键分析（同步 + report_context + Claude Code 报告全流程）
 
 ### 错误诊断
-* 基于规则匹配的错误日志诊断（18 类错误模式）
+* 基于真实案例库 + 通用错误库的错误日志诊断
+* 配置检查会覆盖 `.env`、SSH key、本地/远端目录、VASP 命令、partition、Claude Code/API 等常见问题，并给出修复建议
+* 新错误可半自动整理为真实案例草稿，确认后写入案例库
 * 自动修复 sbatch 脚本（OOM → 提高内存、TIME → 延长时间等）
 * Pending / 不运行作业排查
 
@@ -59,7 +64,8 @@
 * Claude Code 集成（通过 `skills/vasp_report/SKILL.md` 定义分析 Skill）
 * 本地 JSON 作业登记（job_registry.json）
 * 本地作业记录状态查看、预览归档、确认归档、归档恢复
-* 系统级剪贴板支持（Ctrl+Y 复制回复）
+* Chat 结果区支持鼠标选择文本；`Ctrl+Y` 优先复制选中文本，没有选中文本时复制上一条 Agent 回复
+* `/help`、`/help job`、`/help vasp` 快捷帮助入口
 * 全面测试体系（本地 + Live HPC）
 
 ---
@@ -196,7 +202,7 @@ python app.py
 
 ```text
 Ctrl+R  手动刷新当前监控 Job
-Ctrl+Y  复制上一条 Agent 回复到剪贴板
+Ctrl+Y  复制选中的 Chat 文本；没有选中文本时复制上一条 Agent 回复
 Ctrl+S  确认提交等待中的作业
 Tab     切换右侧正在监控的 Job
 Esc     取消等待确认的提交或清理
@@ -217,7 +223,19 @@ q       退出
 检查我的超算配置
 ```
 
-检查本地目录、SSH key、远端普通作业目录和 VASP input/output 目录是否配置并可写。
+检查本地目录、SSH key、远端普通作业目录和 VASP input/output 目录是否配置并可写。发现 WARN 时会同时给出修复建议；当前版本只给建议，不会自动修改 `.env`、创建目录或执行 chmod。
+
+覆盖的配置问题包括：
+
+* `.env` 缺关键字段
+* SSH key 不存在或权限过宽
+* 本地工作目录不存在或不可写
+* 远端普通作业目录不存在或不可写
+* VASP input/output 远端目录不存在或不可写
+* `HPC_VASP_COMMAND` 指向的命令或绝对路径不可执行
+* `HPC_VASP_SETUP_COMMAND` 执行后仍找不到 `mpirun` 或 VASP 启动命令
+* `HPC_DEFAULT_PARTITION` / `HPC_VASP_PARTITION` 配错或不可用
+* Claude Code / API 配置缺失或不可用
 
 ```text
 一键测试超算提交流程
@@ -261,6 +279,8 @@ VASP 作业在监控时会自动进行远程探针诊断：
 4. 自动生成 Claude Code 报告
 
 ### 剪贴板支持
+
+Chat 对话区支持鼠标拖动选择文本。选中文本后按 `Ctrl+Y` 会复制当前选区；没有选区时，`Ctrl+Y` 会复制上一条 Agent 回复。
 
 `Ctrl+Y` 依次尝试以下剪贴板工具：
 * `pyperclip`（Python 包）
@@ -673,6 +693,14 @@ POTCAR
 帮我生成我的 VASP 作业 Al_test 的配置文件
 ```
 
+也可以显式覆盖测试参数：
+
+```text
+/vasp gen Al_test --type static --encut 400 --kpoints 2x2x2
+帮我生成 Al_test 的 VASP 输入，ENCUT 400，KPOINTS 2x2x2，静态计算
+/vasp gen Si_relax --type relax --encut 520 --kpoints 3x3x3 --nsw 20
+```
+
 Agent 会在 `$HPC_LOCAL_VASP_JOBS_INPUT_DIR/Al_test/` 中读取 `POTCAR`，解析元素顺序和 `ENMAX`，然后写入：
 
 ```text
@@ -684,6 +712,9 @@ POSCAR
 注意：
 
 * Agent 只读取 `POTCAR` 的 `TITEL`、`ENMAX`、`ZVAL` 等少量元信息，不会生成或回显真实 `POTCAR` 内容。
+* 用户显式参数优先，其次使用 `POTCAR` 中的 `ENMAX` 推荐 `ENCUT`，最后才使用 Agent 默认测试参数。
+* 当前支持覆盖：`type`/计算类型、`ENCUT`、`KPOINTS`、`NSW`、`EDIFF`、`ISMEAR`、`SIGMA`、`overwrite`/覆盖。
+* 如果 `INCAR`、`KPOINTS` 或 `POSCAR` 已存在，Agent 不会直接覆盖，会提示确认；回复 `确认覆盖`、`覆盖已有配置文件` 或 `继续` 后才会重新生成并写入。
 * 如果用户没有提供晶体结构、晶格常数或原子坐标，Agent 会生成默认 smoke test 结构，只用于测试 VASP 能否启动、POTCAR 是否可读、提交流程是否正常。
 * 默认单元素使用 fcc smoke test（Si 使用 diamond），双元素使用 rocksalt smoke test；三个及以上元素不会自动猜结构，会要求用户补充结构信息。
 * smoke test 输入不代表真实材料结构，不能直接用于正式科研结论。
@@ -715,6 +746,26 @@ POSCAR
 ```text
 确认提交
 ```
+
+### 同名作业处理
+
+提交 VASP 作业时，如果远端 output 目录或本地 output 目录已经存在，Agent 会先提示选择：
+
+```text
+覆盖旧结果
+自动创建新 run name
+取消
+```
+
+选择覆盖旧结果时，Agent 会先清空这些目录后再重新提交：
+
+```text
+HPC_VASP_REMOTE_INPUT_DIR/<job-folder>/
+HPC_VASP_REMOTE_OUTPUT_DIR/<job-folder>/
+HPC_LOCAL_VASP_JOBS_OUTPUT_DIR/<job-folder>/
+```
+
+这样可以避免同名目录里残留旧的 `OUTCAR`、`OSZICAR`、日志或分析文件，导致新旧结果混用。选择自动创建新 run name 时，Agent 会使用类似 `<job-folder>_YYYYMMDD_HHMM` 的目录名提交新任务，原目录不变。
 
 ### 提交过程
 
@@ -925,7 +976,17 @@ $HPC_LOCAL_VASP_JOBS_OUTPUT_DIR/<job-folder>/analysis/
 
 ## 19. TUI 操作覆盖
 
-Textual TUI 覆盖聊天式文本输入、Intent 检测结果展示、普通作业提交预览和确认/取消、作业状态/输出/错误日志查询、作业诊断、最近作业/作业详情/本地 VASP 作业列表、本地作业记录归档与恢复确认、远端普通作业编号列表和清理确认、VASP 输入生成、VASP 固定目录提交预览和确认、远端 VASP 作业列表和清理确认，以及清理确认状态机（含 "确认清理全部" 双重确认）。
+Textual TUI 覆盖聊天式文本输入、Intent 检测结果展示、普通作业提交预览和确认/取消、作业状态/输出/错误日志查询、作业诊断、最近作业/作业详情/本地 VASP 作业列表、本地作业记录归档与恢复确认、远端普通作业编号列表和清理确认、VASP 输入生成和覆盖确认、VASP 固定目录提交预览和确认、同名 VASP 结果覆盖/新 run/cancel 选择、远端 VASP 作业列表和清理确认，以及清理确认状态机（含 "确认清理全部" 双重确认）。
+
+### 快捷帮助
+
+```text
+/help
+/help job
+/help vasp
+```
+
+`/help` 显示通用快捷入口；`/help job` 聚合作业查询、监控、清理、记录归档等常用命令；`/help vasp` 聚合 VASP 输入生成、提交、同步、报告和清理命令。
 
 ---
 
@@ -942,9 +1003,43 @@ sbatch: error: Batch job submission failed: Invalid partition name specified
 python: can't open file 'monitor_cpu.py': [Errno 2] No such file or directory
 ```
 
+### 整理为真实案例
+
+遇到新的真实错误时，可以让 Agent 生成案例草稿：
+
+```text
+把这个错误整理成案例：Missing required VASP input file: POTCAR
+```
+
+也可以先粘贴/诊断一段错误日志，再输入：
+
+```text
+把这个错误整理成案例
+```
+
+Agent 会生成 `real_cases.json` 草稿，并等待确认。回复“确认”才会写入错误案例库；回复“取消”则放弃。这个流程会补齐 `applies_to`、`confidence`、`patterns`、`evidence`、`suggestions`、`commands` 等字段。
+
+案例草稿会尽量脱敏用户名、主机名、本地绝对路径、远端家目录、API key/token 等信息。确认写入前仍建议人工扫一遍草稿，确保没有保留个人路径、账号或机构内部地址。
+
 ### 错误类型覆盖
 
-错误数据库包含 18 类错误模式，按类别分：
+错误诊断包含两层：
+
+* `data/errors/real_cases.json`：真实错误案例库，优先匹配，输出证据、原因、修复建议、排查命令和下次避免方式。
+* `data/errors/generic_errors.json`：通用错误模式库，作为兜底匹配。
+* `data/errors/README.md`：错误知识库维护说明，记录真实案例和通用错误的边界。
+
+真实案例库覆盖：
+
+| 领域 | 真实案例 |
+|------|----------|
+| VASP | 缺 POTCAR、POTCAR 无效、VASP 命令不可用、MPI 环境未初始化、POSCAR/POTCAR 不一致、时间限制、电子收敛问题、缺 OUTCAR、报告上下文生成失败 |
+| Slurm | partition 不存在或无权限、OOM、远端工作目录不可写、作业完成后 squeue 查不到 |
+| config | `.env` 缺关键字段、SSH 私钥权限过宽 |
+| claude | Claude Code 命令不存在、API Key 或模型网关配置错误 |
+| sync/agent/tui | 远端输出同步为空、SFTP/SSH 传输失败、同名目录旧结果混入、剪贴板不可用、找不到上一个作业记录 |
+
+通用错误数据库包含 18 类错误模式，按类别分：
 
 | 类别 | 错误示例 |
 |------|----------|
@@ -1122,10 +1217,15 @@ squeue 是干什么的
 帮我生成一个 VASP 结构优化脚本，1 个节点，每节点 32 核，运行 24 小时
 帮我生成 VASP 静态计算脚本，1 个节点 32 核，运行 2 小时
 帮我生成我的 VASP 作业 Al_test 的配置文件
+帮我生成 Al_test 的 VASP 输入，ENCUT 400，KPOINTS 2x2x2，静态计算
+/vasp gen Al_test --type static --encut 400 --kpoints 2x2x2
+确认覆盖
 
 # VASP 提交
 帮我提交最近的 VASP 作业，1 个节点 32 核，运行 10 分钟
 帮我提交 VASP 作业，目录名 si_static_test，1 个节点 32 核，运行 10 分钟
+覆盖旧结果
+自动创建新 run name
 
 # VASP 同步与报告
 同步 VASP 作业 11817144 输出到本地

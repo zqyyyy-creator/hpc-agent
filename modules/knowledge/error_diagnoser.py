@@ -4,19 +4,62 @@ from pathlib import Path
 
 
 class ErrorDiagnoser:
-    def __init__(self, db_path: str = "data/errors/errors_db.json"):
+    def __init__(
+        self,
+        db_path: str = "data/errors/generic_errors.json",
+        real_cases_path: str = "data/errors/real_cases.json",
+    ):
         self.db_path = Path(db_path)
+        self.real_cases_path = Path(real_cases_path)
         self.error_db = self.load_error_db()
+        self.real_cases = self.load_real_cases()
 
     def load_error_db(self):
-        if not self.db_path.exists():
-            raise FileNotFoundError(f"错误案例库不存在: {self.db_path}")
+        db_path = self.db_path
+        if not db_path.exists() and db_path.name == "generic_errors.json":
+            legacy_path = db_path.with_name("errors_db.json")
+            if legacy_path.exists():
+                db_path = legacy_path
 
-        with open(self.db_path, "r", encoding="utf-8") as f:
+        if not db_path.exists():
+            raise FileNotFoundError(f"通用错误库不存在: {self.db_path}")
+
+        with open(db_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def load_real_cases(self):
+        if not self.real_cases_path.exists():
+            return []
+
+        with open(self.real_cases_path, "r", encoding="utf-8") as f:
             return json.load(f)
 
     def diagnose(self, log_text: str):
         results = []
+
+        for case in self.real_cases:
+            matched_patterns = []
+
+            for pattern in case["patterns"]:
+                if re.search(pattern, log_text, re.IGNORECASE | re.MULTILINE):
+                    matched_patterns.append(pattern)
+
+            if matched_patterns:
+                results.append({
+                    "source": "real_case",
+                    "id": case["id"],
+                    "category": case["domain"],
+                    "name": case["title"],
+                    "severity": case.get("severity", "warning"),
+                    "matched_patterns": matched_patterns,
+                    "evidence": case.get("evidence", []),
+                    "reason": case["reason"],
+                    "solution": "；".join(case.get("suggestions", [])),
+                    "suggestions": case.get("suggestions", []),
+                    "commands": case.get("commands", []),
+                    "prevention": case.get("prevention", ""),
+                    "score": len(matched_patterns) + 100
+                })
 
         for case in self.error_db:
             matched_patterns = []
@@ -27,6 +70,7 @@ class ErrorDiagnoser:
 
             if matched_patterns:
                 results.append({
+                    "source": "generic_error",
                     "id": case["id"],
                     "category": case["category"],
                     "name": case["name"],
@@ -60,6 +104,10 @@ class ErrorDiagnoser:
 
         for index, result in enumerate(results, 1):
             lines.append("")
+            if result.get("source") == "real_case":
+                lines.extend(self._format_real_case_result(index, result))
+                continue
+
             lines.append(f"{index}. {result['name']}")
             lines.append(f"   类型: {result['category']}")
             lines.append(f"   匹配关键词: {', '.join(result['matched_patterns'])}")
@@ -124,6 +172,42 @@ class ErrorDiagnoser:
                     lines.append(f"     修复说明: {fix['explanation']}")
 
         return "\n".join(lines)
+
+    def _format_real_case_result(self, index: int, result: dict):
+        lines = [
+            f"{index}. 真实案例: {result['name']}",
+            f"   类型: {result['category']}",
+            f"   严重级别: {result.get('severity', 'warning')}",
+            f"   匹配关键词: {', '.join(result['matched_patterns'])}",
+        ]
+
+        if result.get("evidence"):
+            lines.append("   证据:")
+            lines.extend(f"     - {item}" for item in result["evidence"])
+
+        lines.append(f"   可能原因: {result['reason']}")
+
+        if result.get("suggestions"):
+            lines.append("   修复建议:")
+            lines.extend(f"     - {item}" for item in result["suggestions"])
+
+        safe_commands = [
+            command
+            for command in result.get("commands", [])
+            if not self._is_unsafe_related_command(command)
+        ]
+        if safe_commands:
+            lines.append("   推荐排查命令:")
+            lines.extend(f"     - {command}" for command in safe_commands)
+
+        if len(safe_commands) < len(result.get("commands", [])):
+            lines.append("   清理建议:")
+            lines.append("     - 检查并确认无用文件后再清理，避免直接执行危险删除命令。")
+
+        if result.get("prevention"):
+            lines.append(f"   下次避免: {result['prevention']}")
+
+        return lines
     
     def _replace_or_add_directive(self, script: str, option: str, new_line: str):
         lines = script.splitlines()

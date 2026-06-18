@@ -365,6 +365,17 @@ def generate_sbatch_script(user_request: str, *, allow_llm_fallback: bool = True
         llm_script = _generate_sbatch_via_llm(user_request)
         if llm_script:
             return llm_script
+        return "\n".join([
+            "#!/bin/bash",
+            f"#SBATCH --job-name={job_name}",
+            f"#SBATCH --cpus-per-task={cpus}",
+            f"#SBATCH --time={time_limit}",
+            f"#SBATCH --output={DEFAULT_OUTPUT_FILE}",
+            f"#SBATCH --error={DEFAULT_ERROR_FILE}",
+            "",
+            "echo \"请把这一行替换成实际运行命令，例如: python train.py\"",
+            "",
+        ])
 
     return "请告诉我要运行的命令，例如：python train.py 或 bash run.sh。"
 

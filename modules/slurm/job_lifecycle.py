@@ -64,10 +64,22 @@ def _numeric_job_id(job_id: str) -> int:
     return int(job_id) if str(job_id).isdigit() else 0
 
 
-def _job_sort_key(item: tuple[str, dict[str, Any]]) -> tuple[float, int]:
+def _timestamp_for_job(job: dict[str, Any]) -> float:
+    for field in ("updated_at", "submitted_at", "registered_at", "created_at"):
+        value = job.get(field)
+        if not value:
+            continue
+        try:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            continue
+    return 0.0
+
+
+def _job_sort_key(item: tuple[str, dict[str, Any]]) -> tuple[float, int, float]:
     job_id, job = item
     mtimes = [_mtime_for_path(str(job.get(field) or "")) for field in LOCAL_PATH_FIELDS]
-    return (max(mtimes, default=0.0), _numeric_job_id(job_id))
+    return (_timestamp_for_job(job), _numeric_job_id(job_id), max(mtimes, default=0.0))
 
 
 def _job_name(job: dict[str, Any]) -> str:

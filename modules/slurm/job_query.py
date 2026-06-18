@@ -697,6 +697,11 @@ def query_remote_agent_jobs():
 def _extract_vasp_remote_scope(text: str):
     normalized = text.lower().replace(" ", "")
 
+    has_input = any(keyword in normalized for keyword in ["input", "输入"])
+    has_output = any(keyword in normalized for keyword in ["output", "输出"])
+    if has_input and has_output:
+        return "both"
+
     if any(keyword in normalized for keyword in ["仅input", "只input", "input目录", "input下", "输入目录", "输入文件"]):
         return "input"
 
@@ -1079,6 +1084,14 @@ def _extract_vasp_report_selector(text: str):
             "kind": "job_id",
             "value": job_id,
         }
+
+    if _has_last_job_reference(text):
+        job_id = GLOBAL_CONVERSATION_STATE.resolve_vasp_job_id("last")
+        if job_id:
+            return {
+                "kind": "job_id",
+                "value": job_id,
+            }
 
     absolute_match = re.search(r"(\/[^\s，,。]+)", text)
 

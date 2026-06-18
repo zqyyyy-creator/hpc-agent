@@ -17,6 +17,18 @@ class PotcarEntry:
     zval: float | None = None
 
 
+@dataclass(frozen=True)
+class VaspInputOptions:
+    calculation: str = "static"
+    encut: int | None = None
+    kpoints: tuple[int, int, int] = (6, 6, 6)
+    nsw: int | None = None
+    ediff: float | None = None
+    ismear: int | None = None
+    sigma: float | None = None
+    overwrite: bool = False
+
+
 DEFAULT_LATTICE_CONSTANTS = {
     ("Al",): 4.05,
     ("Si",): 5.43,
@@ -87,7 +99,9 @@ def extract_vasp_input_generation_selector(text: str) -> str | None:
 
     patterns = [
         r"(?:作业目录|子目录|目录名|路径|dir|directory)\s*[:：=]?\s*([A-Za-z0-9_.~/-]+)",
+        r"生成\s*([A-Za-z0-9_.-]+)\s*的\s*(?:vasp|VASP)\s*(?:输入|输入文件|配置|配置文件)",
         r"(?:vasp|VASP)?\s*作业\s*([A-Za-z0-9_.-]+)",
+        r"(?:vasp|VASP)\s*(?:输入|输入文件|配置|配置文件)\s*([A-Za-z0-9_.-]+)",
         r"(?:job|作业名)\s*[:：=]?\s*([A-Za-z0-9_.-]+)",
     ]
 
@@ -137,6 +151,19 @@ def generate_vasp_inputs_from_potcar(
         }
 
     elements = [entry.element for entry in entries]
+    options, option_errors = parse_vasp_input_options(user_request)
+    if option_errors:
+        return {
+            "success": False,
+            "message": (
+                "VASP 输入参数不合法，未写入文件。\n\n"
+                + "\n".join(f"- {error}" for error in option_errors)
+            ),
+            "job_dir": str(job_path),
+            "elements": elements,
+            "option_errors": option_errors,
+        }
+
     if len(entries) > 2 and _lacks_structure_details(user_request):
         return {
             "success": False,
@@ -150,10 +177,11 @@ def generate_vasp_inputs_from_potcar(
             "elements": elements,
         }
 
-    calculation = _extract_calculation_type(user_request)
-    encut = recommended_encut(entries)
-    incar = build_incar(entries, calculation=calculation, encut=encut)
-    kpoints = build_kpoints()
+    recommended = recommended_encut(entries)
+    encut = options.encut if options.encut is not None else recommended
+    encut_source = "用户参数" if options.encut is not None else "POTCAR ENMAX 推荐"
+    incar = build_incar(entries, options=options, encut=encut)
+    kpoints = build_kpoints(options.kpoints)
     poscar = build_default_poscar(entries)
 
     files = {
@@ -167,7 +195,7 @@ def generate_vasp_inputs_from_potcar(
         for name in files
         if (job_path / name).exists()
     ]
-    if existing_files and not _allows_overwrite(user_request):
+    if existing_files and not options.overwrite:
         return {
             "success": False,
             "message": (
@@ -193,8 +221,10 @@ def generate_vasp_inputs_from_potcar(
         f"作业目录: {job_path}\n"
         f"元素顺序: {' '.join(elements)}\n"
         f"POTCAR 标题: {', '.join(entry.titel for entry in entries)}\n"
-        f"推荐 ENCUT: {encut} eV\n"
-        f"计算类型: {calculation}\n\n"
+        f"ENCUT: {encut} eV（来源: {encut_source}）\n"
+        f"KPOINTS: {' '.join(str(value) for value in options.kpoints)}\n"
+        f"计算类型: {options.calculation}\n"
+        f"覆盖已有文件: {'是' if options.overwrite else '否'}\n\n"
         "已写入:\n"
         + "\n".join(f"- {path}" for path in written)
         + "\n\n"
@@ -208,7 +238,9 @@ def generate_vasp_inputs_from_potcar(
         "elements": elements,
         "entries": [entry.__dict__ for entry in entries],
         "encut": encut,
-        "calculation": calculation,
+        "encut_source": encut_source,
+        "calculation": options.calculation,
+        "options": options.__dict__,
         "written_files": written,
         "smoke_test": _lacks_structure_details(user_request),
     }
@@ -247,37 +279,150 @@ def recommended_encut(entries: list[PotcarEntry]) -> int:
     return int(math.ceil(max(enmax_values) * 1.3 / 10.0) * 10)
 
 
+def parse_vasp_input_options(text: str) -> tuple[VaspInputOptions, list[str]]:
+    calculation = _extract_calculation_type(text)
+    encut = _extract_int_option(text, ["encut"], r"(?:ENCUT|encut)\s*[=:：]?\s*(\d+)")
+    kpoints = _extract_kpoints(text)
+    nsw = _extract_int_option(text, ["nsw"], r"(?:NSW|nsw)\s*[=:：]?\s*(\d+)")
+    ediff = _extract_float_option(text, ["ediff"], r"(?:EDIFF|ediff)\s*[=:：]?\s*([0-9.eE+-]+)")
+    ismear = _extract_int_option(text, ["ismear"], r"(?:ISMEAR|ismear)\s*[=:：]?\s*(-?\d+)")
+    sigma = _extract_float_option(text, ["sigma"], r"(?:SIGMA|sigma)\s*[=:：]?\s*([0-9.eE+-]+)")
+    overwrite = _allows_overwrite(text)
+
+    options = VaspInputOptions(
+        calculation=calculation,
+        encut=encut,
+        kpoints=kpoints or (6, 6, 6),
+        nsw=nsw,
+        ediff=ediff,
+        ismear=ismear,
+        sigma=sigma,
+        overwrite=overwrite,
+    )
+    return options, validate_vasp_input_options(options)
+
+
+def validate_vasp_input_options(options: VaspInputOptions) -> list[str]:
+    errors: list[str] = []
+
+    if options.calculation not in {"static", "relax"}:
+        errors.append("计算类型只支持 static 或 relax。")
+
+    if options.encut is not None and not 100 <= options.encut <= 2000:
+        errors.append("ENCUT 建议在 100 到 2000 eV 之间。")
+
+    if any(value <= 0 or value > 60 for value in options.kpoints):
+        errors.append("KPOINTS 网格必须是 1 到 60 之间的三个正整数。")
+
+    if options.nsw is not None and not 0 <= options.nsw <= 10000:
+        errors.append("NSW 必须是 0 到 10000 之间的整数。")
+
+    if options.ediff is not None and options.ediff <= 0:
+        errors.append("EDIFF 必须是正数。")
+
+    if options.ismear is not None and not -5 <= options.ismear <= 5:
+        errors.append("ISMEAR 建议在 -5 到 5 之间。")
+
+    if options.sigma is not None and not 0 <= options.sigma <= 5:
+        errors.append("SIGMA 建议在 0 到 5 之间。")
+
+    return errors
+
+
+def _extract_cli_option(text: str, names: list[str]) -> str | None:
+    for name in names:
+        match = re.search(rf"--{re.escape(name)}(?:=|\s+)([^\s，,。]+)", text, re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _extract_int_option(text: str, names: list[str], pattern: str) -> int | None:
+    value = _extract_cli_option(text, names)
+    if value is None:
+        match = re.search(pattern, text)
+        value = match.group(1) if match else None
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def _extract_float_option(text: str, names: list[str], pattern: str) -> float | None:
+    value = _extract_cli_option(text, names)
+    if value is None:
+        match = re.search(pattern, text)
+        value = match.group(1) if match else None
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def _extract_kpoints(text: str) -> tuple[int, int, int] | None:
+    cli_match = re.search(
+        r"--kpoints(?:=|\s+)(\d+)[xX*，,\s]+(\d+)[xX*，,\s]+(\d+)",
+        text,
+        re.IGNORECASE,
+    )
+    if cli_match:
+        return tuple(int(cli_match.group(index)) for index in (1, 2, 3))
+
+    patterns = [
+        r"(?:KPOINTS|kpoints|k点|K点)\s*[=:：]?\s*(\d+)\s*[xX*]\s*(\d+)\s*[xX*]\s*(\d+)",
+        r"(?:KPOINTS|kpoints|k点|K点)\s*[=:：]?\s*(\d+)\s+(\d+)\s+(\d+)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return tuple(int(match.group(index)) for index in (1, 2, 3))
+
+    return None
+
+
 def build_incar(
     entries: list[PotcarEntry],
     *,
-    calculation: str = "static",
+    options: VaspInputOptions | None = None,
     encut: int = 520,
 ) -> str:
+    options = options or VaspInputOptions()
     elements = [entry.element for entry in entries]
     is_metal = len(elements) == 1 and elements[0] in METALLIC_ELEMENTS
+    ediff = options.ediff if options.ediff is not None else 1e-5
+    ismear = options.ismear
+    sigma = options.sigma
 
     lines = [
         "SYSTEM = smoke_test_from_potcar",
         "PREC = Accurate",
         f"ENCUT = {encut}",
-        "EDIFF = 1E-5",
+        f"EDIFF = {_format_vasp_float(ediff)}",
     ]
 
-    if is_metal:
-        lines.extend(["ISMEAR = 1", "SIGMA = 0.2"])
-    else:
-        lines.extend(["ISMEAR = 0", "SIGMA = 0.05"])
+    if ismear is None:
+        ismear = 1 if is_metal else 0
+    if sigma is None:
+        sigma = 0.2 if is_metal else 0.05
 
-    if calculation == "relax":
+    lines.extend([f"ISMEAR = {ismear}", f"SIGMA = {_format_vasp_float(sigma)}"])
+
+    if options.calculation == "relax":
+        nsw = options.nsw if options.nsw is not None else 40
         lines.extend([
             "IBRION = 2",
-            "NSW = 40",
+            f"NSW = {nsw}",
             "ISIF = 2",
         ])
     else:
+        nsw = options.nsw if options.nsw is not None else 0
         lines.extend([
             "IBRION = -1",
-            "NSW = 0",
+            f"NSW = {nsw}",
             "ISIF = 2",
         ])
 
@@ -369,6 +514,14 @@ def _rocksalt_poscar(element_a: str, element_b: str, lattice: float) -> str:
 
 def _extract_calculation_type(text: str) -> str:
     lowered = text.lower()
+    cli_type = _extract_cli_option(text, ["type", "calculation"])
+    if cli_type:
+        value = cli_type.lower()
+        if value in {"relax", "opt", "optimization"}:
+            return "relax"
+        if value in {"static", "scf"}:
+            return "static"
+
     if any(keyword in lowered for keyword in ("relax", "opt", "弛豫", "结构优化", "优化")):
         return "relax"
     return "static"
@@ -407,6 +560,14 @@ def _extract_float(text: str, pattern: str) -> float | None:
     if not match:
         return None
     return float(match.group(1))
+
+
+def _format_vasp_float(value: float) -> str:
+    if value == 0:
+        return "0"
+    if abs(value) < 1e-3 or abs(value) >= 1e4:
+        return f"{value:.0E}".replace("E-0", "E-").replace("E+0", "E+")
+    return f"{value:g}"
 
 
 def _smoke_test_warning() -> str:
