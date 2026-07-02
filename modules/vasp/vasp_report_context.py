@@ -212,6 +212,65 @@ def _format_snippets(snippets: dict) -> str:
     return "\n\n".join(blocks)
 
 
+def _generate_figures(job_dir: Path) -> dict:
+    try:
+        from modules.vasp.vasp_figures import generate_vasp_figures
+
+        return generate_vasp_figures(job_dir)
+    except Exception as error:
+        return {
+            "success": False,
+            "error": f"{type(error).__name__}: {error}",
+            "figures": [],
+            "data_files": [],
+        }
+
+
+def _format_figure_manifest(figures_result: dict) -> str:
+    if not figures_result.get("success"):
+        return (
+            "- Figure generation failed.\n"
+            f"- Error: {figures_result.get('error', 'unknown')}\n"
+            "- Source policy: figures must be regenerated from raw_output before use."
+        )
+
+    figures = figures_result.get("figures") or []
+    data_files = figures_result.get("data_files") or []
+    if not figures and not data_files:
+        return (
+            "- No figure-ready numerical series were parsed from raw_output.\n"
+            "- Source policy: no report_context or LLM-derived numbers were used."
+        )
+
+    lines = [
+        f"- Manifest: {figures_result.get('manifest_path', 'unknown')}",
+        f"- Figures directory: {figures_result.get('figures_dir', 'unknown')}",
+        f"- Data directory: {figures_result.get('data_dir', 'unknown')}",
+        f"- Source policy: {figures_result.get('source_policy')}",
+        "",
+        "Generated figures:",
+    ]
+
+    for figure in figures:
+        sources = ", ".join(figure.get("source_files") or [])
+        lines.append(
+            f"- {figure['description']}: {figure.get('svg_path', figure.get('path'))} "
+            f"(data: {figure['data_path']}; source: raw_output/{sources}; "
+            f"rows: {figure['rows']}; series: {figure.get('series_kind', 'unknown')})"
+        )
+
+    lines.append("")
+    lines.append("Generated data files:")
+    for data_file in data_files:
+        sources = ", ".join(data_file.get("source_files") or [])
+        lines.append(
+            f"- {data_file['name']}: {data_file['path']} "
+            f"(source: raw_output/{sources}; rows: {data_file['rows']})"
+        )
+
+    return "\n".join(lines)
+
+
 def generate_vasp_report_context(local_job_dir: str | Path) -> dict:
     job_dir = Path(local_job_dir).expanduser().resolve()
     raw_output_dir = job_dir / "raw_output"
@@ -225,6 +284,7 @@ def generate_vasp_report_context(local_job_dir: str | Path) -> dict:
     poscar = _parse_poscar(raw_output_dir)
     snippets = _collect_log_snippets(raw_output_dir)
     issues = _diagnose(raw_output_dir, inventory, snippets)
+    figures_result = _generate_figures(job_dir)
 
     # Parse deterministic facts from OUTCAR/OSZICAR.
     facts_block = ""
@@ -286,6 +346,10 @@ def generate_vasp_report_context(local_job_dir: str | Path) -> dict:
 
 {chr(10).join(f"- {issue}" for issue in issues)}
 
+## Raw-Output Figures And Plot Data
+
+{_format_figure_manifest(figures_result)}
+
 ## Log Snippets
 
 {_format_snippets(snippets)}
@@ -293,6 +357,7 @@ def generate_vasp_report_context(local_job_dir: str | Path) -> dict:
 ## Instructions For Claude Code
 
 - The "VASP Deterministic Facts" section above is the **single authoritative source** for all numerical results (energies, forces, stresses, convergence status, timing, etc.).
+- Any figures listed in "Raw-Output Figures And Plot Data" are generated from synchronized files under raw_output/ only. Use their CSV files and SVG paths as plot references; do not recreate or alter figure data from narrative text.
 - **Never** extract numerical values from the Log Snippets section — those snippets are included only for diagnostic context (e.g., checking warnings, error messages).
 - If the Deterministic Facts section says the calculation converged, report it as converged. If not, generate a failure/diagnostic report.
 - Do not invent scientific results (energies, forces, band gaps, magnetic moments, exchange-correlation functional, pseudopotential type) that are not in the Deterministic Facts.
@@ -315,4 +380,8 @@ def generate_vasp_report_context(local_job_dir: str | Path) -> dict:
         "report_context_path": str(report_context_path),
         "issues": issues,
         "file_count": len(inventory),
+        "figures_manifest_path": figures_result.get("manifest_path"),
+        "figure_count": len(figures_result.get("figures") or []),
+        "data_file_count": len(figures_result.get("data_files") or []),
+        "figures_error": figures_result.get("error"),
     }

@@ -68,7 +68,11 @@ STRICT RULES:
 7. If logs show a POTCAR input conversion error, say the remote POTCAR was
    present but unreadable, invalid, placeholder, corrupted, or incompatible
    unless more detail is known.
-8. Do not write files, use tools, or ask for write permission. Return only the
+8. If the context lists raw-output figures or CSV plot data, you may reference
+   those paths in the report. Treat them as generated from raw_output only; do
+   not invent, modify, smooth, extrapolate, or recreate plotted values from
+   narrative text.
+9. Do not write files, use tools, or ask for write permission. Return only the
    JSON object; the Python caller writes report.md, paper_methods.md, and
    paper_results.md under analysis/.
 
@@ -210,8 +214,8 @@ def generate_report_with_claude(
     analysis_dir.mkdir(parents=True, exist_ok=True)
     report_context_path = analysis_dir / "report_context.md"
 
-    if not report_context_path.is_file():
-        generate_vasp_report_context(job_dir)
+    context_result = generate_vasp_report_context(job_dir)
+    report_context_path = Path(context_result["report_context_path"])
 
     report_context = report_context_path.read_text(encoding="utf-8", errors="replace")
     prompt = _build_prompt(report_context)
@@ -297,14 +301,34 @@ def generate_report_with_claude(
         }
 
     report_paths = _write_report_files(analysis_dir, payload)
+    pdf_result = None
+    pdf_error = None
 
-    return {
+    try:
+        from modules.vasp.vasp_pdf_reporter import generate_vasp_pdf_report
+
+        pdf_result = generate_vasp_pdf_report(job_dir)
+    except Exception as error:
+        pdf_error = f"{type(error).__name__}: {error}"
+
+    result = {
         "success": True,
         "local_job_dir": str(job_dir),
         "analysis_dir": str(analysis_dir),
         "report_context_path": str(report_context_path),
+        "figures_manifest_path": context_result.get("figures_manifest_path"),
+        "figure_count": context_result.get("figure_count", 0),
+        "data_file_count": context_result.get("data_file_count", 0),
+        "figures_error": context_result.get("figures_error"),
         **report_paths,
         "stderr": stderr,
         "elapsed_seconds": round(elapsed_seconds, 2),
         "timeout_seconds": timeout_seconds,
     }
+
+    if pdf_result and pdf_result.get("success"):
+        result["pdf_report_path"] = pdf_result.get("pdf_report_path")
+    if pdf_error:
+        result["pdf_error"] = pdf_error
+
+    return result

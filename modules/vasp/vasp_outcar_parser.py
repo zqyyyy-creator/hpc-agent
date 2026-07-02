@@ -175,9 +175,10 @@ def _parse_forces(outcar: str) -> dict:
     forces = []
     for line in block.splitlines():
         parts = line.strip().split()
-        if len(parts) == 7:
+        if len(parts) >= 6:
             try:
-                forces.append([float(p) for p in parts[4:]])
+                values = [float(p) for p in parts[:6]]
+                forces.append(values[3:6])
             except ValueError:
                 continue
         elif len(parts) == 4:
@@ -232,15 +233,19 @@ def _parse_band_info(outcar: str) -> dict:
     bands = []
     for line in lines[1:]:
         parts = line.strip().split()
+        if not parts:
+            continue
+        if parts[0].lower() in {"band", "no.", "bandno."} or not re.fullmatch(r"\d+", parts[0]):
+            continue
         if len(parts) < 3:
-            break
+            continue
         try:
             band_no = int(parts[0])
             energy = float(parts[1])
             occ = float(parts[2])
             bands.append({"band": band_no, "energy": energy, "occupation": occ})
         except ValueError:
-            break
+            continue
 
     if not bands:
         return {}

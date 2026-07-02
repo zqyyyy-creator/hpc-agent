@@ -1,3 +1,4 @@
+import json
 import re
 from pathlib import Path
 
@@ -1218,6 +1219,9 @@ def _format_vasp_report_result(result: dict, local_job_dir: Path) -> str:
             f"错误: {result.get('error')}"
         )
 
+    figure_summary = _format_vasp_report_figure_summary(result)
+    pdf_summary = _format_vasp_report_pdf_summary(result)
+
     return (
         "VASP 报告已生成。\n\n"
         f"本地输出目录: {result['local_job_dir']}\n"
@@ -1225,9 +1229,61 @@ def _format_vasp_report_result(result: dict, local_job_dir: Path) -> str:
         f"用户报告: {result['report_path']}\n"
         f"论文方法: {result['paper_methods_path']}\n"
         f"论文结果: {result['paper_results_path']}\n"
+        f"{pdf_summary}"
+        f"{figure_summary}"
         f"Claude Code 耗时: {result.get('elapsed_seconds', 'unknown')} 秒\n"
         f"Claude Code 超时设置: {result.get('timeout_seconds', 'unknown')} 秒"
     )
+
+
+def _format_vasp_report_pdf_summary(result: dict) -> str:
+    if result.get("pdf_report_path"):
+        return f"PDF报告: {result['pdf_report_path']}\n"
+    if result.get("pdf_error"):
+        return f"PDF报告: 生成失败 ({result['pdf_error']})\n"
+    return "PDF报告: 未生成\n"
+
+
+def _format_vasp_report_figure_summary(result: dict) -> str:
+    manifest_path = result.get("figures_manifest_path")
+    if result.get("figures_error"):
+        return f"分析图像: 生成失败 ({result['figures_error']})\n"
+
+    if not manifest_path:
+        return "分析图像: 未生成\n"
+
+    manifest_file = Path(manifest_path)
+    if not manifest_file.is_file():
+        return f"分析图像清单: {manifest_path} (文件不存在)\n"
+
+    try:
+        manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        return f"分析图像清单: {manifest_path} (读取失败: {error})\n"
+
+    figures = manifest.get("figures") or []
+    figures_dir = manifest.get("figures_dir") or str(manifest_file.parent / "figures")
+
+    if not figures:
+        return (
+            f"分析图像目录: {figures_dir}\n"
+            f"分析图像清单: {manifest_path}\n"
+            "分析图像: 未从 raw_output 解析到可绘制序列\n"
+        )
+
+    lines = [
+        f"分析图像目录: {figures_dir}",
+        f"分析图像清单: {manifest_path}",
+        f"分析图像: 已生成 {len(figures)} 张 SVG",
+    ]
+
+    for figure in figures[:8]:
+        lines.append(f"- {figure.get('description', figure.get('name'))}: {figure.get('svg_path') or figure.get('path')}")
+
+    if len(figures) > 8:
+        lines.append(f"- ... 还有 {len(figures) - 8} 张未显示")
+
+    return "\n".join(lines) + "\n"
 
 
 def analyze_vasp_job(text: str):

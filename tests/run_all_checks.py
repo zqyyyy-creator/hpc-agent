@@ -43,8 +43,10 @@ PYTHON_FILES = [
     "modules/tui/tui_vasp_workflow.py",
     "modules/vasp/claude_code_reporter.py",
     "modules/vasp/vasp_assistant.py",
+    "modules/vasp/vasp_figures.py",
     "modules/vasp/vasp_monitor.py",
     "modules/vasp/vasp_outcar_parser.py",
+    "modules/vasp/vasp_pdf_reporter.py",
     "modules/vasp/vasp_report_context.py",
     "tests/core/test_agent_runtime.py",
     "tests/core/test_confirmed_actions.py",
@@ -334,7 +336,11 @@ def run_vasp_assistant_checks():
     checks.test_resolve_vasp_job_input_dir_uses_named_vasp_task()
     checks.test_register_existing_vasp_job_from_text_writes_registry()
     checks.test_generate_vasp_report_context_under_analysis()
+    checks.test_generate_vasp_figures_from_raw_output()
+    checks.test_report_context_lists_raw_output_figures()
     checks.test_generate_report_with_claude_writes_three_markdown_files()
+    checks.test_generate_vasp_pdf_report_includes_raw_output_figures()
+    checks.test_vasp_report_result_mentions_generated_figures()
     checks.test_resolve_vasp_local_output_dir_normalizes_stale_registry_path()
     checks.test_claude_reporter_loads_vasp_report_skill()
     checks.test_vasp_input_path_maps_to_local_output_dir_for_reports()

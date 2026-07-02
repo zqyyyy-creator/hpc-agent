@@ -22,6 +22,7 @@ from modules.vasp.claude_code_reporter import (
     _load_vasp_report_skill,
     generate_report_with_claude,
 )
+from modules.vasp.vasp_pdf_reporter import generate_vasp_pdf_report
 from modules.slurm.slurm_tools import (
     _add_vasp_input_sync,
     _has_meaningful_vasp_synced_files,
@@ -370,6 +371,96 @@ def test_generate_vasp_report_context_under_analysis():
         assert_contains(context, "Analysis directory")
 
 
+def test_generate_vasp_figures_from_raw_output():
+    from modules.vasp.vasp_figures import generate_vasp_figures
+
+    with TemporaryDirectory() as tmpdir:
+        job_dir = _bootstrap.Path(tmpdir) / "job-figures"
+        raw_output_dir = job_dir / "raw_output"
+        raw_output_dir.mkdir(parents=True)
+
+        (raw_output_dir / "OSZICAR").write_text(
+            "\n".join([
+                "DAV:   1    -1.200000E+01    0.1E+00",
+                "DAV:   2    -1.250000E+01    0.5E-01",
+                "   1 F= -.12500000E+02 E0= -.12400000E+02  d E =-.100000E+00",
+                "DAV:   1    -1.300000E+01    0.1E+00",
+                "DAV:   2    -1.340000E+01    0.5E-01",
+                "   2 F= -.13400000E+02 E0= -.13300000E+02  d E =-.900000E+00",
+            ]) + "\n",
+            encoding="utf-8",
+        )
+        (raw_output_dir / "OUTCAR").write_text(
+            """
+ external pressure =      12.30 kB
+ volume of cell :       42.00
+ POSITION                                       TOTAL-FORCE (eV/Angst)
+ -----------------------------------------------------------------------------------
+      0.00000      0.00000      0.00000      0.10000      0.00000      0.00000
+      0.50000      0.50000      0.50000     -0.20000      0.00000      0.00000
+ total drift:                                 0.00000      0.00000      0.00000
+ external pressure =       4.50 kB
+ volume of cell :       41.50
+ POSITION                                       TOTAL-FORCE (eV/Angst)
+ -----------------------------------------------------------------------------------
+      0.00000      0.00000      0.00000      0.01000      0.00000      0.00000
+      0.50000      0.50000      0.50000     -0.03000      0.00000      0.00000
+ total drift:                                 0.00000      0.00000      0.00000
+""",
+            encoding="utf-8",
+        )
+
+        result = generate_vasp_figures(job_dir)
+
+        if not result["success"]:
+            raise AssertionError(f"Expected figure generation to succeed: {result}")
+        if result["raw_output_dir"] != str(raw_output_dir.resolve()):
+            raise AssertionError(f"Expected raw_output source dir, got {result['raw_output_dir']}")
+
+        expected_files = [
+            job_dir / "analysis" / "data" / "ionic_energy.csv",
+            job_dir / "analysis" / "data" / "max_force.csv",
+            job_dir / "analysis" / "figures" / "ionic_energy_convergence.svg",
+            job_dir / "analysis" / "figures" / "max_force_convergence.svg",
+            job_dir / "analysis" / "figures_manifest.json",
+        ]
+        for path in expected_files:
+            if not path.is_file():
+                raise AssertionError(f"Expected generated plot artifact: {path}")
+
+        energy_csv = (job_dir / "analysis" / "data" / "ionic_energy.csv").read_text(encoding="utf-8")
+        assert_contains(energy_csv, "-12.5")
+        assert_contains(energy_csv, "-13.4")
+
+        svg = (job_dir / "analysis" / "figures" / "ionic_energy_convergence.svg").read_text(encoding="utf-8")
+        assert_contains(svg, "<svg")
+        assert_contains(svg, "Ionic energy convergence")
+
+
+def test_report_context_lists_raw_output_figures():
+    with TemporaryDirectory() as tmpdir:
+        job_dir = _bootstrap.Path(tmpdir) / "job-context-figures"
+        raw_output_dir = job_dir / "raw_output"
+        raw_output_dir.mkdir(parents=True)
+        (raw_output_dir / "INCAR").write_text("ENCUT = 400\n", encoding="utf-8")
+        (raw_output_dir / "KPOINTS").write_text("Automatic mesh\n0\nGamma\n1 1 1\n0 0 0\n", encoding="utf-8")
+        (raw_output_dir / "POSCAR").write_text("Si\n1\n1 0 0\n0 1 0\n0 0 1\nSi\n1\nDirect\n0 0 0\n", encoding="utf-8")
+        (raw_output_dir / "OSZICAR").write_text(
+            "DAV:   1    -1.000000E+01\n   1 F= -.10000000E+02 E0= -.10000000E+02  d E =-.100000E-01\n",
+            encoding="utf-8",
+        )
+        (raw_output_dir / "OUTCAR").write_text("short\n", encoding="utf-8")
+
+        result = generate_vasp_report_context(job_dir)
+        context = _bootstrap.Path(result["report_context_path"]).read_text(encoding="utf-8")
+
+        assert_contains(context, "## Raw-Output Figures And Plot Data")
+        assert_contains(context, "source: raw_output/OSZICAR")
+        assert_contains(context, "Report context and LLM output are not used as data sources")
+        if result["figure_count"] < 1:
+            raise AssertionError(f"Expected at least one raw-output figure: {result}")
+
+
 def test_generate_report_with_claude_writes_three_markdown_files():
     with TemporaryDirectory() as tmpdir:
         job_dir = _bootstrap.Path(tmpdir) / "job-001"
@@ -418,11 +509,97 @@ def test_generate_report_with_claude_writes_three_markdown_files():
             if not path.is_file():
                 raise AssertionError(f"Expected report file to exist: {path}")
 
+        pdf_path = analysis_dir / "report.pdf"
+        if not pdf_path.is_file():
+            raise AssertionError(f"Expected PDF report file to exist: {pdf_path}")
+        if not result.get("pdf_report_path"):
+            raise AssertionError(f"Expected Claude report result to include pdf_report_path: {result}")
+        if not pdf_path.read_bytes().startswith(b"%PDF"):
+            raise AssertionError("Expected generated report.pdf to be a PDF file.")
+
         assert_contains((analysis_dir / "report.md").read_text(encoding="utf-8"), "计算失败")
         assert_contains(
             (analysis_dir / "paper_results.md").read_text(encoding="utf-8"),
             "No scientifically valid results",
         )
+
+
+def test_generate_vasp_pdf_report_includes_raw_output_figures():
+    with TemporaryDirectory() as tmpdir:
+        job_dir = _bootstrap.Path(tmpdir) / "job-pdf"
+        raw_output_dir = job_dir / "raw_output"
+        analysis_dir = job_dir / "analysis"
+        raw_output_dir.mkdir(parents=True)
+        analysis_dir.mkdir()
+        (raw_output_dir / "OSZICAR").write_text(
+            "DAV:   1    -1.200000E+01\nDAV:   2    -1.250000E+01\n"
+            "   1 F= -.12500000E+02 E0= -.12400000E+02  d E =-.100000E+00\n",
+            encoding="utf-8",
+        )
+        (raw_output_dir / "OUTCAR").write_text(
+            "FREE ENERGIE OF THE ION-ELECTRON SYSTEM (eV)\n"
+            "free  energy   TOTEN  =        -12.50000000 eV\n",
+            encoding="utf-8",
+        )
+        (analysis_dir / "report.md").write_text("# 用户报告\n\n这是测试报告。", encoding="utf-8")
+        (analysis_dir / "paper_methods.md").write_text("Method note.", encoding="utf-8")
+        (analysis_dir / "paper_results.md").write_text("Result note.", encoding="utf-8")
+
+        from modules.vasp.vasp_report_context import generate_vasp_report_context
+
+        generate_vasp_report_context(job_dir)
+        result = generate_vasp_pdf_report(job_dir)
+        pdf_path = _bootstrap.Path(result["pdf_report_path"])
+
+        if not pdf_path.is_file():
+            raise AssertionError(f"Expected PDF report to exist: {result}")
+        if result["figure_count"] < 1:
+            raise AssertionError(f"Expected PDF result to include figure count: {result}")
+        if not pdf_path.read_bytes().startswith(b"%PDF"):
+            raise AssertionError("Expected generated PDF report to start with %PDF.")
+
+
+def test_vasp_report_result_mentions_generated_figures():
+    from modules.slurm.job_query import _format_vasp_report_result
+
+    with TemporaryDirectory() as tmpdir:
+        job_dir = _bootstrap.Path(tmpdir) / "job-figures-report"
+        analysis_dir = job_dir / "analysis"
+        figures_dir = analysis_dir / "figures"
+        analysis_dir.mkdir(parents=True)
+        figures_dir.mkdir()
+        figure_path = figures_dir / "electronic_energy_convergence.svg"
+        figure_path.write_text("<svg></svg>\n", encoding="utf-8")
+        manifest_path = analysis_dir / "figures_manifest.json"
+        manifest_path.write_text(
+            json.dumps({
+                "figures_dir": str(figures_dir),
+                "figures": [
+                    {
+                        "description": "Electronic energy convergence",
+                        "svg_path": str(figure_path),
+                    },
+                ],
+            }, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        result = {
+            "success": True,
+            "local_job_dir": str(job_dir),
+            "report_context_path": str(analysis_dir / "report_context.md"),
+            "report_path": str(analysis_dir / "report.md"),
+            "paper_methods_path": str(analysis_dir / "paper_methods.md"),
+            "paper_results_path": str(analysis_dir / "paper_results.md"),
+            "figures_manifest_path": str(manifest_path),
+            "elapsed_seconds": 1.23,
+            "timeout_seconds": 1800,
+        }
+
+        answer = _format_vasp_report_result(result, job_dir)
+
+        assert_contains(answer, "分析图像目录")
+        assert_contains(answer, "已生成 1 张 SVG")
+        assert_contains(answer, str(figure_path))
 
 
 def test_resolve_vasp_local_output_dir_normalizes_stale_registry_path():
@@ -754,7 +931,11 @@ if __name__ == "__main__":
     test_vasp_local_output_uses_raw_output_subdirectory()
     test_vasp_input_path_maps_to_local_output_dir_for_reports()
     test_generate_vasp_report_context_under_analysis()
+    test_generate_vasp_figures_from_raw_output()
+    test_report_context_lists_raw_output_figures()
     test_generate_report_with_claude_writes_three_markdown_files()
+    test_generate_vasp_pdf_report_includes_raw_output_figures()
+    test_vasp_report_result_mentions_generated_figures()
     test_claude_reporter_loads_vasp_report_skill()
     test_dangerous_vasp_request_is_rejected()
     test_vasp_input_validation_requires_all_files()
