@@ -1,0 +1,92 @@
+元数据：
+topic: environment
+scope: generic
+dynamic: false
+
+标题：HPC 软件环境、module 与 conda 使用
+
+关键词：
+HPC, module, environment modules, conda, python, CUDA, PATH, LD_LIBRARY_PATH, ModuleNotFoundError, command not found, 环境变量, 软件环境
+
+说明：
+HPC 集群通常通过 environment modules 或 conda 管理软件环境。
+登录节点和计算节点的环境可能不同，因此建议在 sbatch 脚本中显式加载 module 或激活 conda 环境。
+
+查看可用 module：
+module avail
+
+搜索 module：
+module spider 软件名
+
+加载 module：
+module load module_name
+
+查看已加载 module：
+module list
+
+卸载 module：
+module unload module_name
+
+清空已加载 module：
+module purge
+
+查看命令路径：
+which python
+which python3
+which nvcc
+which mpirun
+
+查看 Python 版本：
+python --version
+
+查看 Python 包位置：
+python -c "import sys; print(sys.executable)"
+
+激活 conda 环境：
+conda activate env_name
+
+如果 batch 脚本中 conda activate 失败，可能需要先加载 conda 初始化脚本。示例：
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate env_name
+
+sbatch 脚本中推荐写法：
+#!/bin/bash
+#SBATCH --job-name=env_test
+#SBATCH --time=00:10:00
+#SBATCH --output=%x_%j.out
+#SBATCH --error=%x_%j.err
+
+module purge
+module load python
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate env_name
+
+which python
+python --version
+python script.py
+
+常见错误：command not found
+可能原因：
+1. 软件没有安装
+2. module 没有加载
+3. conda 环境没有激活
+4. PATH 没有包含命令所在目录
+
+常见错误：ModuleNotFoundError
+可能原因：
+1. 当前 Python 环境没有安装该包
+2. 交互环境和 batch 作业环境不同
+3. conda 环境没有正确激活
+4. 作业中使用了系统 Python 而不是用户环境 Python
+
+常见排查命令：
+which python
+python -c "import sys; print(sys.executable)"
+python -c "import 模块名; print(模块名.__file__)"
+module list
+conda info --envs
+
+注意事项：
+不同集群 module 名称不同，不要照搬示例中的 module name。
+如果不确定软件名称，应先使用 module avail 或查看集群文档。
+在 sbatch 脚本中显式写出环境加载步骤，可以减少“登录节点能运行、作业里不能运行”的问题。

@@ -9,11 +9,16 @@ PYTHON_FILES = [
     "app.py",
     "textual_cli.py",
     "tools/route_debug.py",
+    "tools/rag_debug.py",
+    "tools/rag_eval.py",
+    "tools/skill_eval.py",
+    "tools/skill_debug.py",
     "modules/core/agent_runtime.py",
     "modules/core/confirmed_actions.py",
     "modules/core/conversation_state.py",
     "modules/core/hpc_config.py",
     "modules/core/llm_fallback.py",
+    "modules/core/project_doctor.py",
     "modules/core/tool_calling.py",
     "modules/knowledge/error_case_manager.py",
     "modules/knowledge/error_diagnoser.py",
@@ -21,6 +26,9 @@ PYTHON_FILES = [
     "modules/routing/intent_classifier.py",
     "modules/routing/router.py",
     "modules/routing/tool_dispatcher.py",
+    "modules/skills/resource_detector.py",
+    "modules/skills/skill_executor.py",
+    "modules/skills/skill_registry.py",
     "modules/slurm/hpc_test_files.py",
     "modules/slurm/job_cleanup.py",
     "modules/slurm/job_lifecycle.py",
@@ -53,6 +61,7 @@ PYTHON_FILES = [
     "tests/core/test_conversation_state.py",
     "tests/core/test_environment_status.py",
     "tests/core/test_packaging.py",
+    "tests/core/test_project_doctor.py",
     "tests/core/test_tool_calling.py",
     "tests/knowledge/test_error_diagnoser_skill.py",
     "tests/knowledge/test_knowledge_base_context.py",
@@ -60,6 +69,8 @@ PYTHON_FILES = [
     "tests/routing/test_route_cases_fixture.py",
     "tests/routing/test_router_negative.py",
     "tests/routing/test_tool_dispatcher.py",
+    "tests/skills/test_skill_eval.py",
+    "tests/skills/test_skill_registry.py",
     "tests/slurm/test_cleanup_tool_calling.py",
     "tests/slurm/test_hpc_workflow.py",
     "tests/slurm/test_hpc_test_files.py",
@@ -110,6 +121,8 @@ def run_agent_runtime_checks():
 
     for check in [
         checks.test_can_answer_intent_marks_only_answer_intents,
+        checks.test_execute_registered_skill_intent_exposes_skill_metadata,
+        checks.test_execute_tool_dispatch_skill_uses_dispatch_adapter,
         checks.test_can_preview_cleanup_intent_marks_cleanup_intents,
         checks.test_can_preview_submit_intent_marks_submit_intents,
         checks.test_execute_clarify_intent_does_not_need_llm,
@@ -207,8 +220,40 @@ def run_knowledge_base_context_checks():
     from tests.knowledge import test_knowledge_base_context as checks
 
     checks.test_build_ask_llm_messages_includes_conversation_context()
+    checks.test_load_documents_preserves_document_context_in_chunks()
+    checks.test_retrieve_cluster_partition_snapshot()
+    checks.test_retrieve_pending_prefers_pending_knowledge()
+    checks.test_query_expansion_adds_hpc_terms()
+    checks.test_rag_cases_hit_expected_sources()
 
     print("OK knowledge base context checks passed")
+
+
+def run_project_doctor_checks():
+    from tests.core import test_project_doctor as checks
+
+    checks.test_project_doctor_collects_core_sections()
+
+    print("OK project doctor checks passed")
+
+
+def run_skill_registry_checks():
+    from tests.skills import test_skill_registry as checks
+
+    checks.test_skill_registry_loads_expected_skills()
+    checks.test_skill_registry_maps_intents()
+    checks.test_skill_handlers_are_importable()
+
+    print("OK skill registry checks passed")
+
+
+def run_skill_eval_checks():
+    from tests.skills import test_skill_eval as checks
+
+    checks.test_skill_eval_cases_route_to_expected_skills()
+    checks.test_skill_eval_safe_cases_execute_through_skill_runtime()
+
+    print("OK skill eval checks passed")
 
 
 def run_tool_dispatcher_checks():
@@ -584,6 +629,9 @@ CHECKS = [
     ("5. Confirmed action checks", run_confirmed_action_checks),
     ("6. Conversation state checks", run_conversation_state_checks),
     ("6b. Knowledge base context checks", run_knowledge_base_context_checks),
+    ("6c. Project doctor checks", run_project_doctor_checks),
+    ("6d. Skill registry checks", run_skill_registry_checks),
+    ("6e. Skill eval checks", run_skill_eval_checks),
     ("7. Tool dispatcher checks", run_tool_dispatcher_checks),
     ("8. Slurm tool calling checks", run_slurm_tool_calling_checks),
     ("9. Job query tool calling checks", run_job_query_tool_calling_checks),

@@ -87,6 +87,23 @@ KEYWORDS: dict[str, list[str]] = {
         "/help", "help", "帮助", "快捷命令", "命令帮助",
         "slashcommand", "slashcommands",
     ],
+    "project_doctor": [
+        "/doctor", "doctor", "总体体检", "项目体检",
+        "系统体检", "健康检查", "项目健康检查",
+        "检查整个项目", "检查agent", "检查 agent",
+        "agent doctor", "health check", "project doctor",
+    ],
+    "local_resources": [
+        "检查本机可用资源", "查看本机可用资源", "本机可用资源",
+        "检查本地资源", "查看本地资源", "本地资源",
+        "当前机器", "当前环境", "当前系统",
+        "可用资源", "系统资源", "检测资源", "检查资源",
+        "本机有多少cpu", "本机有多少gpu", "有没有gpu", "有没有 gpu",
+        "available resources", "local resources", "check resources",
+        "detect resources", "system resources",
+        "availableresources", "localresources", "checkresources",
+        "detectresources", "detectavailableresources", "systemresources",
+    ],
     "submit": [
         "提交作业", "提交到超算", "运行到超算",
         "提交任务", "提交并分析", "运行并分析",
@@ -293,7 +310,9 @@ KEYWORDS: dict[str, list[str]] = {
 
 
 EXPLANATION_KEYWORDS: dict[str, list[str]] = {
+    "project_doctor": ["总体体检", "项目体检", "健康检查", "doctor"],
     "suggest_params": ["资源怎么填", "申请多少核", "需要多少核", "需要多少资源", "多少内存"],
+    "check_local_resources": ["本机资源", "本地资源", "当前机器", "当前环境", "available resources"],
     "current_config": ["当前模型", "当前配置", "模型配置"],
     "check_hpc_config": ["检查", "配置", "超算"],
     "test_hpc_submission": ["测试", "提交", "超算"],
@@ -336,7 +355,9 @@ INTENT_RISKS = {
     "rag_qa": "none",
     "clarify": "clarify_required",
     "shortcut_help": "read_only",
+    "project_doctor": "read_only",
     "suggest_params": "none",
+    "check_local_resources": "read_only",
     "current_config": "read_only",
     "check_hpc_config": "read_only",
     "test_hpc_submission": "confirm_required",
@@ -414,6 +435,12 @@ def expand_shortcut_command(question: str) -> str:
     if command == "/model":
         return "查看当前模型"
 
+    if command == "/resources":
+        return "检查本机可用资源"
+
+    if command == "/doctor":
+        return "总体体检"
+
     if command == "/config":
         if args and args[0].lower() == "check":
             return "检查我的超算配置"
@@ -434,6 +461,10 @@ def expand_shortcut_command(question: str) -> str:
             return f"查看作业详情 {value}"
         if subcommand == "diagnose" and value:
             return f"诊断作业 {value}"
+        if subcommand == "monitor" and value:
+            return f"监控 {value}"
+        if subcommand in {"stop-monitor", "unmonitor", "cancel-monitor"} and value:
+            return f"取消监控 {value}"
         if subcommand == "records":
             return "查看本地作业记录状态"
         if subcommand == "archive":
@@ -448,9 +479,9 @@ def expand_shortcut_command(question: str) -> str:
     if command == "/vasp":
         subcommand = args[0].lower() if args else ""
         value = args[1] if len(args) > 1 else ""
-        if subcommand == "list":
+        if subcommand in {"list", "jobs"}:
             return "列出 VASP 作业"
-        if subcommand == "gen" and value:
+        if subcommand in {"gen", "inputs"} and value:
             extra = " ".join(args[2:])
             suffix = f"，参数 {extra}" if extra else ""
             return f"帮我生成我的 VASP 作业 {value} 的配置文件{suffix}"
@@ -541,6 +572,21 @@ def _explicit_sbatch_request(ctx: RouteContext) -> bool:
     return ctx.match_any([kw for kw in KEYWORDS["sbatch"] if kw != "我想提交"])
 
 
+def _explicit_vasp_job_generation_request(ctx: RouteContext) -> bool:
+    if not ctx.is_vasp_request:
+        return False
+
+    generation_markers = [
+        "生成", "写", "创建", "预览",
+        "帮我生成", "帮我写", "给我", "给我一个",
+        "只生成", "先生成",
+    ]
+    script_markers = [
+        "脚本", "运行脚本", "作业脚本", "sbatch", "slurm",
+    ]
+    return ctx.match_any(generation_markers) and ctx.match_any(script_markers)
+
+
 def _preview_only_submit_request(ctx: RouteContext) -> bool:
     if not ctx.match_any(KEYWORDS["submit"]):
         return False
@@ -554,6 +600,18 @@ def _preview_only_submit_request(ctx: RouteContext) -> bool:
             "不要真的提交", "别真的提交",
         )
     )
+
+
+def _local_resource_check_request(ctx: RouteContext) -> bool:
+    if not ctx.match_any(KEYWORDS["local_resources"]):
+        return False
+
+    remote_terms = [
+        "超算", "远端", "远程", "hpc", "slurm", "sinfo",
+        "partition", "队列", "分区", "节点",
+        "bscc-a", "amd_test", "amd_256",
+    ]
+    return not ctx.match_any(remote_terms)
 
 
 def _job_id_status_request(ctx: RouteContext) -> bool:
@@ -649,11 +707,35 @@ def _route_to_vasp_analysis_by_reference(ctx: RouteContext) -> bool:
     return bool(recent_vasp and str(recent_vasp.get("job_id")) == str(job_id))
 
 
+def _cluster_partition_qa_request(ctx: RouteContext) -> bool:
+    cluster_terms = [
+        "amd_test", "amd_256", "bscc-a", "partition",
+        "sinfo", "队列", "分区",
+    ]
+    time_or_choice_terms = [
+        "能跑多久", "跑多久", "最长", "时间限制", "timelimit",
+        "max_time", "maxtime", "用哪个", "哪个分区", "哪个队列",
+        "哪个partition", "提交到哪个", "应该提交到哪个",
+        "正式作业", "正式vasp作业",
+    ]
+
+    if ctx.match_any(cluster_terms) and ctx.match_any(time_or_choice_terms):
+        return True
+
+    return (
+        ctx.match_any(["all"])
+        and ctx.match_any(["inactive", "inact", "可用", "能不能用", "能用吗"])
+    )
+
+
 ROUTE_RULES: tuple[RouteRule, ...] = (
     RouteRule("negated_cleanup_howto", "rag_qa", lambda ctx: ctx.negated_cleanup and ctx.is_howto_or_concept),
     RouteRule("resource_howto", "rag_qa", lambda ctx: ctx.is_howto_or_concept and ctx.match_any(KEYWORDS["params"])),
+    RouteRule("cluster_partition_qa", "rag_qa", _cluster_partition_qa_request),
     RouteRule("vasp_howto_or_concept", "rag_qa", lambda ctx: ctx.is_vasp_request and ctx.is_howto_or_concept and not ctx.match_any(KEYWORDS["params"])),
     RouteRule("vasp_file_catalog_howto", "rag_qa", lambda ctx: ctx.is_vasp_request and "有哪些" in ctx.q_no_space and not ctx.match_any(["远端", "远程", "目录"])),
+    RouteRule("check_local_resources", "check_local_resources", _local_resource_check_request),
+    RouteRule("project_doctor", "project_doctor", lambda ctx: ctx.match_any(KEYWORDS["project_doctor"])),
     RouteRule("vasp_params", "suggest_params", lambda ctx: ctx.is_vasp_request and ctx.match_any(KEYWORDS["params"])),
     RouteRule("current_config", "current_config", lambda ctx: ctx.match_any(KEYWORDS["current_config"])),
     RouteRule("check_hpc_config", "check_hpc_config", lambda ctx: ctx.match_any(KEYWORDS["hpc_config_check"])),
@@ -681,6 +763,7 @@ ROUTE_RULES: tuple[RouteRule, ...] = (
     RouteRule("register_vasp_job", "register_vasp_job", lambda ctx: ctx.is_vasp_request and (ctx.match_any(KEYWORDS["register_vasp"]) or (ctx.has_job_id and ctx.match_any(KEYWORDS["register_vasp_loose"])))),
     RouteRule("generate_vasp_report", "generate_vasp_report", lambda ctx: ctx.is_vasp_request and ctx.match_any(KEYWORDS["vasp_report"])),
     RouteRule("generate_vasp_inputs", "generate_vasp_inputs", _vasp_input_generation_request),
+    RouteRule("generate_vasp_job_explicit", "generate_vasp_job", _explicit_vasp_job_generation_request),
     RouteRule("submit_vasp_job", "submit_vasp_job", lambda ctx: ctx.is_vasp_request and ctx.match_any(KEYWORDS["submit"])),
     RouteRule("analyze_vasp_job_by_reference", "analyze_vasp_job", _route_to_vasp_analysis_by_reference),
     RouteRule("analyze_vasp_job", "analyze_vasp_job", lambda ctx: ctx.is_vasp_request and ctx.match_any(KEYWORDS["analyze_vasp"])),
@@ -731,8 +814,9 @@ def _shortcut_help_request(ctx: RouteContext) -> bool:
     stripped = ctx.question.strip().lower()
     compact = stripped.replace(" ", "")
     return (
-        stripped in {"/help", "/help job", "/help vasp", "/help cleanup", "/help config"}
-        or compact in {"/helpjob", "/helpvasp", "/helpcleanup", "/helpconfig"}
+        stripped in {"/help", "/help job", "/help vasp", "/help cleanup", "/help config", "/help skill"}
+        or compact in {"/helpjob", "/helpvasp", "/helpcleanup", "/helpconfig", "/helpskill", "/skilllist"}
+        or stripped.startswith("/skill route ")
         or compact in {"帮助", "快捷命令", "命令帮助"}
     )
 
@@ -979,6 +1063,8 @@ def _explain_decision(question: str, intent: str) -> tuple[str, list[str], list[
     if intent == "clarify":
         return "ambiguous_request_missing_required_slots", matched or ["ambiguous"], skipped
     if intent == "rag_qa":
+        if _cluster_partition_qa_request(ctx):
+            return "cluster_partition_qa", matched or ["cluster_partition"], skipped
         reason = "howto_or_concept_question" if ctx.is_howto_or_concept else "fallback_no_rule_matched"
         return reason, matched, skipped
     if matched:

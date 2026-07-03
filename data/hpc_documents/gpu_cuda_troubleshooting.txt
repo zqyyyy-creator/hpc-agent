@@ -1,0 +1,72 @@
+元数据：
+topic: gpu
+scope: generic
+dynamic: false
+
+标题：GPU 与 CUDA 常见问题排查
+
+关键词：
+GPU, CUDA, nvidia-smi, CUDA_VISIBLE_DEVICES, CUDA out of memory, no CUDA device, PyTorch, TensorFlow, driver, 显存不足, GPU不可用
+
+说明：
+GPU 作业常见问题包括没有申请 GPU、进入了非 GPU 节点、CUDA 环境不匹配、显存不足或程序没有正确识别 GPU。
+
+查看 GPU 状态：
+nvidia-smi
+
+查看作业是否申请 GPU：
+scontrol show job job_id
+
+查看当前环境中的 CUDA 可见设备：
+echo $CUDA_VISIBLE_DEVICES
+
+PyTorch 检查 GPU：
+python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.device_count())"
+
+TensorFlow 检查 GPU：
+python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
+
+常见错误：CUDA out of memory
+说明：
+程序需要的 GPU 显存超过当前可用显存。
+常见处理：
+1. 减小 batch size
+2. 使用更小模型
+3. 减少输入尺寸
+4. 使用混合精度
+5. 检查是否有多个进程同时占用 GPU
+6. 如果集群允许，申请更多或更大显存 GPU
+
+常见错误：No CUDA GPUs are available
+可能原因：
+1. 作业没有申请 GPU
+2. 作业运行在 CPU 节点
+3. CUDA_VISIBLE_DEVICES 为空
+4. CUDA/驱动/框架版本不匹配
+5. 程序在登录节点运行，而不是计算节点运行
+
+常见错误：CUDA driver version is insufficient
+说明：
+用户环境中的 CUDA 或深度学习框架版本与节点驱动不兼容。
+常见处理：
+1. 使用集群推荐的 CUDA module
+2. 使用与驱动兼容的 PyTorch 或 TensorFlow 版本
+3. 避免混用多个 CUDA module
+
+sbatch GPU 示例：
+#!/bin/bash
+#SBATCH --job-name=gpu_test
+#SBATCH --time=00:30:00
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=16G
+#SBATCH --gres=gpu:1
+#SBATCH --output=%x_%j.out
+#SBATCH --error=%x_%j.err
+
+nvidia-smi
+python train.py
+
+注意事项：
+不同集群的 GPU 申请方式可能不同。
+常见写法是 #SBATCH --gres=gpu:1，但有些集群还要求 partition、GPU 类型或 QOS。
+不要编造 partition、account 或 GPU 型号，应以 sinfo、集群文档或管理员说明为准。

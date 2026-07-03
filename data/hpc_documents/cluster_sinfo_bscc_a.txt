@@ -1,0 +1,190 @@
+元数据：
+topic: cluster, slurm
+scope: bscc-a
+dynamic: true
+
+标题：BSCC-A 超算 Slurm partition 与 sinfo 快照
+
+关键词：
+BSCC-A, Paratera, sinfo, scontrol show partition, partition, amd_256, amd_test, all, Slurm分区, 队列, 节点状态, TIMELIMIT, GRES, CPU节点, 测试队列
+
+说明：
+本文件根据用户在 BSCC-A 登录节点执行的 Slurm 命令输出整理：
+sinfo -s
+sinfo -o "%P %.10a %.12l %.8D %.8t %.16G %N"
+scontrol show partition
+
+整理时间：
+2026-07-03
+
+重要限制：
+这是一次 sinfo 和 scontrol show partition 快照。节点 idle、alloc、down、drain 等状态会随时间变化。
+回答用户问题时，应说明实时资源状态以用户当前执行的 sinfo、squeue、scontrol 输出为准。
+
+集群登录提示：
+命令提示符示例为：
+[a0s000582@ln23%bscc-a ~]$
+
+可见 partition 摘要：
+
+1. all
+AVAIL: inact / inactive
+TIMELIMIT: infinite
+State: INACTIVE
+TotalNodes: 1549
+TotalCPUs: 99136
+DefMemPerNode: 240455 MB
+MaxMemPerNode: 240455 MB
+TRES: cpu=99136, mem=447750G, node=1549, billing=99136
+说明：
+all 分区在当前快照中为 inactive，不应优先作为普通用户提交作业的目标分区。
+如果作业脚本指定 #SBATCH --partition=all，可能无法正常调度，应先确认管理员文档或改用可用分区。
+
+2. amd_256
+AVAIL: up
+TIMELIMIT: infinite
+State: UP
+TotalNodes: 1391
+TotalCPUs: 89024
+DefMemPerNode: 240455 MB
+MaxMemPerNode: 240455 MB
+TRES: cpu=89024, mem=354500G, node=1391, billing=89024
+sinfo -s 快照节点状态：539 allocated, 843 idle, 9 other, total 1391
+说明：
+amd_256 是当前快照中主要可用的 AMD CPU 计算分区。
+普通 CPU 作业、VASP 作业或长时间计算通常应优先考虑 amd_256，但仍需根据用户账号权限、作业需求和当前资源状态确认。
+
+3. amd_test
+AVAIL: up
+TIMELIMIT: 30:00
+MaxTime: 00:30:00
+State: UP
+TotalNodes: 4
+TotalCPUs: 256
+DefMemPerNode: 240455 MB
+MaxMemPerNode: 240455 MB
+TRES: cpu=256, mem=1000G, node=4, billing=256
+sinfo -s 快照节点状态：0 allocated, 4 idle, 0 other, total 4
+节点列表：j1704, j1708, j1802, j2405
+说明：
+amd_test 是测试分区，最长运行时间为 30 分钟。
+适合短时间测试、hostname 测试、小脚本验证、环境检查、sbatch 流程测试。
+不适合长时间正式计算。
+
+推荐 partition 使用建议：
+
+短时间测试：
+#SBATCH --partition=amd_test
+#SBATCH --time=00:10:00
+
+普通 CPU 或 VASP 正式计算：
+#SBATCH --partition=amd_256
+
+如果用户没有明确要求 partition：
+可以优先建议 amd_256 用于正式计算，amd_test 用于 30 分钟以内测试。
+不要建议 all 作为默认提交分区，因为该分区在快照中是 inactive。
+
+GPU / GRES 信息：
+sinfo -o 输出中 GRES 字段均为 (null)。
+这表示当前 sinfo 快照没有显示 GPU/GRES 资源信息。
+不能据此断言集群一定没有 GPU；只能说明这份快照没有提供 GPU partition 或 GRES 信息。
+如果用户要跑 GPU 作业，应进一步使用集群文档、管理员说明或 GPU 专用 sinfo 命令确认。
+
+推荐查询命令：
+
+查看 partition 摘要：
+sinfo -s
+
+查看 partition、状态、时间限制、GRES 和节点：
+sinfo -o "%P %.10a %.12l %.8D %.8t %.16G %N"
+
+查看 partition 详细配置：
+scontrol show partition
+
+查看当前用户作业：
+squeue -u $USER
+
+查看指定作业：
+squeue -j job_id
+
+查看作业详细信息：
+scontrol show job job_id
+
+查看历史作业资源使用：
+sacct -j job_id --format=JobID,JobName,State,ExitCode,Elapsed,MaxRSS
+
+节点状态解释：
+idle 表示空闲节点，通常可以调度新作业。
+alloc 表示节点已被作业分配。
+comp 表示节点上的作业正在完成。
+down 表示节点不可用。
+drain 表示节点被管理员设置为不再接收新作业，通常用于维护或故障处理。
+boot 表示节点正在启动或恢复。
+状态后缀如 *、@、^ 是 Slurm 节点状态标记，具体含义以 Slurm 文档和管理员说明为准。
+
+常见问答：
+
+问题：我应该提交到哪个 partition？
+回答：
+根据当前快照，正式 CPU/VASP 计算优先考虑 amd_256；短时间测试优先考虑 amd_test。
+all 当前为 inactive，不建议作为默认分区。
+
+问题：amd_test 能跑多长时间？
+回答：
+amd_test 的 MaxTime 是 00:30:00，最长 30 分钟。
+
+问题：amd_256 的时间限制是多少？
+回答：
+当前快照中 amd_256 的 TIMELIMIT 和 MaxTime 为 infinite / UNLIMITED。
+实际可提交时长仍可能受账号、QOS 或管理员策略影响。
+
+问题：为什么作业一直 PD？
+回答：
+应先查看：
+squeue -j job_id -o "%.18i %.9P %.20j %.8u %.2t %.10M %.6D %R"
+scontrol show job job_id
+如果 reason 是 Resources，可能是申请资源过多或当前资源不足。
+如果使用 amd_test，注意该分区只有 4 个节点且最长 30 分钟。
+如果指定 all，注意当前快照中 all 是 inactive。
+
+问题：能否运行 GPU 作业？
+回答：
+当前 sinfo 快照 GRES 为 (null)，没有显示 GPU 资源信息。
+不能直接确认 GPU 可用。需要进一步查看 GPU 分区文档、管理员说明或执行更具体的 GPU 查询命令。
+
+问题：VASP 作业适合哪个分区？
+回答：
+如果是正式 VASP CPU 计算，优先考虑 amd_256。
+如果只是测试 VASP 脚本、环境或输入文件检查，可以使用 amd_test，但 time limit 不能超过 30 分钟。
+
+示例：amd_test 短测试 sbatch
+#!/bin/bash
+#SBATCH --job-name=hpc_test
+#SBATCH --partition=amd_test
+#SBATCH --time=00:10:00
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --output=%x_%j.out
+#SBATCH --error=%x_%j.err
+
+hostname
+
+示例：amd_256 普通 CPU sbatch
+#!/bin/bash
+#SBATCH --job-name=cpu_job
+#SBATCH --partition=amd_256
+#SBATCH --time=01:00:00
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=32
+#SBATCH --output=%x_%j.out
+#SBATCH --error=%x_%j.err
+
+python script.py
+
+注意事项：
+1. partition、节点状态、空闲节点数会变化。
+2. all 虽然出现在 sinfo 中，但当前快照显示 inactive。
+3. amd_test 适合短测试，不适合长作业。
+4. amd_256 是主要可用计算分区，但仍可能因为资源不足、优先级或账号限制而 Pending。
+5. 当前快照没有提供 GPU/GRES 资源，回答 GPU 问题时应保持保守。
+6. 不要编造 account、QOS、GPU 型号或节点硬件细节。

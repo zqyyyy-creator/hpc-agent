@@ -1,6 +1,7 @@
 from tests import _bootstrap  # noqa: F401
 
 from modules.core import agent_runtime
+from modules.skills import skill_executor
 from modules.core.agent_runtime import (
     can_answer_intent,
     can_preview_cleanup_intent,
@@ -22,6 +23,7 @@ class DummyDiagnoser:
 
 def test_can_answer_intent_marks_only_answer_intents():
     assert can_answer_intent("shortcut_help")
+    assert can_answer_intent("project_doctor")
     assert can_answer_intent("generate_sbatch")
     assert can_answer_intent("current_config")
     assert can_answer_intent("check_hpc_config")
@@ -48,6 +50,114 @@ def test_execute_shortcut_help_returns_static_help():
     assert result.intent == "shortcut_help"
     assert "/vasp gen <name>" in result.answer
     assert "POTCAR" in result.answer
+
+
+def test_execute_registered_skill_intent_exposes_skill_metadata():
+    result = execute_answer_intent(
+        "生成一个 sbatch 脚本运行 python train.py",
+        "generate_sbatch",
+        documents=[],
+        sources=[],
+        diagnoser=DummyDiagnoser(),
+        state=None,
+    )
+
+    assert result.handled
+    assert result.data["skill"]["name"] == "generate-sbatch"
+    assert result.data["skill"]["type"] == "tool"
+    assert result.data["skill"]["handler"] == "modules.slurm.slurm_assistant.generate_sbatch_script"
+    assert result.data["runtime"]["adapter"] == "question_to_text"
+    assert result.data["runtime"]["handler"] == "modules.slurm.slurm_assistant.generate_sbatch_script"
+
+
+def test_execute_registered_skill_falls_back_to_rag_when_handler_fails():
+    original_execute_skill = agent_runtime.execute_skill
+    original_ask_llm = agent_runtime.ask_llm
+
+    def failing_execute_skill(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    try:
+        agent_runtime.execute_skill = failing_execute_skill
+        agent_runtime.ask_llm = lambda question, docs, conversation_state=None: "fallback answer"
+        result = execute_answer_intent(
+            "amd_test 能跑多久",
+            "generate_sbatch",
+            documents=["amd_test 最大运行时间 30 分钟"],
+            sources=["cluster_sinfo_bscc_a.txt#chunk0"],
+            diagnoser=DummyDiagnoser(),
+            state=None,
+        )
+    finally:
+        agent_runtime.execute_skill = original_execute_skill
+        agent_runtime.ask_llm = original_ask_llm
+
+    assert result.handled
+    assert result.success
+    assert result.data["skill_fallback"]
+    assert result.data["failed_skill"]["name"] == "generate-sbatch"
+    assert "已切换到知识库回答" in result.answer
+    assert "fallback answer" in result.answer
+
+
+def test_execute_tool_dispatch_skill_uses_dispatch_adapter():
+    original_dispatch = skill_executor.dispatch_tool_request
+
+    class FakeDispatchResult:
+        success = True
+        message = "job output text"
+        data = {"job_id": "12345"}
+
+    try:
+        skill_executor.dispatch_tool_request = lambda *args, **kwargs: FakeDispatchResult()
+        result = execute_answer_intent(
+            "读取 12345 的输出",
+            "job_output",
+            documents=[],
+            sources=[],
+            diagnoser=DummyDiagnoser(),
+            state=ConversationState(),
+        )
+    finally:
+        skill_executor.dispatch_tool_request = original_dispatch
+
+    assert result.handled
+    assert result.success
+    assert result.answer == "job output text"
+    assert result.data["runtime"]["adapter"] == "tool_dispatch"
+    assert result.data["skill"]["name"] == "inspect-job"
+    assert result.data["live_log"] == "job output text"
+
+
+def test_execute_project_doctor_intent_formats_health_report():
+    original_run_project_doctor = agent_runtime.run_project_doctor
+
+    try:
+        agent_runtime.run_project_doctor = lambda **kwargs: {
+            "success": True,
+            "sections": {
+                "project_paths": {"success": True, "checks": [{"ok": True, "label": ".env", "detail": "存在"}]},
+                "hpc_environment": {"success": True, "checks": [{"ok": True, "label": "HPC_HOST", "detail": "set"}]},
+                "rag_documents": {"success": True, "checks": [{"ok": True, "label": "RAG chunks", "detail": "10 chunks"}]},
+                "skill_registry": {"success": True, "checks": [{"ok": True, "label": "Skill count", "detail": "8 skills"}]},
+                "local_resources": {"success": True, "checks": [{"ok": True, "label": "CPU", "detail": "4 logical cores"}]},
+            },
+        }
+        result = execute_answer_intent(
+            "/doctor",
+            "project_doctor",
+            documents=[],
+            sources=[],
+            diagnoser=DummyDiagnoser(),
+            state=None,
+        )
+    finally:
+        agent_runtime.run_project_doctor = original_run_project_doctor
+
+    assert result.handled
+    assert result.success
+    assert "HPC Agent 总体体检" in result.answer
+    assert "RAG 文档" in result.answer
 
 
 def test_can_preview_cleanup_intent_marks_cleanup_intents():
@@ -205,7 +315,7 @@ def test_execute_restore_preview_returns_pending_action():
 
 
 def test_execute_job_output_returns_job_id_and_live_log():
-    original_dispatch = agent_runtime.dispatch_tool_request
+    original_dispatch = skill_executor.dispatch_tool_request
 
     class FakeDispatchResult:
         success = True
@@ -213,7 +323,7 @@ def test_execute_job_output_returns_job_id_and_live_log():
         data = {"job_id": "12345"}
 
     try:
-        agent_runtime.dispatch_tool_request = lambda *args, **kwargs: FakeDispatchResult()
+        skill_executor.dispatch_tool_request = lambda *args, **kwargs: FakeDispatchResult()
         result = execute_answer_intent(
             "看 12345 的输出",
             "job_output",
@@ -223,13 +333,14 @@ def test_execute_job_output_returns_job_id_and_live_log():
             state=None,
         )
     finally:
-        agent_runtime.dispatch_tool_request = original_dispatch
+        skill_executor.dispatch_tool_request = original_dispatch
 
     assert result.handled
     assert result.success
     assert result.answer == "output text"
     assert result.data["job_id"] == "12345"
     assert result.data["live_log"] == "output text"
+    assert result.data["runtime"]["adapter"] == "tool_dispatch"
 
 
 def test_execute_cleanup_preview_returns_pending_payload():
@@ -377,10 +488,16 @@ def test_execute_vasp_submit_preview_keeps_auto_analyze():
 
 
 def test_execute_vasp_input_existing_files_returns_overwrite_pending_action():
-    original = agent_runtime.generate_vasp_inputs_from_potcar_request
+    handler_module = skill_executor._import_dotted_path(
+        "modules.vasp.vasp_input_generator.generate_vasp_inputs_from_potcar_request"
+    ).__module__
+    import importlib
+
+    module = importlib.import_module(handler_module)
+    original = module.generate_vasp_inputs_from_potcar_request
 
     try:
-        agent_runtime.generate_vasp_inputs_from_potcar_request = lambda question: {
+        module.generate_vasp_inputs_from_potcar_request = lambda question: {
             "success": False,
             "message": "没有写入文件，因为作业目录中已经存在 VASP 配置文件。",
             "job_dir": "/tmp/MgO_test",
@@ -395,10 +512,12 @@ def test_execute_vasp_input_existing_files_returns_overwrite_pending_action():
             state=ConversationState(),
         )
     finally:
-        agent_runtime.generate_vasp_inputs_from_potcar_request = original
+        module.generate_vasp_inputs_from_potcar_request = original
 
     assert result.handled
     assert not result.success
+    assert result.data["runtime"]["adapter"] == "structured_result"
+    assert result.data["skill"]["name"] == "generate-vasp-inputs"
     assert result.data["pending_action"]["kind"] == "generate_vasp_inputs_overwrite"
     assert result.data["pending_action"]["payload"]["job_dir"] == "/tmp/MgO_test"
     assert "确认覆盖" in result.answer
@@ -406,6 +525,8 @@ def test_execute_vasp_input_existing_files_returns_overwrite_pending_action():
 
 if __name__ == "__main__":
     test_can_answer_intent_marks_only_answer_intents()
+    test_execute_registered_skill_intent_exposes_skill_metadata()
+    test_execute_tool_dispatch_skill_uses_dispatch_adapter()
     test_can_preview_cleanup_intent_marks_cleanup_intents()
     test_can_preview_submit_intent_marks_submit_intents()
     test_execute_clarify_intent_does_not_need_llm()

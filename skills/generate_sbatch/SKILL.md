@@ -1,6 +1,12 @@
 ---
 name: generate-sbatch
 description: Generate a safe Slurm sbatch script for HPC jobs based on user requirements.
+type: tool
+intents:
+  - generate_sbatch
+handler: modules.slurm.slurm_assistant.generate_sbatch_script
+runtime:
+  adapter: question_to_text
 metadata:
   version: "0.1"
   author: "HPC Agent"

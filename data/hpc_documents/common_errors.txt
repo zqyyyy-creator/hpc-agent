@@ -1,3 +1,8 @@
+元数据：
+topic: slurm, pending, gpu, environment, storage
+scope: generic
+dynamic: false
+
 标题：Slurm 与 HPC 常见错误知识库
 
 关键词：

@@ -1,0 +1,70 @@
+元数据：
+topic: storage
+scope: generic
+dynamic: false
+
+标题：HPC 存储空间、配额与文件清理
+
+关键词：
+HPC, storage, quota, df, du, disk full, No space left on device, scratch, home, work, 文件配额, 磁盘空间, 清理文件
+
+说明：
+HPC 集群通常有多个文件系统，例如 home、work、scratch 或 project。
+不同目录的容量、配额、备份策略和清理策略可能不同，应以当前集群文档为准。
+
+查看文件系统空间：
+df -h
+
+查看当前目录大小：
+du -sh .
+
+查看子目录大小：
+du -h --max-depth=1
+
+查看用户配额：
+quota -s
+
+查看当前目录文件：
+ls -lh
+
+查找大文件：
+find . -type f -size +1G -ls
+
+常见错误：No space left on device
+说明：
+文件系统空间不足，或者用户配额已满。
+
+常见错误：Disk quota exceeded
+说明：
+用户达到当前文件系统的配额限制。
+
+常见原因：
+1. 输出日志过大
+2. 中间结果、checkpoint、模型文件过多
+3. VASP 输出文件过大，例如 WAVECAR、CHGCAR、vasprun.xml
+4. scratch 或临时目录被大量文件占满
+5. 作业反复运行但没有清理旧结果
+
+常见处理：
+1. 使用 du -h --max-depth=1 找出大目录
+2. 压缩需要保留的文本结果
+3. 移动长期保留文件到合适的项目目录
+4. 删除前确认文件不再需要
+5. 对大输出文件设置合理的同步和保留策略
+
+安全清理原则：
+不要直接执行 rm -rf，除非已经确认路径和文件内容。
+清理前建议先使用 ls、du、find 查看目标。
+对于 VASP，删除 WAVECAR、CHGCAR、AECCAR、vasprun.xml 前应确认后续不需要续算或后处理。
+
+常用排查命令：
+pwd
+df -h .
+quota -s
+du -h --max-depth=1
+find . -type f -size +1G -ls
+
+补充说明：
+home 目录通常适合放代码和小配置文件。
+scratch 或 work 目录通常适合放计算输入、输出和临时大文件。
+具体目录名称和清理策略因集群而异，不要假设所有集群都有相同路径。

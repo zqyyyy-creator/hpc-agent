@@ -1,0 +1,76 @@
+元数据：
+topic: logs, slurm
+scope: generic
+dynamic: false
+
+标题：Slurm 输出文件、错误日志与作业结果查看
+
+关键词：
+Slurm, stdout, stderr, output, error, log, tail, cat, less, %x, %j, slurm.out, slurm.err, 查看日志, 标准输出, 标准错误
+
+说明：
+Slurm 作业的程序输出通常写入 stdout 文件，错误信息通常写入 stderr 文件。
+在 sbatch 脚本中可以使用 #SBATCH --output 和 #SBATCH --error 指定输出路径。
+
+常用输出设置：
+#SBATCH --output=%x_%j.out
+#SBATCH --error=%x_%j.err
+
+含义：
+%x 表示作业名
+%j 表示 Job ID
+
+示例：
+如果作业名是 train，Job ID 是 12345，则输出文件可能是：
+train_12345.out
+train_12345.err
+
+查看完整输出：
+cat train_12345.out
+cat train_12345.err
+
+分页查看：
+less train_12345.out
+less train_12345.err
+
+查看最后几行：
+tail train_12345.out
+tail train_12345.err
+
+实时查看正在增长的日志：
+tail -f train_12345.out
+tail -f train_12345.err
+
+查看作业状态：
+squeue -j job_id
+
+查看历史状态：
+sacct -j job_id --format=JobID,JobName,State,ExitCode,Elapsed,MaxRSS
+
+常见情况：没有输出文件
+可能原因：
+1. 作业还没有开始运行
+2. 作业刚开始但程序还没有输出
+3. 输出路径写错或目录不存在
+4. 程序输出被重定向到其他文件
+5. 作业提交失败，没有真正进入队列
+
+常见情况：out 文件为空，err 文件有报错
+说明：
+程序可能在启动阶段失败，例如环境错误、文件找不到、权限不足、Python 包缺失。
+
+常见情况：err 文件为空，但作业失败
+说明：
+有些程序把错误写到 stdout，或者 Slurm 只在 sacct 中记录失败状态。
+应同时查看 out、err 和 sacct。
+
+常见排查命令：
+squeue -j job_id
+sacct -j job_id --format=JobID,JobName,State,ExitCode,Elapsed,MaxRSS
+ls -lh
+tail -n 100 output_file
+tail -n 100 error_file
+
+注意事项：
+建议不要把所有作业都写到同一个 output 文件，否则多个作业的日志会混在一起。
+推荐使用 %x_%j.out 和 %x_%j.err，便于按作业名和 Job ID 定位日志。

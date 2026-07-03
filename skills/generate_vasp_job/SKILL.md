@@ -1,6 +1,12 @@
 ---
 name: generate-vasp-job
 description: Generate a safe minimal Slurm sbatch script for VASP jobs.
+type: tool
+intents:
+  - generate_vasp_job
+handler: modules.vasp.vasp_assistant.generate_vasp_sbatch_script
+runtime:
+  adapter: question_to_text
 metadata:
   version: "0.1"
   author: "HPC Agent"

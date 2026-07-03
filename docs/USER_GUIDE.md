@@ -7,8 +7,8 @@
 ## 1. 功能总览
 
 ### Slurm / HPC 知识问答
-* 基于 RAG（TF-IDF + LLM）检索知识库文档
-* 知识库覆盖：集群信息、常见错误、GPU 使用、sbatch 提交、作业状态、作业取消
+* 基于 RAG（TF-IDF + BM25 + query expansion + metadata boost + LLM）检索知识库文档，检索层已预留 hybrid/semantic 扩展接口
+* 知识库覆盖：集群信息、常见错误、GPU 使用、CUDA 排错、sbatch 提交、作业状态、Pending 排查、日志查看、软件环境、存储配额、作业取消、VASP 排错与 VASP 工作流
 
 ### 普通 Slurm 作业
 * 根据自然语言生成普通 sbatch 脚本
@@ -1105,14 +1105,116 @@ GPU 作业怎么提交
 
 ### 工作原理
 
-1. 用户问题通过 jieba 分词后，用 TF-IDF 向量化
-2. 在知识库文档（`data/hpc_documents/`）中做余弦相似度检索
-3. 检索到最相关的 3 个文本块后，交给 `PARATERA_MODEL` 配置的模型生成自然语言回答
-4. 回答以中文为主，力求简洁准确
+1. 知识库文档（`data/hpc_documents/`）会按标题、关键词和段落合并成带上下文的 chunk
+2. 用户问题会先做规则化 query expansion，把“卡住、没输出、显卡、配额、势函数”等口语表达扩展为 HPC/Slurm/VASP 术语
+3. 检索层同时计算 TF-IDF 和内置 BM25 分数，并对标题、关键词、主题等字段做 field weighting
+4. 检索结果会叠加轻量关键词重叠分数和 topic metadata boost，例如 VASP、GPU、Pending、cluster、environment 等
+5. top-k 结果会做同文件限制，避免上下文全部来自同一份文档
+6. 检索层保留 `semantic_retrieve()` 扩展点，后续可接 embedding / vector store 做真正 hybrid 检索
+7. 取最相关的文本块后，交给 `PARATERA_MODEL` 配置的模型生成自然语言回答
+8. 回答以中文为主，力求简洁准确
+
+### 知识库文档 metadata
+
+每个 `data/hpc_documents/*.txt` 可以在文件开头声明 metadata：
+
+```text
+元数据：
+topic: cluster, slurm
+scope: bscc-a
+dynamic: true
+```
+
+常用 topic 包括：
+
+```text
+cluster, slurm, pending, gpu, environment, storage, logs, vasp
+```
+
+`topic` 会参与 metadata boost；例如用户问 Pending 相关问题时，`topic: pending` 的文档会优先于宽泛的通用错误文档。`scope` 用于标记 generic 或集群名，`dynamic` 用于标记是否是 `sinfo` 这类会随时间变化的快照信息。
+
+### RAG 检索调试
+
+可以使用调试工具查看路由、命中文档和分数：
+
+```bash
+.venv/bin/python tools/rag_debug.py "BSCC-A 上正式 VASP 作业应该提交到哪个 partition"
+```
+
+常用参数：
+
+```bash
+.venv/bin/python tools/rag_debug.py "我的作业一直 PD，应该怎么查原因？" --top-k 3 --preview-chars 160
+.venv/bin/python tools/rag_debug.py "amd_test 能跑多久" --json
+```
+
+可以使用 RAG fixture 评测工具检查检索基准：
+
+```bash
+.venv/bin/python tools/rag_eval.py --top-k 3
+```
+
+默认评测集位于：
+
+```text
+tests/fixtures/rag_cases.json
+```
 
 ---
 
-## 22. 测试和检查
+## 22. Skills Registry
+
+HPC Agent 的 skill 定义位于：
+
+```text
+skills/*/SKILL.md
+```
+
+每个 skill 的 frontmatter 需要声明：
+
+```yaml
+---
+name: generate-sbatch
+description: Generate a safe Slurm sbatch script for HPC jobs based on user requirements.
+type: tool
+intents:
+  - generate_sbatch
+handler: modules.slurm.slurm_assistant.generate_sbatch_script
+metadata:
+  version: "0.1"
+  author: "HPC Agent"
+---
+```
+
+当前支持三类 skill：
+
+```text
+tool   = Python 函数型能力，例如 generate-sbatch
+prompt = Prompt/Claude Code 指令型能力，例如 vasp-report
+rule   = 规则/知识库型能力，例如 diagnose-error
+```
+
+查看全部 skill：
+
+```bash
+.venv/bin/python tools/skill_debug.py
+```
+
+按 intent 查询 skill：
+
+```bash
+.venv/bin/python tools/skill_debug.py --intent generate_vasp_report --validate
+```
+
+验证所有 handler 是否可 import：
+
+```bash
+.venv/bin/python tools/skill_debug.py --validate
+```
+
+---
+
+## 23. 测试和检查
 
 ### 本地全量检查
 

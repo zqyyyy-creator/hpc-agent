@@ -1,6 +1,16 @@
 ---
 name: vasp-report
 description: Generate publication-oriented VASP reports from analysis/report_context.md, including user diagnostics and manuscript-safe methods/results notes without reading large raw output files.
+type: prompt
+intents:
+  - generate_vasp_report
+handler: modules.vasp.claude_code_reporter.generate_report_with_claude
+runtime:
+  adapter: question_to_text
+  handler: modules.slurm.job_query.generate_vasp_report
+metadata:
+  version: "0.1"
+  author: "HPC Agent"
 ---
 
 # VASP Report Skill

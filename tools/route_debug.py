@@ -14,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from modules.routing.router import analyze_intent, analyze_plan, detect_intent, get_intent_risk, is_rule_confident  # noqa: E402
 from modules.routing.tool_dispatcher import can_dispatch_intent, _intent_from_tool_call  # noqa: E402
+from modules.skills.skill_registry import load_skill_registry  # noqa: E402
 
 
 ENTRYPOINT_INTENTS = {
@@ -24,21 +25,59 @@ ENTRYPOINT_INTENTS = {
     "list_remote_jobs",
     "list_remote_vasp_jobs",
     "suggest_params",
+    "check_local_resources",
+    "project_doctor",
     "diagnose_error",
     "troubleshoot_job",
     "rag_qa",
     "clarify",
 }
 
+_SKILL_REGISTRY = None
+
 
 def _dispatch_path(intent: str) -> str:
     if can_dispatch_intent(intent):
         return "tool_dispatcher"
 
+    registry = _get_skill_registry()
+    if registry is not None and registry.get_by_intent(intent):
+        return "entrypoint_handler"
+
     if intent in ENTRYPOINT_INTENTS:
         return "entrypoint_handler"
 
     return "unknown"
+
+
+def _get_skill_registry():
+    global _SKILL_REGISTRY
+    if _SKILL_REGISTRY is None:
+        try:
+            _SKILL_REGISTRY = load_skill_registry()
+        except Exception:
+            _SKILL_REGISTRY = False
+    return _SKILL_REGISTRY or None
+
+
+def _skill_for_intent(intent: str) -> dict[str, Any] | None:
+    registry = _get_skill_registry()
+    if registry is None:
+        return None
+
+    skill = registry.get_by_intent(intent)
+    if skill is None:
+        return None
+
+    return {
+        "name": skill.name,
+        "type": skill.type,
+        "intents": list(skill.intents),
+        "handler": skill.handler,
+        "runtime": dict(skill.runtime),
+        "path": str(skill.path),
+        "description": skill.description,
+    }
 
 
 def analyze_route(question: str, *, include_llm: bool = False) -> dict[str, Any]:
@@ -58,12 +97,14 @@ def analyze_route(question: str, *, include_llm: bool = False) -> dict[str, Any]
             "skipped_rules": decision.skipped_rules,
             "needs_clarification": decision.needs_clarification,
             "clarification": decision.clarification,
+            "skill": _skill_for_intent(rule_intent),
         },
         "final": {
             "intent": rule_intent,
             "source": "rules" if rule_intent != "rag_qa" else "rag_qa",
             "dispatch_path": _dispatch_path(rule_intent),
             "risk": decision.risk,
+            "skill": _skill_for_intent(rule_intent),
         },
     }
 
@@ -81,6 +122,7 @@ def analyze_route(question: str, *, include_llm: bool = False) -> dict[str, Any]
                     "condition": step.condition,
                     "needs_clarification": step.needs_clarification,
                     "clarification": step.clarification,
+                    "skill": _skill_for_intent(step.intent),
                 }
                 for step in plan.steps
             ],
@@ -90,6 +132,7 @@ def analyze_route(question: str, *, include_llm: bool = False) -> dict[str, Any]
             "source": "rules",
             "dispatch_path": "entrypoint_handler",
             "risk": plan.risk,
+            "skill": None,
         }
 
     if not include_llm:
@@ -124,11 +167,13 @@ def analyze_route(question: str, *, include_llm: bool = False) -> dict[str, Any]
     result["llm"]["tool_call"] = tool_call.to_dict()
     result["llm"]["intent"] = llm_intent
     result["llm"]["dispatch_path"] = _dispatch_path(llm_intent)
+    result["llm"]["skill"] = _skill_for_intent(llm_intent)
     result["final"] = {
         "intent": llm_intent,
         "source": "llm",
         "dispatch_path": _dispatch_path(llm_intent),
         "risk": get_intent_risk(llm_intent),
+        "skill": _skill_for_intent(llm_intent),
     }
     return result
 
@@ -143,9 +188,12 @@ def _print_text(report: dict[str, Any]) -> None:
         print(f"plan risk: {plan['risk']}")
         for step in plan["steps"]:
             condition = f"; condition={step['condition']}" if step.get("condition") else ""
+            skill = step.get("skill")
+            skill_text = f"; skill={skill['name']} ({skill['type']})" if skill else ""
             print(
                 f"plan step {step['index']}: intent={step['intent']}; "
-                f"risk={step['risk']}{condition}; text={step['text']}; route_text={step['route_text']}"
+                f"risk={step['risk']}{condition}{skill_text}; "
+                f"text={step['text']}; route_text={step['route_text']}"
             )
 
     rule = report["rule"]
@@ -154,6 +202,11 @@ def _print_text(report: dict[str, Any]) -> None:
     print(f"rule dispatch path: {rule['dispatch_path']}")
     print(f"rule risk: {rule['risk']}")
     print(f"rule reason: {rule['reason']}")
+    if rule.get("skill"):
+        print(f"rule skill: {rule['skill']['name']} ({rule['skill']['type']})")
+        print(f"rule skill handler: {rule['skill']['handler']}")
+        if rule["skill"].get("runtime"):
+            print(f"rule skill runtime: {json.dumps(rule['skill']['runtime'], ensure_ascii=False)}")
     print(f"matched keywords: {', '.join(rule['matched_keywords']) or '-'}")
     print(f"skipped rules: {', '.join(rule['skipped_rules']) or '-'}")
     if rule.get("needs_clarification"):
@@ -174,6 +227,11 @@ def _print_text(report: dict[str, Any]) -> None:
     else:
         print(f"llm intent: {llm['intent']}")
         print(f"llm dispatch path: {llm['dispatch_path']}")
+        if llm.get("skill"):
+            print(f"llm skill: {llm['skill']['name']} ({llm['skill']['type']})")
+            print(f"llm skill handler: {llm['skill']['handler']}")
+            if llm["skill"].get("runtime"):
+                print(f"llm skill runtime: {json.dumps(llm['skill']['runtime'], ensure_ascii=False)}")
         print(f"llm tool call: {json.dumps(llm['tool_call'], ensure_ascii=False)}")
 
     final = report["final"]
@@ -181,6 +239,11 @@ def _print_text(report: dict[str, Any]) -> None:
     print(f"final source: {final['source']}")
     print(f"final dispatch path: {final['dispatch_path']}")
     print(f"final risk: {final['risk']}")
+    if final.get("skill"):
+        print(f"final skill: {final['skill']['name']} ({final['skill']['type']})")
+        print(f"final skill handler: {final['skill']['handler']}")
+        if final["skill"].get("runtime"):
+            print(f"final skill runtime: {json.dumps(final['skill']['runtime'], ensure_ascii=False)}")
 
 
 def main() -> int:

@@ -1,0 +1,90 @@
+元数据：
+topic: vasp
+scope: generic
+dynamic: false
+
+标题：VASP 常见错误与排查
+
+关键词：
+VASP, OUTCAR, OSZICAR, INCAR, POSCAR, POTCAR, KPOINTS, ZBRENT, EDDDAV, BRMIX, convergence, POTCAR error, WAVECAR, CHGCAR, VASP错误, 不收敛
+
+说明：
+VASP 计算失败通常需要同时查看 OUTCAR、OSZICAR、标准输出、标准错误和 Slurm 状态。
+不要只根据一个关键词下结论，应结合计算阶段、输入文件和收敛信息判断。
+
+基本检查文件：
+INCAR
+POSCAR
+POTCAR
+KPOINTS
+OUTCAR
+OSZICAR
+vasp.out
+
+检查作业是否被 Slurm 杀掉：
+sacct -j job_id --format=JobID,State,ExitCode,Elapsed,MaxRSS
+
+查看 VASP 输出尾部：
+tail -n 100 OUTCAR
+tail -n 100 OSZICAR
+tail -n 100 vasp.out
+
+常见问题：POTCAR 读取失败
+可能现象：
+POTCAR read error
+Error reading item
+forrtl: severe
+
+可能原因：
+1. POTCAR 文件为空或损坏
+2. POTCAR 不是有效 VASP 势文件
+3. POSCAR 元素顺序和 POTCAR 拼接顺序不一致
+4. 文件传输不完整
+
+处理建议：
+1. 检查 POTCAR 文件大小
+2. 确认 POTCAR 元素顺序与 POSCAR 一致
+3. 重新生成或重新上传 POTCAR
+4. 不要让模型生成 POTCAR 内容
+
+常见问题：电子步不收敛
+关键词：
+EDDDAV, BRMIX, DAV, reached required accuracy not reached
+
+可能原因：
+1. 初始结构不合理
+2. 电子收敛参数过紧或不合适
+3. 磁性、金属体系或电荷混合困难
+4. KPOINTS 或 INCAR 设置不合适
+
+处理建议：
+1. 检查结构是否有过短键长或异常原子位置
+2. 先做结构优化，再做静态计算
+3. 查看 OSZICAR 中电子步变化
+4. 必要时调整 INCAR 收敛和混合相关参数，但应结合体系和集群经验
+
+常见问题：离子步不收敛
+可能原因：
+1. 初始结构离平衡态太远
+2. 最大离子步数不足
+3. 约束或选择性动力学设置有问题
+4. 力收敛标准过严
+
+处理建议：
+1. 检查 OUTCAR 中最大力
+2. 检查 POSCAR 结构
+3. 增加离子步数或分阶段优化
+4. 先粗略优化，再提高精度
+
+常见问题：作业被 OOM 或 TIMEOUT 中断
+说明：
+这不是 VASP 物理错误，而是资源或时间不足。
+处理建议：
+1. 使用 sacct 查看 State、Elapsed、MaxRSS
+2. 增加内存或减少并行规模
+3. 增加 time limit
+4. 考虑从 WAVECAR/CHGCAR 续算，但先确认文件完整
+
+注意事项：
+VASP 报告中的数值结果应以确定性解析出的 OUTCAR/OSZICAR 信息为准。
+如果计算未收敛或中途失败，不应把中间结果当成可靠论文结果。

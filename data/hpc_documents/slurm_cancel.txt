@@ -1,3 +1,8 @@
+元数据：
+topic: slurm
+scope: generic
+dynamic: false
+
 标题：取消 Slurm 作业
 
 关键词：

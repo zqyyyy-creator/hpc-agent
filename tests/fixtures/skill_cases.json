@@ -1,0 +1,187 @@
+[
+  {
+    "text": "帮我生成一个 sbatch 脚本运行 python train.py",
+    "expected_intent": "generate_sbatch",
+    "expected_skill": "generate-sbatch",
+    "expected_adapter": "question_to_text",
+    "expected_risk": "generate_only",
+    "forbid_intents": ["submit_job", "submit_vasp_job", "cleanup_remote_job"],
+    "execute": true,
+    "expected_answer_contains": ["#SBATCH", "python train.py"]
+  },
+  {
+    "text": "只生成脚本运行 python train.py",
+    "expected_intent": "generate_sbatch",
+    "expected_skill": "generate-sbatch",
+    "expected_adapter": "question_to_text",
+    "forbid_intents": ["submit_job"],
+    "execute": true,
+    "expected_answer_contains": ["#SBATCH", "python train.py"]
+  },
+  {
+    "text": "给我一个 sbatch 脚本跑 python train.py",
+    "expected_intent": "generate_sbatch",
+    "expected_skill": "generate-sbatch",
+    "expected_adapter": "question_to_text",
+    "forbid_intents": ["submit_job"]
+  },
+  {
+    "text": "检查本机可用资源",
+    "expected_intent": "check_local_resources",
+    "expected_skill": "get-available-resources",
+    "expected_adapter": "question_to_text",
+    "expected_risk": "read_only",
+    "forbid_intents": ["suggest_params", "submit_job", "submit_vasp_job"],
+    "execute": true,
+    "expected_answer_contains": ["本地可用资源检测结果", "CPU:", "Memory:", "Resource JSON:"]
+  },
+  {
+    "text": "当前机器有多少 CPU 和内存",
+    "expected_intent": "check_local_resources",
+    "expected_skill": "get-available-resources",
+    "expected_adapter": "question_to_text",
+    "forbid_intents": ["suggest_params", "rag_qa"]
+  },
+  {
+    "text": "detect available resources",
+    "expected_intent": "check_local_resources",
+    "expected_skill": "get-available-resources",
+    "expected_adapter": "question_to_text",
+    "forbid_intents": ["suggest_params"]
+  },
+  {
+    "text": "查看 11814753 的状态",
+    "expected_intent": "job_status",
+    "expected_skill": "inspect-job",
+    "expected_adapter": "tool_dispatch",
+    "expected_risk": "read_only",
+    "forbid_intents": ["submit_job", "cleanup_remote_job"]
+  },
+  {
+    "text": "读取 11814753 的输出",
+    "expected_intent": "job_output",
+    "expected_skill": "inspect-job",
+    "expected_adapter": "tool_dispatch",
+    "expected_risk": "read_only",
+    "forbid_intents": ["submit_job", "cleanup_remote_job"]
+  },
+  {
+    "text": "读取 11814753 的错误日志",
+    "expected_intent": "job_error",
+    "expected_skill": "inspect-job",
+    "expected_adapter": "tool_dispatch",
+    "expected_risk": "read_only",
+    "forbid_intents": ["submit_job", "cleanup_remote_job"]
+  },
+  {
+    "text": "帮我生成一个 VASP 运行脚本",
+    "expected_intent": "generate_vasp_job",
+    "expected_skill": "generate-vasp-job",
+    "expected_adapter": "question_to_text",
+    "expected_risk": "generate_only",
+    "forbid_intents": ["submit_vasp_job", "cleanup_remote_vasp_job"],
+    "execute": true,
+    "expected_answer_contains": ["#SBATCH", "INCAR", "POTCAR"]
+  },
+  {
+    "text": "给我一个 VASP sbatch 脚本",
+    "expected_intent": "generate_vasp_job",
+    "expected_skill": "generate-vasp-job",
+    "expected_adapter": "question_to_text",
+    "forbid_intents": ["submit_vasp_job"]
+  },
+  {
+    "text": "帮我生成一个 VASP 结构优化脚本",
+    "expected_intent": "generate_vasp_job",
+    "expected_skill": "generate-vasp-job",
+    "expected_adapter": "question_to_text",
+    "forbid_intents": ["submit_vasp_job"]
+  },
+  {
+    "text": "帮我生成我的vasp作业Al_test的配置文件",
+    "expected_intent": "generate_vasp_inputs",
+    "expected_skill": "generate-vasp-inputs",
+    "expected_adapter": "structured_result",
+    "expected_risk": "generate_only",
+    "forbid_intents": ["generate_vasp_job", "submit_vasp_job"]
+  },
+  {
+    "text": "帮我生成 Al_test 的 VASP 输入，ENCUT 400，KPOINTS 2x2x2，静态计算",
+    "expected_intent": "generate_vasp_inputs",
+    "expected_skill": "generate-vasp-inputs",
+    "expected_adapter": "structured_result",
+    "forbid_intents": ["generate_vasp_job", "submit_vasp_job"]
+  },
+  {
+    "text": "CUDA out of memory",
+    "expected_intent": "diagnose_error",
+    "expected_skill": "diagnose-error",
+    "expected_adapter": "injected_diagnoser",
+    "expected_risk": "read_only",
+    "forbid_intents": ["submit_job", "submit_vasp_job", "cleanup_remote_job"],
+    "execute": true,
+    "expected_answer_contains": ["diagnosed: CUDA out of memory"]
+  },
+  {
+    "text": "slurmstepd: error: Detected 1 oom-kill event",
+    "expected_intent": "diagnose_error",
+    "expected_skill": "diagnose-error",
+    "expected_adapter": "injected_diagnoser",
+    "forbid_intents": ["submit_job", "submit_vasp_job"]
+  },
+  {
+    "text": "跑 VASP 结构优化需要多少核",
+    "expected_intent": "suggest_params",
+    "expected_skill": "suggest-params",
+    "expected_adapter": "question_to_text",
+    "expected_risk": "none",
+    "forbid_intents": ["submit_vasp_job", "generate_vasp_job"],
+    "execute": true,
+    "expected_answer_contains": ["建议使用以下 Slurm 参数", "#SBATCH --cpus-per-task"]
+  },
+  {
+    "text": "帮我看看需要多少核再提交",
+    "expected_intent": "suggest_params",
+    "expected_skill": "suggest-params",
+    "expected_adapter": "question_to_text",
+    "forbid_intents": ["submit_job", "submit_vasp_job"]
+  },
+  {
+    "text": "给我的 VASP 作业生成报告",
+    "expected_intent": "generate_vasp_report",
+    "expected_skill": "vasp-report",
+    "expected_adapter": "question_to_text",
+    "expected_runtime_handler": "modules.slurm.job_query.generate_vasp_report",
+    "expected_risk": "read_only",
+    "forbid_intents": ["generate_vasp_job", "submit_vasp_job", "analyze_vasp_job"]
+  },
+  {
+    "text": "帮我生成 VASP report.md 和 methods/results",
+    "expected_intent": "generate_vasp_report",
+    "expected_skill": "vasp-report",
+    "expected_adapter": "question_to_text",
+    "expected_runtime_handler": "modules.slurm.job_query.generate_vasp_report",
+    "forbid_intents": ["generate_vasp_job", "submit_vasp_job"]
+  },
+  {
+    "text": "帮我提交一个 VASP 结构优化任务，1 个节点 32 核",
+    "expected_intent": "submit_vasp_job",
+    "expected_skill": null,
+    "expected_risk": "confirm_required",
+    "forbid_intents": ["generate_vasp_job"]
+  },
+  {
+    "text": "怎么提交 VASP 作业",
+    "expected_intent": "rag_qa",
+    "expected_skill": null,
+    "expected_risk": "none",
+    "forbid_intents": ["submit_vasp_job", "generate_vasp_job"]
+  },
+  {
+    "text": "BSCC-A 超算有哪些 partition 资源",
+    "expected_intent": "rag_qa",
+    "expected_skill": null,
+    "expected_risk": "none",
+    "forbid_intents": ["check_local_resources"]
+  }
+]

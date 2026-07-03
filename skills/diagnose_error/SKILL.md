@@ -1,6 +1,12 @@
 ---
 name: diagnose-error
 description: Diagnose common HPC, Slurm, CUDA, Python, permission, memory, and runtime errors from user-provided logs.
+type: rule
+intents:
+  - diagnose_error
+handler: modules.knowledge.error_diagnoser.ErrorDiagnoser
+runtime:
+  adapter: injected_diagnoser
 metadata:
   version: "0.1"
   author: "HPC Agent"

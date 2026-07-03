@@ -1,0 +1,42 @@
+[
+  {
+    "query": "amd_test能跑多久",
+    "expected_sources": ["cluster_sinfo_bscc_a.txt"]
+  },
+  {
+    "query": "BSCC-A 上正式 VASP 作业应该提交到哪个 partition",
+    "expected_sources": ["cluster_sinfo_bscc_a.txt"]
+  },
+  {
+    "query": "作业卡住了一直不开始怎么办",
+    "expected_sources": ["slurm_pending.txt"]
+  },
+  {
+    "query": "我的作业一直 PD，应该怎么查原因？",
+    "expected_sources": ["slurm_pending.txt"]
+  },
+  {
+    "query": "sbatch 里 conda activate 不生效怎么办",
+    "expected_sources": ["environment_modules_conda.txt"]
+  },
+  {
+    "query": "CUDA out of memory 怎么办",
+    "expected_sources": ["gpu_cuda_troubleshooting.txt", "common_errors.txt"]
+  },
+  {
+    "query": "磁盘配额满了怎么办",
+    "expected_sources": ["storage_quota_files.txt"]
+  },
+  {
+    "query": "POTCAR 读取失败怎么办",
+    "expected_sources": ["vasp_troubleshooting.txt"]
+  },
+  {
+    "query": "怎么查看 stdout stderr 日志",
+    "expected_sources": ["slurm_output_logs.txt"]
+  },
+  {
+    "query": "VASP 算到一半停了，怎么判断是不是资源问题",
+    "expected_sources": ["vasp_troubleshooting.txt", "common_errors.txt"]
+  }
+]

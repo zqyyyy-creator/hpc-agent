@@ -39,6 +39,20 @@ def test_resource_questions_beat_submit_phrases():
         assert detect_intent(request) == expected_intent
 
 
+def test_cluster_partition_questions_route_to_rag():
+    cases = {
+        "amd_test能跑多久？": "rag_qa",
+        "amd_256 的时间限制是多少": "rag_qa",
+        "VASP 作业用哪个 partition": "rag_qa",
+        "BSCC-A 上正式 VASP 作业应该提交到哪个 partition": "rag_qa",
+        "BSCC-A 超算有哪些 partition 资源": "rag_qa",
+        "all 分区能用吗": "rag_qa",
+    }
+
+    for request, expected_intent in cases.items():
+        assert detect_intent(request) == expected_intent
+
+
 def test_unrelated_delete_or_local_cleanup_is_not_remote_cleanup():
     cases = {
         "删除本地临时文件": "rag_qa",
@@ -80,6 +94,17 @@ def test_preview_only_submit_routes_to_sbatch_generation():
     cases = {
         "不要提交，只生成脚本运行 python train.py": "generate_sbatch",
         "帮我提交 train.py，但先别运行": "generate_sbatch",
+    }
+
+    for request, expected_intent in cases.items():
+        assert detect_intent(request) == expected_intent
+
+
+def test_vasp_script_generation_does_not_trigger_submission():
+    cases = {
+        "帮我生成一个 VASP 运行脚本": "generate_vasp_job",
+        "给我一个 VASP sbatch 脚本": "generate_vasp_job",
+        "帮我提交一个 VASP 结构优化任务，1 个节点 32 核": "submit_vasp_job",
     }
 
     for request, expected_intent in cases.items():
@@ -159,6 +184,7 @@ if __name__ == "__main__":
     test_negated_actions_change_or_block_intent()
     test_file_named_test_py_routes_to_submit_not_test_generation()
     test_preview_only_submit_routes_to_sbatch_generation()
+    test_vasp_script_generation_does_not_trigger_submission()
     test_plan_output_step_references_previous_submit()
     test_ambiguous_requests_ask_for_clarification()
     test_route_decision_exposes_reason_keywords_and_risk()

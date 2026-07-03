@@ -8,11 +8,13 @@ from modules.core.environment_status import (
     format_current_model_and_config,
     format_hpc_environment_check,
 )
+from modules.core.project_doctor import format_project_doctor, run_project_doctor
 from modules.routing.router import expand_shortcut_command, get_clarification
 from modules.slurm.slurm_assistant import generate_sbatch_script, suggest_slurm_parameters
 from modules.routing.tool_dispatcher import dispatch_tool_request
+from modules.skills.skill_executor import SkillExecutionContext, execute_skill
+from modules.skills.skill_registry import SkillDefinition, load_skill_registry
 from modules.vasp.vasp_assistant import generate_vasp_sbatch_script
-from modules.vasp.vasp_input_generator import generate_vasp_inputs_from_potcar_request
 from modules.slurm.job_query import (
     analyze_vasp_job,
     diagnose_job_request,
@@ -36,6 +38,7 @@ ANSWER_INTENTS = {
     "rag_qa",
     "clarify",
     "shortcut_help",
+    "project_doctor",
     "generate_sbatch",
     "current_config",
     "check_hpc_config",
@@ -46,6 +49,7 @@ ANSWER_INTENTS = {
     "list_remote_jobs",
     "list_remote_vasp_jobs",
     "suggest_params",
+    "check_local_resources",
     "diagnose_error",
     "prepare_error_case",
     "diagnose_job",
@@ -86,10 +90,44 @@ CLEANUP_PENDING_DESCRIPTIONS = {
 }
 
 SUBMIT_PREVIEW_INTENTS = {"submit_job", "submit_vasp_job", "test_hpc_submission"}
+_SKILL_REGISTRY = None
 
 
 def can_preview_submit_intent(intent: str) -> bool:
     return intent in SUBMIT_PREVIEW_INTENTS
+
+
+def _get_skill_registry():
+    global _SKILL_REGISTRY
+    if _SKILL_REGISTRY is None:
+        try:
+            _SKILL_REGISTRY = load_skill_registry()
+        except Exception:
+            _SKILL_REGISTRY = False
+    return _SKILL_REGISTRY or None
+
+
+def _skill_info(skill: SkillDefinition) -> dict[str, Any]:
+    return {
+        "name": skill.name,
+        "type": skill.type,
+        "intents": list(skill.intents),
+        "handler": skill.handler,
+        "runtime": dict(skill.runtime),
+        "path": str(skill.path),
+        "description": skill.description,
+    }
+
+
+def get_skill_info_for_intent(intent: str) -> dict[str, Any] | None:
+    registry = _get_skill_registry()
+    if registry is None:
+        return None
+
+    skill = registry.get_by_intent(intent)
+    if skill is None:
+        return None
+    return _skill_info(skill)
 
 
 @dataclass
@@ -100,9 +138,160 @@ class AgentRuntimeResult:
     success: bool = True
     data: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        if not self.handled:
+            return
+
+        skill = get_skill_info_for_intent(self.intent)
+        if skill is not None:
+            self.data.setdefault("skill", skill)
+
 
 def can_answer_intent(intent: str) -> bool:
-    return intent in ANSWER_INTENTS
+    if intent in ANSWER_INTENTS:
+        return True
+
+    registry = _get_skill_registry()
+    return bool(registry and registry.get_by_intent(intent))
+
+
+def _execute_registered_skill(
+    question: str,
+    intent: str,
+    *,
+    documents,
+    sources,
+    diagnoser,
+    state,
+    current_job_id: str | None = None,
+) -> AgentRuntimeResult | None:
+    registry = _get_skill_registry()
+    if registry is None:
+        return None
+
+    skill = registry.get_by_intent(intent)
+    if skill is None:
+        return None
+
+    if (
+        skill.runtime.get("adapter") == "tool_dispatch"
+        and current_job_id
+        and intent in {"job_status", "job_output", "job_error"}
+        and state is not None
+        and not extract_job_id(question)
+    ):
+        state.record_job(current_job_id, metadata={"source": "ui_context"})
+
+    context = SkillExecutionContext(
+        question=question,
+        intent=intent,
+        state=state,
+        diagnoser=diagnoser,
+        documents=documents,
+        sources=sources,
+        current_job_id=current_job_id,
+    )
+    try:
+        result = execute_skill(skill, context)
+    except Exception as error:
+        return _fallback_after_skill_failure(
+            question,
+            intent,
+            skill,
+            error,
+            documents=documents,
+            sources=sources,
+            state=state,
+        )
+    else:
+        return AgentRuntimeResult(
+            True,
+            intent,
+            result.answer,
+            success=result.success,
+            data=result.data,
+        )
+
+
+def _fallback_after_skill_failure(
+    question: str,
+    intent: str,
+    skill: SkillDefinition,
+    error: Exception,
+    *,
+    documents,
+    sources,
+    state,
+) -> AgentRuntimeResult:
+    error_summary = f"{type(error).__name__}: {error}"
+    data = {
+        "skill_fallback": True,
+        "failed_skill": _skill_info(skill),
+        "error": error_summary,
+    }
+
+    try:
+        docs = retrieve(question, documents, sources)
+    except Exception as retrieve_error:
+        data["fallback_error"] = f"{type(retrieve_error).__name__}: {retrieve_error}"
+        return AgentRuntimeResult(
+            True,
+            intent,
+            "\n".join([
+                f"Skill `{skill.name}` 执行失败，尝试切换到知识库回答时也失败了。",
+                "",
+                f"Skill 错误: {error_summary}",
+                f"RAG 错误: {data['fallback_error']}",
+            ]),
+            success=False,
+            data=data,
+        )
+
+    if docs:
+        try:
+            fallback_answer = ask_llm(question, docs, conversation_state=state)
+        except Exception as llm_error:
+            data["fallback_error"] = f"{type(llm_error).__name__}: {llm_error}"
+            return AgentRuntimeResult(
+                True,
+                intent,
+                "\n".join([
+                    f"Skill `{skill.name}` 执行失败，已检索到知识库内容，但生成回答失败。",
+                    "",
+                    f"Skill 错误: {error_summary}",
+                    f"回答生成错误: {data['fallback_error']}",
+                ]),
+                success=False,
+                data=data,
+            )
+
+        data["fallback_retrieval"] = [
+            {"source": item.get("source"), "score": item.get("score")}
+            for item in docs
+        ]
+        return AgentRuntimeResult(
+            True,
+            intent,
+            "\n".join([
+                f"Skill `{skill.name}` 执行失败，已切换到知识库回答。",
+                "",
+                fallback_answer,
+            ]),
+            success=True,
+            data=data,
+        )
+
+    return AgentRuntimeResult(
+        True,
+        intent,
+        "\n".join([
+            f"Skill `{skill.name}` 执行失败，当前没有检索到可用知识库内容，未执行原操作。",
+            "",
+            f"错误: {error_summary}",
+        ]),
+        success=False,
+        data=data,
+    )
 
 
 def can_preview_cleanup_intent(intent: str) -> bool:
@@ -121,6 +310,8 @@ def format_shortcut_help(question: str = "") -> str:
             "/job err <job_id>           读取错误日志",
             "/job detail <job_id>        查看作业详情",
             "/job diagnose <job_id>      诊断作业",
+            "/job monitor <job_id>       开始在 TUI 右侧监控 Job",
+            "/job stop-monitor <job_id>  取消 TUI 右侧监控",
             "/job records                查看本地作业记录状态",
             "/job archive --keep 100     预览归档本地作业记录",
             "/job archives               查看归档记录",
@@ -134,7 +325,9 @@ def format_shortcut_help(question: str = "") -> str:
             "VASP 快捷命令",
             "",
             "/vasp list                  列出本地记录的 VASP 作业",
+            "/vasp jobs                  列出本地记录的 VASP 作业",
             "/vasp gen <name>            根据已有 POTCAR 生成 INCAR/KPOINTS/POSCAR",
+            "/vasp inputs <name>         根据已有 POTCAR 生成 INCAR/KPOINTS/POSCAR",
             "/vasp gen <name> --encut 400 --kpoints 2x2x2 --type static",
             "/vasp submit <name>         提交 VASP 作业",
             "/vasp sync <job_id>         同步 VASP 输出到本地",
@@ -169,21 +362,62 @@ def format_shortcut_help(question: str = "") -> str:
             "说明: 配置输出会隐藏 API Key 明文。",
         ])
 
+    if normalized == "/helpskill" or normalized == "/skilllist":
+        registry = _get_skill_registry()
+        lines = [
+            "Skill 快捷命令",
+            "",
+            "/skill list                 查看已注册 Skill",
+            "/skill route <question>     查看一句话会被路由到哪个 Skill",
+            "",
+        ]
+        if registry is None:
+            lines.append("当前 SkillRegistry 加载失败，请运行：.venv/bin/python tools/skill_debug.py --validate")
+            return "\n".join(lines)
+
+        lines.append("当前已注册 Skill:")
+        for skill in sorted(registry.all(), key=lambda item: item.name):
+            lines.append(f"- {skill.name}: {', '.join(skill.intents)}")
+        lines.extend([
+            "",
+            "完整校验命令: .venv/bin/python tools/skill_debug.py --validate",
+        ])
+        return "\n".join(lines)
+
+    if normalized.startswith("/skillroute"):
+        route_text = question.strip()[len("/skill route"):].strip()
+        if route_text:
+            return "\n".join([
+                "Skill 路由调试",
+                "",
+                f"待检查问题: {route_text}",
+                "",
+                "在终端运行:",
+                f'.venv/bin/python tools/skill_debug.py --route "{route_text}" --validate',
+            ])
+        return "用法: /skill route <question>"
+
     return "\n".join([
         "常用快捷命令",
         "",
         "/job recent                 查看最近作业",
         "/job detail <job_id>        查看作业详情",
         "/job diagnose <job_id>      诊断作业",
+        "/job monitor <job_id>       开始监控 Job",
         "",
         "/vasp gen <name>            根据已有 POTCAR 生成 VASP 输入文件",
+        "/vasp inputs <name>         根据已有 POTCAR 生成 VASP 输入文件",
         "/vasp submit <name>         提交 VASP 作业",
         "/vasp analyze <job_id>      同步并分析 VASP 作业",
+        "",
+        "/resources                  检查本机 CPU、内存、磁盘和 GPU",
+        "/doctor                     运行项目总体体检",
+        "/skill list                 查看已注册 Skill",
         "",
         "/config check               检查超算配置",
         "/model                      查看当前模型",
         "",
-        "输入 /help job 或 /help vasp 查看更多。",
+        "输入 /help job、/help vasp 或 /help skill 查看更多。",
     ])
 
 
@@ -354,6 +588,28 @@ def execute_answer_intent(
     if intent == "shortcut_help":
         return AgentRuntimeResult(True, intent, format_shortcut_help(question))
 
+    if intent == "project_doctor":
+        result = run_project_doctor(documents=documents, sources=sources)
+        return AgentRuntimeResult(
+            True,
+            intent,
+            format_project_doctor(result),
+            success=result["success"],
+            data=result,
+        )
+
+    skill_result = _execute_registered_skill(
+        question,
+        intent,
+        documents=documents,
+        sources=sources,
+        diagnoser=diagnoser,
+        state=state,
+        current_job_id=current_job_id,
+    )
+    if skill_result is not None:
+        return skill_result
+
     if intent == "generate_sbatch":
         return AgentRuntimeResult(True, intent, generate_sbatch_script(question))
 
@@ -372,31 +628,6 @@ def execute_answer_intent(
 
     if intent == "generate_vasp_job":
         return AgentRuntimeResult(True, intent, generate_vasp_sbatch_script(question))
-
-    if intent == "generate_vasp_inputs":
-        result = generate_vasp_inputs_from_potcar_request(question)
-        pending_action = None
-        if not result.get("success") and result.get("existing_files"):
-            pending_action = {
-                "kind": "generate_vasp_inputs_overwrite",
-                "payload": {
-                    "job_dir": result.get("job_dir"),
-                    "user_request": question,
-                },
-                "description": "VASP 输入文件覆盖确认，回复“确认覆盖”或“覆盖已有配置文件”后执行。",
-            }
-            result["pending_action"] = pending_action
-            result["message"] = (
-                result["message"]
-                + "\n\n如要覆盖并重新生成，请回复：“确认覆盖” 或 “覆盖已有配置文件”。"
-            )
-        return AgentRuntimeResult(
-            True,
-            intent,
-            result["message"],
-            success=result["success"],
-            data=result,
-        )
 
     if intent == "generate_vasp_report":
         return AgentRuntimeResult(True, intent, generate_vasp_report(question))

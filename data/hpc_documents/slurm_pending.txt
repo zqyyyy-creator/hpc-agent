@@ -1,0 +1,80 @@
+元数据：
+topic: pending, slurm
+scope: generic
+dynamic: false
+
+标题：Slurm 作业 Pending / PD 排队排查
+
+关键词：
+Slurm, Pending, PD, Resources, Priority, Dependency, ReqNodeNotAvail, QOSMax, partition, 作业排队, 作业不运行, 等待资源
+
+说明：
+PD 表示 Pending，即作业已经进入 Slurm 调度队列，但还没有开始运行。
+PD 不等于失败。作业可能因为资源不足、优先级、依赖关系、partition 限制或 QOS 限制而等待。
+
+查看当前用户排队作业：
+squeue -u $USER
+
+查看指定作业状态和等待原因：
+squeue -j job_id -o "%.18i %.9P %.20j %.8u %.2t %.10M %.6D %R"
+
+查看作业详细调度信息：
+scontrol show job job_id
+
+常见 Pending 原因：
+
+1. Resources
+说明：当前没有足够空闲资源满足作业申请。
+常见处理：
+- 等待资源释放
+- 减少 CPU、GPU、节点数或内存申请
+- 缩短 time limit
+- 如果集群允许，选择更合适的 partition
+
+2. Priority
+说明：作业优先级较低，正在等待调度。
+常见处理：
+- 通常只能等待
+- 避免申请明显过大的资源
+- 检查是否有更短时长或小资源 partition
+
+3. Dependency
+说明：作业依赖的前置作业还没有完成。
+常见处理：
+- 使用 scontrol show job job_id 查看 Dependency 字段
+- 使用 squeue -j dependency_job_id 查看前置作业
+- 如果依赖设置错误，需要取消并重新提交作业
+
+4. ReqNodeNotAvail
+说明：请求的节点不可用，可能正在维护、宕机或被保留。
+常见处理：
+- 不要固定指定节点，除非确实需要
+- 检查脚本中是否有 --nodelist 或 --exclude
+- 使用 sinfo 查看节点状态
+
+5. QOSMax 或 Association 限制
+说明：用户、账户或 QOS 达到资源上限，例如最大作业数、最大 GPU 数、最大运行时间。
+常见处理：
+- 减少资源申请
+- 等待当前作业结束
+- 联系管理员确认账户或 QOS 限额
+
+检查 partition 状态：
+sinfo
+sinfo -s
+scontrol show partition
+
+检查作业申请资源：
+scontrol show job job_id
+
+常见优化建议：
+
+1. 不要申请超过实际需要的节点、CPU、GPU 或内存。
+2. 如果只是测试，使用较短 time limit，例如 00:05:00 或 00:10:00。
+3. 如果 GPU 作业长时间 PD，可以先测试 CPU 版本或减少 GPU 数量。
+4. 不要随意填写 partition、account、qos、nodelist。不同集群名称不同，应以当前集群文档或 sinfo 输出为准。
+
+补充说明：
+如果作业一直 PD，优先查看 Reason 字段。
+最常用命令是：
+squeue -j job_id -o "%.18i %.9P %.20j %.8u %.2t %.10M %.6D %R"

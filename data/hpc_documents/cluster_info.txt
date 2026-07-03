@@ -1,3 +1,8 @@
+元数据：
+topic: cluster, slurm
+scope: generic
+dynamic: false
+
 标题：查看 Slurm 集群、节点和分区信息
 
 关键词：

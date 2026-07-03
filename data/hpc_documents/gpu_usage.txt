@@ -1,3 +1,8 @@
+元数据：
+topic: gpu, slurm
+scope: generic
+dynamic: false
+
 标题：Slurm GPU 使用与申请
 
 关键词：

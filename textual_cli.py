@@ -89,6 +89,7 @@ def run_textual_cli():
     from modules.knowledge.knowledge_base import load_documents
     from modules.core.llm_fallback import handle_llm_fallback
     from modules.routing.router import (
+        analyze_intent,
         analyze_plan,
         can_execute_plan_all,
         detect_intent,
@@ -320,8 +321,13 @@ def run_textual_cli():
             self._write_user(question)
 
             if self.pending_submission and self.pending_submission.get("kind") == "vasp_collision":
-                self._handle_vasp_collision_choice(question)
-                return
+                if self._is_vasp_collision_choice(question):
+                    self._handle_vasp_collision_choice(question)
+                    return
+
+                self.pending_submission = None
+                GLOBAL_CONVERSATION_STATE.clear_pending_action("submit")
+                self._write_system("已放弃上一个待确认的 VASP 提交，继续处理新问题。")
 
             if self.pending_submission and GLOBAL_CONVERSATION_STATE.is_confirmation(question):
                 self._submit_pending()
@@ -370,6 +376,8 @@ def run_textual_cli():
                 self._write_system("已取消待确认操作。")
                 return
 
+            question = expand_shortcut_command(question)
+
             if self._is_cancel_monitor_request(question):
                 job_id = extract_job_id(question)
                 self._cancel_monitoring(job_id)
@@ -414,9 +422,11 @@ def run_textual_cli():
             if _is_hpc_submission_smoke_test_request(question):
                 plan = None
                 intent = "test_hpc_submission"
+                decision = None
             else:
                 plan = analyze_plan(question)
-                intent = "multi_step_plan" if plan is not None else detect_intent(question)
+                decision = None if plan is not None else analyze_intent(question)
+                intent = "multi_step_plan" if plan is not None else decision.intent
             result = {
                 "answer": "",
                 "job_id": None,
@@ -453,6 +463,17 @@ def run_textual_cli():
                         intent,
                         state=GLOBAL_CONVERSATION_STATE,
                     ).message
+                elif intent == "rag_qa" and decision is not None and decision.reason != "fallback_no_rule_matched":
+                    runtime_result = execute_answer_intent(
+                        question,
+                        intent,
+                        documents=self.documents,
+                        sources=self.sources,
+                        diagnoser=self.diagnoser,
+                        state=GLOBAL_CONVERSATION_STATE,
+                        current_job_id=self.current_job_id,
+                    )
+                    answer = runtime_result.answer
                 elif can_answer_intent(intent) and intent != "rag_qa":
                     runtime_result = execute_answer_intent(
                         question,
@@ -1085,6 +1106,19 @@ def run_textual_cli():
                 "3. 回复“取消”：放弃本次提交。",
             ])
             return "\n".join(lines)
+
+        def _is_vasp_collision_choice(self, question: str):
+            choice = question.strip().lower().replace(" ", "")
+            return (
+                GLOBAL_CONVERSATION_STATE.is_cancellation(question)
+                or choice in {
+                    "1", "2", "3",
+                    "覆盖", "覆盖旧结果", "复用", "复用同名目录",
+                    "自动创建新runname", "自动创建新run名",
+                    "自动创建新目录", "新runname", "新目录",
+                    "取消",
+                }
+            )
 
         def _handle_vasp_collision_choice(self, question: str):
             pending = self.pending_submission

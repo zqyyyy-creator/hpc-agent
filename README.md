@@ -11,8 +11,9 @@ HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保
 ## 当前能力
 
 ### Slurm / HPC 知识问答
-* 基于 RAG（TF-IDF + `PARATERA_MODEL`）的 Slurm/HPC 知识库问答
-* 知识库文档涵盖：集群信息、常见错误、GPU 使用、sbatch 提交、作业状态、作业取消
+* 基于 RAG（TF-IDF + BM25 + query expansion + metadata boost + `PARATERA_MODEL`）的 Slurm/HPC 知识库问答，检索层已预留 hybrid/semantic 扩展接口
+* 知识库文档涵盖：集群信息、常见错误、GPU 使用、CUDA 排错、sbatch 提交、作业状态、Pending 排查、日志查看、软件环境、存储配额、作业取消、VASP 排错与 VASP 工作流
+* 提供 `tools/rag_debug.py` 调试检索命中、分数、metadata boost 和 chunk 预览，提供 `tools/rag_eval.py` 跑 RAG fixture 评测
 
 ### 普通 Slurm 作业
 * 根据自然语言生成普通 sbatch 脚本
@@ -75,6 +76,22 @@ HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保
 * 调用 Claude Code CLI 生成 VASP 计算报告
 * 严格约束：只使用 `report_context.md`，不编造未确认的论文结果
 * 可配置模型、超时时间和命令路径
+
+### Skills Registry
+* 扫描 `skills/*/SKILL.md`，解析 skill name、type、intents、handler、runtime adapter 和 metadata
+* 支持 tool / prompt / rule 三类 skill，并验证 handler 可 import
+* `SkillRegistry` 按 intent 查找 skill，`SkillExecutor` 按 `runtime.adapter` 执行 handler
+* 当前支持 `question_to_text`、`injected_diagnoser`、`tool_dispatch`、`structured_result` 四类执行协议
+* 已覆盖 sbatch 生成、VASP 脚本生成、VASP 输入生成、错误诊断、VASP 报告、参数建议、作业只读查询和本地资源检测
+* 已从 `K-Dense-AI/scientific-agent-skills` 迁移 `get-available-resources`，用于检测本地 CPU、内存、磁盘和 GPU 资源
+* Skill handler 异常时会自动 fallback：优先切换到 RAG 知识库回答，并在回复中说明原 skill 执行失败
+* 提供 `tools/skill_debug.py` 查看 skill 与 intent 绑定关系，提供 `tools/skill_eval.py` 跑 skill 回归评测
+* 架构说明见 [docs/skills_architecture.md](docs/skills_architecture.md)
+
+### 项目体检
+* `/doctor` 会一次性检查 `.env`、SSH/超算配置、必要目录、RAG 文档、SkillRegistry 和本地 CPU/内存/磁盘/GPU
+* 体检只读，不会提交作业、清理文件或修改配置
+* 如果发现 WARN，会给出优先修复建议
 
 ### Job Registry
 * 基于 JSON 文件的本地作业登记
@@ -189,6 +206,8 @@ Claude Code 报告生成会把 `PARATERA_API_KEY` 同时传给 `ANTHROPIC_API_KE
 诊断作业 11814753
 监控 11814753
 取消监控 11814753
+/job monitor 11814753
+/job stop-monitor 11814753
 查看最近作业
 查看作业详情 11814753
 列出 VASP 作业
@@ -233,6 +252,17 @@ VASP：
 列出远端 VASP 作业
 清理远端 VASP 作业 si_static_test 的文件
 清理全部远端 VASP 作业文件
+```
+
+Skills 调试：
+
+```bash
+.venv/bin/python tools/skill_debug.py --validate
+.venv/bin/python tools/skill_debug.py --route "读取 11814753 的输出" --validate
+.venv/bin/python tools/skill_eval.py --execute
+.venv/bin/python tools/route_debug.py "帮我生成我的vasp作业Al_test的配置文件"
+/skill list
+/skill route 读取 11814753 的输出
 ```
 
 错误诊断：
@@ -407,6 +437,9 @@ q       退出
 /help
 /help job
 /help vasp
+/help skill
+/resources
+/doctor
 ```
 
 “查看当前模型”会显示 Agent 主体模型、Claude Code VASP 报告模型、LLM 网关和主要超算目录配置，不会显示 API Key 明文。“检查我的超算配置”会检查 `.env`、SSH key、本地/远端目录、VASP 命令、partition、Claude Code/API 等常见配置问题，并给出修复建议，但不会自动修改配置。“一键测试超算提交流程”会生成一个最小 `hostname` Slurm 作业预览，仍需确认后才会提交。
@@ -483,19 +516,28 @@ hpc-agent/
 ├── modules/
 │   ├── core/                 # Agent runtime、上下文、确认状态、通用 tool calling
 │   ├── routing/              # 自然语言意图检测、LLM intent fallback、工具分发
+│   ├── skills/               # SkillRegistry、SKILL.md 解析和 handler 校验
 │   ├── slurm/                # Slurm 提交、查询、监控、清理、日志、作业生命周期
 │   ├── vasp/                 # VASP 脚本、监控、解析、报告上下文、Claude Code 报告
 │   ├── tui/                  # Textual TUI helper、formatter、monitor、workflow 状态
 │   └── knowledge/            # RAG 知识库和错误诊断
 │
 ├── data/
-│   ├── hpc_documents/        # RAG 知识库文档（6 个 txt）
+│   ├── hpc_documents/        # RAG 知识库文档
 │   │   ├── cluster_info.txt
+│   │   ├── cluster_sinfo_bscc_a.txt
 │   │   ├── common_errors.txt
+│   │   ├── environment_modules_conda.txt
+│   │   ├── gpu_cuda_troubleshooting.txt
 │   │   ├── gpu_usage.txt
+│   │   ├── slurm_output_logs.txt
+│   │   ├── slurm_pending.txt
 │   │   ├── slurm_submit.txt
 │   │   ├── slurm_status.txt
-│   │   └── slurm_cancel.txt
+│   │   ├── slurm_cancel.txt
+│   │   ├── storage_quota_files.txt
+│   │   ├── vasp_troubleshooting.txt
+│   │   └── vasp_workflow.txt
 │   ├── errors/
 │   │   ├── README.md         # 错误知识库维护说明
 │   │   ├── real_cases.json   # 真实错误案例库
@@ -504,11 +546,22 @@ hpc-agent/
 │       ├── job_registry.json # 作业登记数据库
 │       └── archive/          # 本地作业记录归档文件
 │
-├── skills/                   # Claude Code Skill 定义
+├── skills/                   # Skill 定义
 │   ├── diagnose_error/SKILL.md
+│   ├── generate_vasp_inputs/SKILL.md
 │   ├── generate_sbatch/SKILL.md
 │   ├── generate_vasp_job/SKILL.md
+│   ├── get_available_resources/SKILL.md
+│   ├── inspect_job/SKILL.md
+│   ├── suggest_params/SKILL.md
 │   └── vasp_report/SKILL.md
+│
+├── tools/
+│   ├── rag_debug.py          # RAG 检索调试工具
+│   ├── rag_eval.py           # RAG 检索评测工具
+│   ├── route_debug.py        # 路由调试工具
+│   ├── skill_debug.py        # Skill registry 调试工具
+│   └── skill_eval.py         # Skill 路由和执行协议评测工具
 │
 ├── tests/
 │   ├── run_all_checks.py     # 测试编排器
@@ -521,6 +574,7 @@ hpc-agent/
 ├── docs/
 │   ├── USER_GUIDE.md
 │   ├── LIVE_TEST_CHECKLIST.md
+│   ├── skills_architecture.md
 │   └── VASP_TEST_TEMPLATES.md
 └── README.md
 ```
