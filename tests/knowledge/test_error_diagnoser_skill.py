@@ -1,6 +1,7 @@
 from tests import _bootstrap  # noqa: F401
 
 import json
+import os
 import tempfile
 from pathlib import Path
 
@@ -265,6 +266,20 @@ def test_default_error_knowledge_base_uses_generic_errors_file():
     assert diagnoser.real_cases
 
 
+def test_default_error_knowledge_base_is_independent_of_cwd():
+    original_cwd = Path.cwd()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        try:
+            os.chdir(tmpdir)
+            diagnoser = ErrorDiagnoser()
+        finally:
+            os.chdir(original_cwd)
+
+    assert diagnoser.db_path.name == "generic_errors.json"
+    assert diagnoser.error_db
+    assert diagnoser.real_cases
+
+
 def test_legacy_errors_db_path_is_still_supported():
     with tempfile.TemporaryDirectory() as tmpdir:
         errors_dir = Path(tmpdir)
@@ -307,5 +322,6 @@ if __name__ == "__main__":
     test_append_real_case_writes_valid_json()
     test_error_case_draft_redacts_sensitive_values()
     test_default_error_knowledge_base_uses_generic_errors_file()
+    test_default_error_knowledge_base_is_independent_of_cwd()
     test_legacy_errors_db_path_is_still_supported()
     print("All error diagnoser skill checks passed.")

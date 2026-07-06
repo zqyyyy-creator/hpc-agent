@@ -3,7 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from modules.core.conversation_state import GLOBAL_CONVERSATION_STATE
-from modules.routing.router import analyze_intent, detect_intent, get_intent_risk
+from modules.routing.router import analyze_intent, detect_intent, get_intent_risk, validate_keyword_catalogue
 from modules.routing.router import analyze_plan
 from modules.slurm import job_registry
 
@@ -145,6 +145,10 @@ def test_route_decision_exposes_reason_keywords_and_risk():
     assert get_intent_risk("cleanup_remote_job") == "destructive_confirm_required"
 
 
+def test_keyword_catalogue_has_no_duplicate_or_empty_entries():
+    assert validate_keyword_catalogue() == []
+
+
 def test_analyze_job_id_routes_to_vasp_when_registry_marks_job_as_vasp():
     original_registry_path = job_registry.REGISTRY_PATH
     temp_dir = TemporaryDirectory()
@@ -188,6 +192,7 @@ if __name__ == "__main__":
     test_plan_output_step_references_previous_submit()
     test_ambiguous_requests_ask_for_clarification()
     test_route_decision_exposes_reason_keywords_and_risk()
+    test_keyword_catalogue_has_no_duplicate_or_empty_entries()
     test_analyze_job_id_routes_to_vasp_when_registry_marks_job_as_vasp()
     test_analyze_last_job_routes_to_vasp_when_recent_context_marks_job_as_vasp()
     print("All router negative checks passed.")

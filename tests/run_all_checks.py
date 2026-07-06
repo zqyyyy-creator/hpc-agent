@@ -14,10 +14,12 @@ PYTHON_FILES = [
     "tools/skill_eval.py",
     "tools/skill_debug.py",
     "modules/core/agent_runtime.py",
+    "modules/core/check_runner.py",
     "modules/core/confirmed_actions.py",
     "modules/core/conversation_state.py",
     "modules/core/hpc_config.py",
     "modules/core/llm_fallback.py",
+    "modules/core/paths.py",
     "modules/core/project_doctor.py",
     "modules/core/tool_calling.py",
     "modules/knowledge/error_case_manager.py",
@@ -122,6 +124,7 @@ def run_agent_runtime_checks():
     for check in [
         checks.test_can_answer_intent_marks_only_answer_intents,
         checks.test_execute_registered_skill_intent_exposes_skill_metadata,
+        checks.test_skill_registry_load_error_is_exposed_for_diagnostics,
         checks.test_execute_tool_dispatch_skill_uses_dispatch_adapter,
         checks.test_can_preview_cleanup_intent_marks_cleanup_intents,
         checks.test_can_preview_submit_intent_marks_submit_intents,
@@ -182,6 +185,7 @@ def run_packaging_checks():
     from tests.core import test_packaging as checks
 
     checks.test_console_script_points_to_app_main()
+    checks.test_project_paths_are_rooted_and_resolve_relative_paths()
 
     print("OK packaging checks passed")
 
@@ -354,6 +358,7 @@ def run_error_diagnoser_checks():
     checks.test_error_case_draft_uses_previous_error_turn()
     checks.test_append_real_case_writes_valid_json()
     checks.test_default_error_knowledge_base_uses_generic_errors_file()
+    checks.test_default_error_knowledge_base_is_independent_of_cwd()
     checks.test_legacy_errors_db_path_is_still_supported()
 
     print("OK error diagnoser skill checks passed")
@@ -425,6 +430,7 @@ def run_router_negative_checks():
     checks.test_negated_actions_change_or_block_intent()
     checks.test_ambiguous_requests_ask_for_clarification()
     checks.test_route_decision_exposes_reason_keywords_and_risk()
+    checks.test_keyword_catalogue_has_no_duplicate_or_empty_entries()
     checks.test_analyze_job_id_routes_to_vasp_when_registry_marks_job_as_vasp()
     checks.test_analyze_last_job_routes_to_vasp_when_recent_context_marks_job_as_vasp()
 
@@ -646,10 +652,12 @@ CHECKS = [
     ("17. Route planner checks", run_route_planner_checks),
     ("18. Job query parsing checks", run_job_query_checks),
     ("19. Submit preview checks", run_submit_preview_checks),
-    ("20. HPC env config checks", run_env_checks),
 ]
 
-LIVE_HPC_CHECK_TITLE = "21. Live HPC workflow checks"
+LIVE_HPC_CHECKS = [
+    ("20. HPC env config checks", run_env_checks),
+    ("21. Live HPC workflow checks", run_live_hpc_checks),
+]
 
 
 def main():
@@ -665,10 +673,12 @@ def main():
         print_section(title)
         check()
 
-    print_section(LIVE_HPC_CHECK_TITLE)
     if args.live_hpc:
-        run_live_hpc_checks()
+        for title, check in LIVE_HPC_CHECKS:
+            print_section(title)
+            check()
     else:
+        print_section("20-21. Live HPC checks")
         print("SKIPPED. Use --live-hpc to submit a real Slurm test job.")
 
     print_section("RESULT")

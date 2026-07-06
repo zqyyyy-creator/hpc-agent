@@ -70,6 +70,27 @@ def test_execute_registered_skill_intent_exposes_skill_metadata():
     assert result.data["runtime"]["handler"] == "modules.slurm.slurm_assistant.generate_sbatch_script"
 
 
+def test_skill_registry_load_error_is_exposed_for_diagnostics():
+    original_registry = agent_runtime._SKILL_REGISTRY
+    original_error = agent_runtime._SKILL_REGISTRY_ERROR
+    original_loader = agent_runtime.load_skill_registry
+
+    def failing_loader():
+        raise RuntimeError("registry boom")
+
+    try:
+        agent_runtime._SKILL_REGISTRY = None
+        agent_runtime._SKILL_REGISTRY_ERROR = ""
+        agent_runtime.load_skill_registry = failing_loader
+
+        assert agent_runtime._get_skill_registry() is None
+        assert agent_runtime.get_skill_registry_error() == "RuntimeError: registry boom"
+    finally:
+        agent_runtime._SKILL_REGISTRY = original_registry
+        agent_runtime._SKILL_REGISTRY_ERROR = original_error
+        agent_runtime.load_skill_registry = original_loader
+
+
 def test_execute_registered_skill_falls_back_to_rag_when_handler_fails():
     original_execute_skill = agent_runtime.execute_skill
     original_ask_llm = agent_runtime.ask_llm
@@ -526,6 +547,7 @@ def test_execute_vasp_input_existing_files_returns_overwrite_pending_action():
 if __name__ == "__main__":
     test_can_answer_intent_marks_only_answer_intents()
     test_execute_registered_skill_intent_exposes_skill_metadata()
+    test_skill_registry_load_error_is_exposed_for_diagnostics()
     test_execute_tool_dispatch_skill_uses_dispatch_adapter()
     test_can_preview_cleanup_intent_marks_cleanup_intents()
     test_can_preview_submit_intent_marks_submit_intents()
