@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hpc-agent"
-version = "0.2.0"
+version = "0.2.1"
 description = "Conversational HPC and Slurm agent with VASP workflow support."
 readme = "README.md"
 requires-python = ">=3.12"
