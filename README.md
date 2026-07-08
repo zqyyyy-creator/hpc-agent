@@ -4,7 +4,7 @@ HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保
 
 核心功能覆盖 Slurm 知识问答、sbatch 脚本生成、普通作业提交/查询/清理、VASP 固定目录作业提交、VASP 输出同步与报告生成，以及基于 Claude Code 的 VASP 计算结果分析。
 
-文档入口请看 [docs/README.md](docs/README.md)，详细操作请看 [docs/USER_GUIDE.md](docs/USER_GUIDE.md)。
+文档入口请看 [docs/README.md](docs/README.md)，详细操作请看 [docs/USER_GUIDE.md](docs/USER_GUIDE.md)。Docker 可选部署方式见 [docs/DOCKER.md](docs/DOCKER.md)。
 
 ---
 

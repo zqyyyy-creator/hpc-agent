@@ -1,0 +1,20 @@
+services:
+  hpc-agent:
+    build:
+      context: .
+      args:
+        HPC_AGENT_VERSION: ${HPC_AGENT_VERSION:-0.2.2}
+    image: hpc-agent:${HPC_AGENT_VERSION:-0.2.2}
+    stdin_open: true
+    tty: true
+    environment:
+      HPC_AGENT_CONFIG_DIR: /config
+      HPC_AGENT_DATA_DIR: /data
+      HPC_AGENT_CACHE_DIR: /cache
+    volumes:
+      - ${HOME}/.config/hpc-agent:/config
+      - ${HOME}/.local/share/hpc-agent:/data
+      - ${HOME}/.cache/hpc-agent:/cache
+      - ${HOME}/.ssh:/ssh:ro
+      - ${HOME}/vasp-jobs-input:/vasp-input
+      - ${HOME}/vasp-jobs-output:/vasp-output
