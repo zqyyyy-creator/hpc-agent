@@ -34,9 +34,49 @@ dependencies = [
 [project.scripts]
 hpc-agent = "app:main"
 hpc-agent-check = "modules.core.check_runner:main"
+hpc-agent-init = "modules.core.initializer:main"
 
 [tool.setuptools]
 py-modules = ["app", "textual_cli"]
 
 [tool.setuptools.packages.find]
 include = ["modules*"]
+
+[tool.setuptools.data-files]
+"share/hpc-agent" = [".env.example"]
+"share/hpc-agent/data/errors" = [
+    "data/errors/README.md",
+    "data/errors/generic_errors.json",
+    "data/errors/real_cases.json",
+]
+"share/hpc-agent/data/hpc_documents" = [
+    "data/hpc_documents/cluster_info.txt",
+    "data/hpc_documents/cluster_sinfo_bscc_a.txt",
+    "data/hpc_documents/common_errors.txt",
+    "data/hpc_documents/environment_modules_conda.txt",
+    "data/hpc_documents/gpu_cuda_troubleshooting.txt",
+    "data/hpc_documents/gpu_usage.txt",
+    "data/hpc_documents/slurm_cancel.txt",
+    "data/hpc_documents/slurm_output_logs.txt",
+    "data/hpc_documents/slurm_pending.txt",
+    "data/hpc_documents/slurm_status.txt",
+    "data/hpc_documents/slurm_submit.txt",
+    "data/hpc_documents/storage_quota_files.txt",
+    "data/hpc_documents/vasp_troubleshooting.txt",
+    "data/hpc_documents/vasp_workflow.txt",
+]
+"share/hpc-agent/docs" = [
+    "docs/LIVE_TEST_CHECKLIST.md",
+    "docs/README.md",
+    "docs/USER_GUIDE.md",
+    "docs/VASP_TEST_TEMPLATES.md",
+    "docs/skills_architecture.md",
+]
+"share/hpc-agent/skills/diagnose_error" = ["skills/diagnose_error/SKILL.md"]
+"share/hpc-agent/skills/generate_sbatch" = ["skills/generate_sbatch/SKILL.md"]
+"share/hpc-agent/skills/generate_vasp_inputs" = ["skills/generate_vasp_inputs/SKILL.md"]
+"share/hpc-agent/skills/generate_vasp_job" = ["skills/generate_vasp_job/SKILL.md"]
+"share/hpc-agent/skills/get_available_resources" = ["skills/get_available_resources/SKILL.md"]
+"share/hpc-agent/skills/inspect_job" = ["skills/inspect_job/SKILL.md"]
+"share/hpc-agent/skills/suggest_params" = ["skills/suggest_params/SKILL.md"]
+"share/hpc-agent/skills/vasp_report" = ["skills/vasp_report/SKILL.md"]

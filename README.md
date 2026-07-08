@@ -69,7 +69,7 @@ HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保
 * **Textual TUI**：全屏终端界面，含 Chat 面板和 Job Monitor 面板
 * 支持确认/取消状态机（提交确认、清理确认、覆盖确认）
 * Chat 结果区支持鼠标选择文本；`Ctrl+Y` 会优先复制选中文本，没有选中文本时复制上一条 Agent 回复
-* 支持 `/help`、`/help job`、`/help vasp` 等快捷帮助入口
+* 支持 `/help`、`/help job`、`/help vasp`、`/clear`、`/clear all`、`/exit` 等快捷入口
 
 ### Claude Code 集成
 * 通过 `skills/vasp_report/SKILL.md` 定义分析 Skill
@@ -440,6 +440,9 @@ q       退出
 /help skill
 /resources
 /doctor
+/clear
+/clear all
+/exit
 ```
 
 “查看当前模型”会显示 Agent 主体模型、Claude Code VASP 报告模型、LLM 网关和主要超算目录配置，不会显示 API Key 明文。“检查我的超算配置”会检查 `.env`、SSH key、本地/远端目录、VASP 命令、partition、Claude Code/API 等常见配置问题，并给出修复建议，但不会自动修改配置。“一键测试超算提交流程”会生成一个最小 `hostname` Slurm 作业预览，仍需确认后才会提交。

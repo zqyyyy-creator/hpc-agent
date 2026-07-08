@@ -18,6 +18,7 @@ PYTHON_FILES = [
     "modules/core/confirmed_actions.py",
     "modules/core/conversation_state.py",
     "modules/core/hpc_config.py",
+    "modules/core/initializer.py",
     "modules/core/llm_fallback.py",
     "modules/core/paths.py",
     "modules/core/project_doctor.py",
@@ -62,6 +63,7 @@ PYTHON_FILES = [
     "tests/core/test_confirmed_actions.py",
     "tests/core/test_conversation_state.py",
     "tests/core/test_environment_status.py",
+    "tests/core/test_initializer.py",
     "tests/core/test_packaging.py",
     "tests/core/test_project_doctor.py",
     "tests/core/test_tool_calling.py",
@@ -183,9 +185,15 @@ def run_tool_calling_checks():
 
 def run_packaging_checks():
     from tests.core import test_packaging as checks
+    from tests.core import test_initializer as initializer_checks
 
     checks.test_console_script_points_to_app_main()
     checks.test_project_paths_are_rooted_and_resolve_relative_paths()
+    checks.test_user_paths_are_available_without_changing_source_checkout_defaults()
+    checks.test_wheel_data_files_include_read_only_resources_only()
+    checks.test_install_script_supports_wheel_install_and_command_links()
+    initializer_checks.test_initializer_creates_user_env_from_template()
+    initializer_checks.test_initializer_does_not_overwrite_existing_env_by_default()
 
     print("OK packaging checks passed")
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.metadata
 import os
 import tomllib
 from pathlib import Path
@@ -8,7 +9,6 @@ from typing import Callable, Any
 
 from modules.core.paths import DOCS_DIR, ENV_PATH, HPC_DOCUMENTS_DIR, MODULES_DIR, PROJECT_ROOT, SKILLS_DIR
 from modules.core.environment_status import check_hpc_environment
-from modules.knowledge.knowledge_base import load_documents
 from modules.skills.resource_detector import detect_available_resources
 from modules.skills.skill_registry import load_skill_registry
 
@@ -87,11 +87,19 @@ def _check_package_entrypoint() -> dict[str, Any]:
     pyproject_path = PROJECT_ROOT / "pyproject.toml"
     checks: list[dict[str, Any]] = []
     try:
-        data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
-        scripts = data.get("project", {}).get("scripts", {})
-        entrypoint = scripts.get("hpc-agent")
+        if pyproject_path.is_file():
+            data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+            scripts = data.get("project", {}).get("scripts", {})
+            entrypoint = scripts.get("hpc-agent")
+        else:
+            scripts = {
+                entry_point.name: entry_point.value
+                for entry_point in importlib.metadata.entry_points(group="console_scripts")
+                if entry_point.dist and entry_point.dist.metadata.get("Name") == "hpc-agent"
+            }
+            entrypoint = scripts.get("hpc-agent")
         if not entrypoint:
-            checks.append(_warn_item("hpc-agent entrypoint", "pyproject.toml 未声明 project.scripts.hpc-agent"))
+            checks.append(_warn_item("hpc-agent entrypoint", "未发现 hpc-agent console script"))
         elif ":" not in entrypoint:
             checks.append(_warn_item("hpc-agent entrypoint", f"{entrypoint} 不是 module:attr 格式"))
         else:
@@ -121,6 +129,8 @@ def _check_rag_documents(
 ) -> dict[str, Any]:
     try:
         if documents is None or sources is None:
+            from modules.knowledge.knowledge_base import load_documents
+
             documents, sources = load_documents()
         source_files = sorted({source.split("#", 1)[0] for source in sources})
         checks = [
@@ -138,11 +148,20 @@ def _check_rag_documents(
             "source_files": source_files,
         }
     except Exception as error:
+        source_files = sorted(path.name for path in HPC_DOCUMENTS_DIR.glob("*.txt"))
+        checks = [
+            (
+                _ok_item("RAG source files", f"{len(source_files)} txt files")
+                if source_files
+                else _warn_item("RAG source files", "未找到任何 txt 文档")
+            ),
+            _warn_item("RAG chunks", f"{type(error).__name__}: {error}"),
+        ]
         return {
             "success": False,
-            "checks": [_warn_item("RAG documents", f"{type(error).__name__}: {error}")],
+            "checks": checks,
             "chunk_count": 0,
-            "source_files": [],
+            "source_files": source_files,
         }
 
 

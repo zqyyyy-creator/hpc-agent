@@ -26,6 +26,7 @@
 - TUI 快捷帮助：`/help`
 - Job 快捷帮助：`/help job`
 - VASP 快捷帮助：`/help vasp`
+- 清理/退出：`/clear`、`/clear all`、`/exit`
 
 ## 维护约定
 

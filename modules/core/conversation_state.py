@@ -293,6 +293,17 @@ class ConversationState:
         if kind is None or (self.pending_action and self.pending_action.get("kind") == kind):
             self.pending_action = None
 
+    def clear_context(self):
+        self.last_job_id = None
+        self.last_vasp_job_id = None
+        self.last_remote_workdir = None
+        self.last_tool_call = None
+        self.last_generated_file = None
+        self.pending_route_plan = None
+        self.pending_action = None
+        self.conversation_turns.clear()
+        self.recent_jobs.clear()
+
     def remember_turn(self, role: str, content: str, metadata: dict | None = None):
         if not content:
             return

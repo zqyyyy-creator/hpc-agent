@@ -1,0 +1,34 @@
+{
+  "name": "hpc-agent",
+  "version": "0.2.0",
+  "python": ">=3.12",
+  "released_at": "2026-07-08",
+  "channel": "stable",
+  "files": {
+    "wheel": {
+      "path": "releases/0.2.0/hpc_agent-0.2.0-py3-none-any.whl",
+      "sha256": "REPLACE_WITH_WHEEL_SHA256"
+    },
+    "sdist": {
+      "path": "releases/0.2.0/hpc_agent-0.2.0.tar.gz",
+      "sha256": "REPLACE_WITH_SDIST_SHA256"
+    },
+    "install_script": {
+      "path": "releases/0.2.0/install.sh",
+      "sha256": "REPLACE_WITH_INSTALL_SCRIPT_SHA256"
+    },
+    "release_notes": {
+      "path": "releases/0.2.0/RELEASE_NOTES.md",
+      "sha256": "REPLACE_WITH_RELEASE_NOTES_SHA256"
+    }
+  },
+  "commands": {
+    "install": "HPC_AGENT_WHEEL=https://your-private-server/hpc-agent/releases/0.2.0/hpc_agent-0.2.0-py3-none-any.whl sh /tmp/hpc-agent-install.sh",
+    "force_reinstall": "HPC_AGENT_WHEEL=https://your-private-server/hpc-agent/releases/0.2.0/hpc_agent-0.2.0-py3-none-any.whl HPC_AGENT_FORCE_REINSTALL=1 sh /tmp/hpc-agent-install.sh"
+  },
+  "notes": [
+    "Copy this file to latest.json when publishing a real release.",
+    "Replace every REPLACE_WITH_* value with the sha256sum of the published file.",
+    "Use relative paths from the private server hpc-agent/ root."
+  ]
+}

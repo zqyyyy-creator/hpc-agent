@@ -289,6 +289,47 @@ def run_textual_cli():
             self.query_one("#chat-log", Static).update("\n\n".join(self.chat_transcript))
             self.call_after_refresh(self.query_one("#chat-scroll", VerticalScroll).scroll_end, animate=False)
 
+        def _clear_conversation_context(self):
+            self.history.clear()
+            self.chat_transcript.clear()
+            self.last_assistant_reply = None
+            self.pending_submission = None
+            self.pending_cleanup = None
+            self.pending_action = None
+            self.current_job_id = None
+            GLOBAL_CONVERSATION_STATE.clear_context()
+            self.query_one("#chat-log", Static).update("")
+
+        def _clear_monitor_context(self):
+            self.monitored_job_ids.clear()
+            self.monitor_snapshots.clear()
+            self.monitor_active.clear()
+            self.active_monitor_index = 0
+            self.monitor_refresh_running = False
+            self.failure_notices_shown.clear()
+            self.vasp_workflows.clear()
+            self._render_monitor_panel()
+
+        def _handle_local_command(self, question: str) -> bool:
+            command = re.sub(r"\s+", " ", question.strip().lower())
+
+            if command in {"/exit", "/quit"}:
+                self.exit()
+                return True
+
+            if command == "/clear":
+                self._clear_conversation_context()
+                self._write_system("当前对话上下文已清理。")
+                return True
+
+            if command == "/clear all":
+                self._clear_conversation_context()
+                self._clear_monitor_context()
+                self._write_system("当前对话上下文和监控区域已清理。")
+                return True
+
+            return False
+
         def on_key(self, event):
             if event.key == "tab":
                 event.prevent_default()
@@ -315,6 +356,9 @@ def run_textual_cli():
             event.input.value = ""
 
             if not question:
+                return
+
+            if self._handle_local_command(question):
                 return
 
             self.history.append(question)

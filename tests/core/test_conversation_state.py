@@ -114,6 +114,28 @@ def test_answer_context_summary_includes_recent_turns_and_jobs():
     assert "助手: 请确认提交" in summary
 
 
+def test_clear_context_resets_conversation_memory():
+    state = ConversationState()
+    state.record_job("12345", "/remote/job/12345", {"kind": "slurm", "source": "submit"})
+    state.record_pending_action("submit", {"script": "#!/bin/bash\nhostname\n"}, "提交 hostname 作业")
+    state.record_route_plan({"steps": [{"index": 1, "text": "查询作业"}]})
+    state.last_tool_call = {"name": "query_job"}
+    state.last_generated_file = "job.sh"
+    state.remember_turn("user", "帮我提交 hostname")
+
+    state.clear_context()
+
+    assert state.last_job_id is None
+    assert state.last_vasp_job_id is None
+    assert state.last_remote_workdir is None
+    assert state.last_tool_call is None
+    assert state.last_generated_file is None
+    assert state.pending_route_plan is None
+    assert state.pending_action is None
+    assert state.conversation_turns == []
+    assert state.recent_jobs == []
+
+
 if __name__ == "__main__":
     test_record_job_creates_structured_recent_entry()
     test_record_job_updates_existing_job_without_duplicate()
@@ -123,4 +145,5 @@ if __name__ == "__main__":
     test_resolve_vasp_job_id_prefers_vasp_context()
     test_pending_action_and_generic_confirmation_memory()
     test_answer_context_summary_includes_recent_turns_and_jobs()
+    test_clear_context_resets_conversation_memory()
     print("All conversation state checks passed.")
