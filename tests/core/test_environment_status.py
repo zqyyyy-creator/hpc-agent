@@ -12,7 +12,7 @@ def test_current_model_config_masks_api_key():
     text = format_current_model_and_config()
 
     assert "Agent 主体模型" in text
-    assert "Claude Code VASP 报告模型" in text
+    assert "VASP 报告模型" in text
     assert "API Key:" in text
     assert "sk-" not in text
 

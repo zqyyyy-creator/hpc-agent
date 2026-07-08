@@ -128,7 +128,7 @@ def test_real_case_api_gateway_error():
 
     assert_contains(answer, "真实案例: API Key 或模型网关配置错误")
     assert_contains(answer, "PARATERA_API_KEY")
-    assert_contains(answer, "HPC_CLAUDE_CODE_MODEL")
+    assert_contains(answer, "HPC_VASP_REPORT_MODEL")
 
 
 def test_real_cases_schema_is_complete():

@@ -61,6 +61,7 @@ def _check_env_summary() -> dict[str, Any]:
         "HPC_VASP_PARTITION",
         "HPC_VASP_COMMAND",
         "HPC_CLAUDE_CODE_COMMAND",
+        "HPC_VASP_REPORT_MODEL",
     ]
     missing_required = [name for name in required_vars if not os.getenv(name)]
     configured_optional = [name for name in optional_vars if os.getenv(name)]

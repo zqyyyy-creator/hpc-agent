@@ -151,7 +151,7 @@ HPC_VASP_COMMAND=mpirun /path/to/vasp/bin/vasp_std
 HPC_VASP_MODULE=
 
 HPC_CLAUDE_CODE_COMMAND=claude
-HPC_CLAUDE_CODE_MODEL=DeepSeek-V4-Pro
+HPC_VASP_REPORT_MODEL=DeepSeek-V4-Pro
 HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 ```
 
@@ -159,7 +159,7 @@ HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 
 * `PARATERA_BASE_URL`：LLM API 服务地址。
 * `PARATERA_API_KEY`：LLM API Key。
-* `PARATERA_MODEL`：Agent 主体使用的模型名，覆盖普通问答/RAG、意图分类 fallback 和脚本辅助生成；不影响 Claude Code VASP 报告模型。
+* `PARATERA_MODEL`：Agent 主体使用的模型名，覆盖普通问答/RAG、意图分类 fallback 和脚本辅助生成；不影响 VASP 报告模型。
 * `HPC_HOST`：超算 SSH 登录主机。
 * `HPC_USERNAME`：超算用户名。
 * `HPC_KEY_PATH`：本机 SSH 私钥绝对路径（Ed25519）。
@@ -175,10 +175,10 @@ HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 * `HPC_VASP_COMMAND`：VASP 主程序启动命令。普通 MPI 测试默认用 `srun`，VASP 命令请按当前超算实际 VASP 安装路径填写。
 * `HPC_VASP_MODULE`：可选，留空表示不使用 `module load`。
 * `HPC_CLAUDE_CODE_COMMAND`：Claude Code 命令，默认 `claude`。
-* `HPC_CLAUDE_CODE_MODEL`：Claude Code 使用的模型名；留空时使用环境默认，Paratera 网关默认回退到 `DeepSeek-V4-Pro`。
+* `HPC_VASP_REPORT_MODEL`：VASP 报告生成使用的模型名；留空时兼容读取旧变量 `HPC_CLAUDE_CODE_MODEL`，Paratera 网关默认回退到 `DeepSeek-V4-Pro`。
 * `HPC_CLAUDE_CODE_TIMEOUT_SECONDS`：Claude Code 报告生成超时时间，默认 1800 秒。
 
-Claude Code 报告生成会把 `PARATERA_API_KEY` 同时传给 `ANTHROPIC_API_KEY` 和 `ANTHROPIC_AUTH_TOKEN`，并把 `PARATERA_BASE_URL` 传给 `ANTHROPIC_BASE_URL`。如果报告生成报认证错误，优先检查 `.env` 中的 `PARATERA_API_KEY` 是否过期，以及该 key 是否支持 `HPC_CLAUDE_CODE_MODEL`。
+Claude Code 报告生成会把 `PARATERA_API_KEY` 同时传给 `ANTHROPIC_API_KEY` 和 `ANTHROPIC_AUTH_TOKEN`，并把 `PARATERA_BASE_URL` 传给 `ANTHROPIC_BASE_URL`。如果报告生成报认证错误，优先检查 `.env` 中的 `PARATERA_API_KEY` 是否过期，以及该 key 是否支持 `HPC_VASP_REPORT_MODEL`。
 
 `.env` 不应提交到 Git。
 
@@ -445,7 +445,7 @@ q       退出
 /exit
 ```
 
-“查看当前模型”会显示 Agent 主体模型、Claude Code VASP 报告模型、LLM 网关和主要超算目录配置，不会显示 API Key 明文。“检查我的超算配置”会检查 `.env`、SSH key、本地/远端目录、VASP 命令、partition、Claude Code/API 等常见配置问题，并给出修复建议，但不会自动修改配置。“一键测试超算提交流程”会生成一个最小 `hostname` Slurm 作业预览，仍需确认后才会提交。
+“查看当前模型”会显示 Agent 主体模型、VASP 报告模型、LLM 网关和主要超算目录配置，不会显示 API Key 明文。“检查我的超算配置”会检查 `.env`、SSH key、本地/远端目录、VASP 命令、partition、Claude Code/API 等常见配置问题，并给出修复建议，但不会自动修改配置。“一键测试超算提交流程”会生成一个最小 `hostname` Slurm 作业预览，仍需确认后才会提交。
 
 ---
 

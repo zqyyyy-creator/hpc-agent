@@ -128,7 +128,7 @@ HPC_VASP_COMMAND=mpirun /path/to/vasp/bin/vasp_std
 HPC_VASP_MODULE=
 
 HPC_CLAUDE_CODE_COMMAND=claude
-HPC_CLAUDE_CODE_MODEL=DeepSeek-V4-Pro
+HPC_VASP_REPORT_MODEL=DeepSeek-V4-Pro
 HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 ```
 
@@ -136,7 +136,7 @@ HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 
 * `PARATERA_BASE_URL`：LLM API 服务地址。
 * `PARATERA_API_KEY`：LLM API Key。
-* `PARATERA_MODEL`：Agent 主体使用的模型名，覆盖普通问答/RAG、意图分类 fallback 和脚本辅助生成；不影响 Claude Code VASP 报告模型。
+* `PARATERA_MODEL`：Agent 主体使用的模型名，覆盖普通问答/RAG、意图分类 fallback 和脚本辅助生成；不影响 VASP 报告模型。
 * `HPC_HOST`：超算 SSH 登录主机。
 * `HPC_USERNAME`：超算用户名，按集群要求填写。
 * `HPC_KEY_PATH`：本机 SSH 私钥绝对路径（Ed25519 格式）。
@@ -152,10 +152,10 @@ HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 * `HPC_VASP_COMMAND`：VASP 主程序启动命令。请按当前超算实际 VASP 安装路径填写；普通 MPI/hostname 测试使用 `srun`。
 * `HPC_VASP_MODULE`：可选模块名，留空表示不执行 `module load`。
 * `HPC_CLAUDE_CODE_COMMAND`：Claude Code 命令，默认 `claude`。
-* `HPC_CLAUDE_CODE_MODEL`：Claude Code 使用的模型名；留空时使用环境默认，Paratera 网关默认回退到 `DeepSeek-V4-Pro`。
+* `HPC_VASP_REPORT_MODEL`：VASP 报告生成使用的模型名；留空时兼容读取旧变量 `HPC_CLAUDE_CODE_MODEL`，Paratera 网关默认回退到 `DeepSeek-V4-Pro`。
 * `HPC_CLAUDE_CODE_TIMEOUT_SECONDS`：Claude Code 报告生成超时时间，默认 1800 秒。
 
-Claude Code 报告生成会把 `PARATERA_API_KEY` 同时传给 `ANTHROPIC_API_KEY` 和 `ANTHROPIC_AUTH_TOKEN`，并把 `PARATERA_BASE_URL` 传给 `ANTHROPIC_BASE_URL`。如果报告生成出现认证错误，先检查 key 是否过期、是否支持 `HPC_CLAUDE_CODE_MODEL`。
+Claude Code 报告生成会把 `PARATERA_API_KEY` 同时传给 `ANTHROPIC_API_KEY` 和 `ANTHROPIC_AUTH_TOKEN`，并把 `PARATERA_BASE_URL` 传给 `ANTHROPIC_BASE_URL`。如果报告生成出现认证错误，先检查 key 是否过期、是否支持 `HPC_VASP_REPORT_MODEL`。
 
 配置检查：
 
@@ -225,7 +225,7 @@ q       退出
 查看当前模型
 ```
 
-显示 Agent 主体模型、Claude Code VASP 报告模型、LLM 网关和主要超算目录配置，不会显示 API Key 明文。
+显示 Agent 主体模型、VASP 报告模型、LLM 网关和主要超算目录配置，不会显示 API Key 明文。
 
 ```text
 检查我的超算配置
@@ -1422,7 +1422,7 @@ ssh -i /path/to/your/private/key -l 'your-hpc-username' your-hpc-host
 
 * 检查 `HPC_CLAUDE_CODE_COMMAND` 是否正确（默认 `claude`）。
 * 确认 `claude` 命令在当前 PATH 中（`which claude`）。
-* 检查 API Key 是否正确配置，是否过期，以及是否支持 `HPC_CLAUDE_CODE_MODEL`。
+* 检查 API Key 是否正确配置，是否过期，以及是否支持 `HPC_VASP_REPORT_MODEL`。
 * Paratera 网关下，Agent 会把 `PARATERA_API_KEY` 同时传给 `ANTHROPIC_API_KEY` 和 `ANTHROPIC_AUTH_TOKEN`。
 * 检查 `HPC_CLAUDE_CODE_TIMEOUT_SECONDS` 是否足够（OUTCAR 较大时可能需要更长超时）。
 * 确认 `analysis/report_context.md` 已通过同步步骤生成。

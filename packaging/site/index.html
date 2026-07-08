@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HPC Agent 安装与更新说明</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --text: #172033;
+      --muted: #5d6a7d;
+      --line: #dfe5ee;
+      --accent: #1f6feb;
+      --accent-soft: #eaf2ff;
+      --ok: #167245;
+      --warn: #9a5b00;
+      --code-bg: #101828;
+      --code-text: #eef4ff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      line-height: 1.65;
+    }
+
+    .page {
+      width: min(1080px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 32px 0 56px;
+    }
+
+    header {
+      padding: 28px 0 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(30px, 5vw, 48px);
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: 24px;
+      line-height: 1.3;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 18px 0 10px;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    a {
+      color: var(--accent);
+    }
+
+    .lead {
+      max-width: 780px;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .pill {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 6px;
+      padding: 6px 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    main {
+      display: grid;
+      gap: 18px;
+      margin-top: 24px;
+    }
+
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 22px;
+    }
+
+    .notice {
+      border-left: 4px solid var(--accent);
+      background: var(--accent-soft);
+      padding: 14px 16px;
+      border-radius: 6px;
+      margin: 12px 0;
+    }
+
+    .warning {
+      border-left-color: var(--warn);
+      background: #fff8e8;
+    }
+
+    ol,
+    ul {
+      margin: 10px 0 0;
+      padding-left: 24px;
+    }
+
+    li {
+      margin: 8px 0;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 0.95em;
+    }
+
+    pre {
+      margin: 12px 0 18px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      background: var(--code-bg);
+      color: var(--code-text);
+      border-radius: 8px;
+      line-height: 1.5;
+    }
+
+    pre code {
+      color: inherit;
+      font-size: 14px;
+    }
+
+    .grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    }
+
+    .mini {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      background: #fbfcfe;
+    }
+
+    .mini strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .ok {
+      color: var(--ok);
+      font-weight: 700;
+    }
+
+    footer {
+      margin-top: 24px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <h1>HPC Agent 安装与更新说明</h1>
+      <p class="lead">本页面用于指导用户从火山私服下载、安装、更新和检查 HPC Agent。安装前只需要本机已有 Python 3.12 或更高版本。</p>
+      <div class="meta">
+        <span class="pill">当前版本: 0.2.0</span>
+        <span class="pill">Python: 3.12+</span>
+        <span class="pill">私服: Volcengine Artifacts</span>
+      </div>
+    </header>
+
+    <main>
+      <section>
+        <h2>一、安装前检查</h2>
+        <p>打开终端，先检查电脑里是否已经安装 Python。</p>
+        <pre><code>python3 --version</code></pre>
+        <p>如果看到类似下面的输出，说明 Python 可用：</p>
+        <pre><code>Python 3.12.0</code></pre>
+        <div class="notice warning">
+          如果版本低于 3.12，或者提示 <code>command not found</code>，需要先安装 Python 3.12 或更高版本。
+        </div>
+      </section>
+
+      <section>
+        <h2>二、准备私服认证信息</h2>
+        <p>私服下载需要用户名和 token。用户名可以写入终端，token 不要写到网页、文档或截图里。</p>
+        <pre><code>read -p "请输入私服用户名: " VOLC_USERNAME
+read -s VOLC_TOKEN</code></pre>
+        <p>先输入自己的私服用户名并按回车。执行 <code>read -s VOLC_TOKEN</code> 后，粘贴自己的 token 并按回车。终端不会显示 token，这是正常现象。</p>
+        <div class="notice warning">
+          请不要把用户名或 token 明文写进 HTML、脚本、聊天记录或公开文档。这个页面不会保存任何账号信息。
+        </div>
+      </section>
+
+      <section>
+        <h2>三、下载安装文件</h2>
+        <p>先下载安装脚本，再下载 wheel 安装包。由于私服需要认证，推荐先下载到本地，再执行安装。</p>
+        <h3>1. 下载安装脚本</h3>
+        <pre><code>curl -fL \
+  -u "$VOLC_USERNAME:$VOLC_TOKEN" \
+  "https://artifacts-cn-beijing.volces.com/repository/agents/models/ai-llm/hpc-agent/stable/install.sh" \
+  -o /tmp/hpc-agent-install.sh</code></pre>
+
+        <h3>2. 下载 wheel 安装包</h3>
+        <pre><code>curl -fL \
+  -u "$VOLC_USERNAME:$VOLC_TOKEN" \
+  "https://artifacts-cn-beijing.volces.com/repository/agents/models/ai-llm/hpc-agent/stable/hpc_agent-0.2.0-py3-none-any.whl" \
+  -o /tmp/hpc_agent-0.2.0-py3-none-any.whl</code></pre>
+      </section>
+
+      <section>
+        <h2>四、安装 HPC Agent</h2>
+        <p>执行下面命令安装。安装脚本会创建独立虚拟环境、安装 HPC Agent、创建命令入口、初始化配置文件，并自动运行体检。</p>
+        <pre><code>HPC_AGENT_WHEEL=/tmp/hpc_agent-0.2.0-py3-none-any.whl \
+sh /tmp/hpc-agent-install.sh</code></pre>
+        <p>如果最后看到下面这行，就说明安装流程完成：</p>
+        <pre><code>HPC Agent installation complete.</code></pre>
+      </section>
+
+      <section>
+        <h2>五、运行安装检查</h2>
+        <p>如果终端提示 <code>hpc-agent-check</code> 找不到，先把用户命令目录加入当前终端的 <code>PATH</code>。</p>
+        <pre><code>export PATH="$HOME/.local/bin:$PATH"
+hpc-agent-check</code></pre>
+        <p>体检结果里重点确认这些项目是 <span class="ok">OK</span>：</p>
+        <ul>
+          <li><code>data/hpc_documents</code> 存在</li>
+          <li><code>skills</code> 存在</li>
+          <li><code>docs</code> 存在</li>
+          <li><code>hpc-agent entrypoint</code> 可 import、可调用</li>
+          <li><code>RAG source files</code> 正常</li>
+          <li><code>Skill handlers</code> 全部可 import</li>
+        </ul>
+        <div class="notice">
+          第一次安装后出现 <code>.env</code>、SSH key、HPC 路径相关 WARN 是正常的，说明还没有填写真实配置，不代表安装失败。
+        </div>
+      </section>
+
+      <section>
+        <h2>六、填写配置</h2>
+        <p>首次安装会创建配置文件：</p>
+        <pre><code>~/.config/hpc-agent/.env</code></pre>
+        <p>编辑配置文件：</p>
+        <pre><code>nano ~/.config/hpc-agent/.env</code></pre>
+        <p>至少需要填写这些配置：</p>
+        <div class="grid">
+          <div class="mini"><strong>PARATERA_BASE_URL</strong>模型 API 地址。</div>
+          <div class="mini"><strong>PARATERA_API_KEY</strong>模型 API Key。</div>
+          <div class="mini"><strong>HPC_HOST</strong>超算登录地址。</div>
+          <div class="mini"><strong>HPC_USERNAME</strong>超算用户名。</div>
+          <div class="mini"><strong>HPC_KEY_PATH</strong>SSH 私钥路径。</div>
+          <div class="mini"><strong>HPC_REMOTE_WORKDIR</strong>超算上的工作目录。</div>
+          <div class="mini"><strong>HPC_VASP_REPORT_MODEL</strong>VASP 报告生成使用的模型，默认 DeepSeek-V4-Pro。</div>
+        </div>
+        <h3>如果需要使用 VASP 功能</h3>
+        <p>如果用户要提交、同步或分析 VASP 作业，还需要配置本地 VASP 输入目录和输出目录。这两个目录需要在本机存在，并且当前用户可读写。</p>
+        <p>如果用户要使用“分析 VASP 作业”或“生成 VASP 报告”功能，还需要确认 <code>HPC_VASP_REPORT_MODEL</code> 已填写为网关支持的模型名。</p>
+        <div class="grid">
+          <div class="mini"><strong>HPC_LOCAL_VASP_JOBS_INPUT_DIR</strong>本地 VASP 输入文件目录，用于放置待提交的 VASP 作业输入。</div>
+          <div class="mini"><strong>HPC_LOCAL_VASP_JOBS_OUTPUT_DIR</strong>本地 VASP 输出文件目录，用于保存从超算同步回来的 VASP 结果。</div>
+          <div class="mini"><strong>HPC_VASP_REPORT_MODEL</strong>VASP 作业分析和报告生成使用的模型，例如 DeepSeek-V4-Pro。</div>
+        </div>
+        <pre><code>mkdir -p ~/vasp-jobs-input ~/vasp-jobs-output</code></pre>
+        <p>然后在 <code>~/.config/hpc-agent/.env</code> 中填写：</p>
+        <pre><code>HPC_LOCAL_VASP_JOBS_INPUT_DIR=/home/你的用户名/vasp-jobs-input
+HPC_LOCAL_VASP_JOBS_OUTPUT_DIR=/home/你的用户名/vasp-jobs-output
+HPC_VASP_REPORT_MODEL=DeepSeek-V4-Pro</code></pre>
+        <p>如果使用 <code>nano</code> 编辑器，保存方式是：按 <code>Ctrl + O</code>，回车确认，再按 <code>Ctrl + X</code> 退出。</p>
+      </section>
+
+      <section>
+        <h2>七、启动 HPC Agent</h2>
+        <p>配置完成后，运行：</p>
+        <pre><code>hpc-agent</code></pre>
+        <p>如果命令找不到，先执行：</p>
+        <pre><code>export PATH="$HOME/.local/bin:$PATH"</code></pre>
+      </section>
+
+      <section>
+        <h2>八、更新 HPC Agent</h2>
+        <p>更新方式和安装类似：重新下载 stable 安装脚本和 wheel，然后执行安装。配置文件默认不会被覆盖。</p>
+        <pre><code>curl -fL \
+  -u "$VOLC_USERNAME:$VOLC_TOKEN" \
+  "https://artifacts-cn-beijing.volces.com/repository/agents/models/ai-llm/hpc-agent/stable/install.sh" \
+  -o /tmp/hpc-agent-install.sh
+
+curl -fL \
+  -u "$VOLC_USERNAME:$VOLC_TOKEN" \
+  "https://artifacts-cn-beijing.volces.com/repository/agents/models/ai-llm/hpc-agent/stable/hpc_agent-0.2.0-py3-none-any.whl" \
+  -o /tmp/hpc_agent-0.2.0-py3-none-any.whl
+
+HPC_AGENT_WHEEL=/tmp/hpc_agent-0.2.0-py3-none-any.whl \
+HPC_AGENT_FORCE_REINSTALL=1 \
+sh /tmp/hpc-agent-install.sh</code></pre>
+      </section>
+
+      <section>
+        <h2>九、常见问题</h2>
+        <h3>curl 返回 401 或 403</h3>
+        <p>通常是用户名或 token 不正确，重新执行认证步骤并确认 token 没有复制多余空格。</p>
+
+        <h3>curl 提示 URL rejected 或 No host part</h3>
+        <p>通常是命令里的 URL 没复制完整，或变量没有设置。建议直接复制本页面里的完整命令。</p>
+
+        <h3>hpc-agent-check 显示 WARN</h3>
+        <p>如果 WARN 是 <code>.env</code>、SSH key、HPC 路径、远端目录相关，通常只是配置还没填好。安装包本身仍然可以是正常的。</p>
+
+        <h3>安装时提示缺少 Python 依赖</h3>
+        <p>说明当前机器不能访问 Python 依赖源。请联系管理员确认网络或私服 Python 依赖源配置。</p>
+
+        <h3>hpc-agent 命令找不到</h3>
+        <p>执行下面命令后重试：</p>
+        <pre><code>export PATH="$HOME/.local/bin:$PATH"</code></pre>
+      </section>
+    </main>
+
+    <footer>
+      <p>发布文件路径：Volcengine Artifacts / models / ai-llm / hpc-agent / stable</p>
+      <p>本页面不包含 token。请从安全渠道获取 token，并只在自己的终端中输入。</p>
+    </footer>
+  </div>
+</body>
+</html>

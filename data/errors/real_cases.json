@@ -400,12 +400,12 @@
     "reason": "API Key 过期、Base URL 错误，或当前 key 不支持配置的模型。",
     "suggestions": [
       "检查 PARATERA_BASE_URL、PARATERA_API_KEY、PARATERA_MODEL",
-      "确认 HPC_CLAUDE_CODE_MODEL 是网关支持的模型",
+      "确认 HPC_VASP_REPORT_MODEL 是网关支持的模型",
       "替换 key 后重启 TUI"
     ],
     "commands": [
       "grep -E '^PARATERA_(BASE_URL|MODEL)=' .env",
-      "grep -E '^HPC_CLAUDE_CODE_MODEL=' .env"
+      "grep -E '^HPC_VASP_REPORT_MODEL=|^HPC_CLAUDE_CODE_MODEL=' .env"
     ],
     "prevention": "不要在输出中打印 API Key 明文；只检查字段是否配置。"
   },

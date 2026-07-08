@@ -51,7 +51,7 @@ class ClassifiedIntent:
 INTENT_CATALOGUE = {
     "submit_job": "提交普通作业到超算运行。关键词：帮我跑、提交到超算、submit、run on HPC。用户提到具体的 .py/.sh 文件路径+运行意图时，一般为 submit_job。",
     "submit_vasp_job": "提交 VASP 计算作业到超算。VASP 关键词（vasp/INCAR/POSCAR/DFT/结构优化/弛豫/能带/态密度/第一性原理/赝势/自洽/材料计算）+ 提交/运行意图。",
-    "current_config": "查看当前 Agent 主体模型、Claude Code VASP 报告模型、LLM 网关和超算目录配置。",
+    "current_config": "查看当前 Agent 主体模型、VASP 报告模型、LLM 网关和超算目录配置。",
     "check_hpc_config": "检查超算/HPC 配置是否可用，包括本地目录、SSH key、远端工作目录等。",
     "test_hpc_submission": "一键测试超算普通 Slurm 提交流程，生成一个安全 hostname 测试作业提交预览，需要用户确认后才提交。",
     "generate_vasp_job": "生成 VASP sbatch 脚本但不提交。VASP 关键词 + 生成/写脚本/预览意图。",

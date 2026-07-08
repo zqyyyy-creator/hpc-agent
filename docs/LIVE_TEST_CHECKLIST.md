@@ -25,7 +25,7 @@
 | 测试人 |  |
 | Agent 分支/提交 |  |
 | `PARATERA_MODEL` |  |
-| `HPC_CLAUDE_CODE_MODEL` |  |
+| `HPC_VASP_REPORT_MODEL` |  |
 | 超算集群/登录节点 |  |
 | VASP 命令 |  |
 | 总体结论 | 未测 / 通过 / 部分通过 / 失败 |
@@ -88,7 +88,7 @@
 通过标准：
 
 - 显示 `PARATERA_MODEL`。
-- 显示 `HPC_CLAUDE_CODE_MODEL`。
+- 显示 `HPC_VASP_REPORT_MODEL`。
 - 显示主要 HPC / VASP 目录配置。
 - API Key 不以明文显示。
 

@@ -183,7 +183,8 @@ def _build_claude_env() -> dict:
         env["ANTHROPIC_AUTH_TOKEN"] = env["ANTHROPIC_API_KEY"]
 
     model = (
-        env.get("HPC_CLAUDE_CODE_MODEL")
+        env.get("HPC_VASP_REPORT_MODEL")
+        or env.get("HPC_CLAUDE_CODE_MODEL")
         or env.get("ANTHROPIC_MODEL")
         or env.get("PARATERA_MODEL")
     )

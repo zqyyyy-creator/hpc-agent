@@ -1,5 +1,6 @@
 from tests import _bootstrap  # noqa: F401
 import json
+import os
 import subprocess
 from tempfile import TemporaryDirectory
 
@@ -18,6 +19,7 @@ from modules.slurm.job_submitter import (
 )
 from modules.routing.router import detect_intent
 from modules.vasp.claude_code_reporter import (
+    _build_claude_env,
     _build_prompt,
     _load_vasp_report_skill,
     generate_report_with_claude,
@@ -636,6 +638,36 @@ def test_claude_reporter_loads_vasp_report_skill():
     assert_contains(prompt, "Do not read large raw files directly")
 
 
+def test_vasp_report_model_env_prefers_new_name_and_keeps_legacy_fallback():
+    keys = [
+        "HPC_VASP_REPORT_MODEL",
+        "HPC_CLAUDE_CODE_MODEL",
+        "ANTHROPIC_MODEL",
+        "PARATERA_MODEL",
+    ]
+    original = {key: os.environ.get(key) for key in keys}
+
+    try:
+        for key in keys:
+            os.environ.pop(key, None)
+
+        os.environ["HPC_CLAUDE_CODE_MODEL"] = "legacy-model"
+        env = _build_claude_env()
+        if env.get("ANTHROPIC_MODEL") != "legacy-model":
+            raise AssertionError(f"Expected legacy model fallback, got {env.get('ANTHROPIC_MODEL')}")
+
+        os.environ["HPC_VASP_REPORT_MODEL"] = "new-report-model"
+        env = _build_claude_env()
+        if env.get("ANTHROPIC_MODEL") != "new-report-model":
+            raise AssertionError(f"Expected new VASP report model, got {env.get('ANTHROPIC_MODEL')}")
+    finally:
+        for key, value in original.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
 def test_dangerous_vasp_request_is_rejected():
     request = "帮我生成 VASP 脚本，然后 rm -rf /tmp/data"
     answer = generate_vasp_sbatch_script(request)
@@ -937,6 +969,7 @@ if __name__ == "__main__":
     test_generate_vasp_pdf_report_includes_raw_output_figures()
     test_vasp_report_result_mentions_generated_figures()
     test_claude_reporter_loads_vasp_report_skill()
+    test_vasp_report_model_env_prefers_new_name_and_keeps_legacy_fallback()
     test_dangerous_vasp_request_is_rejected()
     test_vasp_input_validation_requires_all_files()
     test_vasp_submit_stops_when_local_inputs_missing()

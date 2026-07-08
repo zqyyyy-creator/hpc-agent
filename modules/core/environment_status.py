@@ -44,14 +44,18 @@ def _check_line(check: dict) -> str:
 
 def format_current_model_and_config() -> str:
     paratera_model = os.getenv("PARATERA_MODEL", "DeepSeek-V4-Pro")
-    claude_model = os.getenv("HPC_CLAUDE_CODE_MODEL", "DeepSeek-V4-Pro")
+    vasp_report_model = (
+        os.getenv("HPC_VASP_REPORT_MODEL")
+        or os.getenv("HPC_CLAUDE_CODE_MODEL")
+        or "DeepSeek-V4-Pro"
+    )
     base_url = os.getenv("PARATERA_BASE_URL") or "<未配置>"
 
     return "\n".join([
         "当前 Agent 配置",
         "",
         f"Agent 主体模型: {paratera_model}",
-        f"Claude Code VASP 报告模型: {claude_model}",
+        f"VASP 报告模型: {vasp_report_model}",
         f"LLM 网关: {base_url}",
         f"API Key: {_mask_secret(os.getenv('PARATERA_API_KEY'))}",
         "",
@@ -100,6 +104,16 @@ def check_hpc_environment(
         bool(os.getenv("PARATERA_MODEL")),
         "PARATERA_MODEL",
         os.getenv("PARATERA_MODEL") or "未配置，将使用 DeepSeek-V4-Pro",
+        "api_config",
+    )
+    add(
+        bool(os.getenv("HPC_VASP_REPORT_MODEL") or os.getenv("HPC_CLAUDE_CODE_MODEL")),
+        "HPC_VASP_REPORT_MODEL",
+        (
+            os.getenv("HPC_VASP_REPORT_MODEL")
+            or os.getenv("HPC_CLAUDE_CODE_MODEL")
+            or "未配置，将使用 DeepSeek-V4-Pro"
+        ),
         "api_config",
     )
     add(bool(HOST), "HPC_HOST", HOST or "未配置", "required_env")
@@ -299,7 +313,7 @@ def _suggestion_for_check(item: dict) -> dict:
             "steps": [
                 "检查 .env 中 PARATERA_BASE_URL、PARATERA_API_KEY、PARATERA_MODEL 是否完整。",
                 "确认 API Key 未过期，并且支持当前配置的模型。",
-                "如果只影响 VASP 报告，还要检查 HPC_CLAUDE_CODE_MODEL 是否是网关支持的模型名。",
+                "如果只影响 VASP 报告，还要检查 HPC_VASP_REPORT_MODEL 是否是网关支持的模型名。",
             ],
         }
     if code == "ssh_key":

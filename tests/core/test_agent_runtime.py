@@ -273,7 +273,7 @@ def test_execute_current_config_intent_reports_models():
 
     assert result.handled
     assert "Agent 主体模型" in result.answer
-    assert "Claude Code VASP 报告模型" in result.answer
+    assert "VASP 报告模型" in result.answer
     assert "API Key: <已配置>" in result.answer or "API Key: <未配置>" in result.answer
 
 

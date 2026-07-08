@@ -437,7 +437,7 @@ def _suggest_commands(domain: str, text: str) -> list[str]:
     if domain == "config":
         return ["检查我的超算配置", "grep -E '^HPC_|^PARATERA_' .env"]
     if domain == "claude":
-        return ["command -v claude", "grep -E '^PARATERA_|^HPC_CLAUDE_CODE_MODEL=' .env"]
+        return ["command -v claude", "grep -E '^PARATERA_|^HPC_VASP_REPORT_MODEL=|^HPC_CLAUDE_CODE_MODEL=' .env"]
     if domain == "sync":
         return ["ssh -i /path/to/private/key -l USER HOST hostname", "ls -lah REMOTE_DIR"]
     if domain == "tui":
