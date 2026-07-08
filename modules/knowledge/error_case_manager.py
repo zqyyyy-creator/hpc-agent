@@ -5,8 +5,9 @@ import re
 from pathlib import Path
 from typing import Any
 
+from modules.core.paths import ERRORS_DIR, resolve_project_path
 
-REAL_CASES_PATH = Path("data/errors/real_cases.json")
+REAL_CASES_PATH = ERRORS_DIR / "real_cases.json"
 REQUIRED_REAL_CASE_FIELDS = {
     "id",
     "domain",
@@ -48,15 +49,19 @@ CASE_DRAFT_TRIGGERS = [
 ]
 
 
+def _resolve_project_path(path: str | Path) -> Path:
+    return resolve_project_path(path)
+
+
 def load_real_cases(path: str | Path = REAL_CASES_PATH) -> list[dict[str, Any]]:
-    case_path = Path(path)
+    case_path = _resolve_project_path(path)
     if not case_path.exists():
         return []
     return json.loads(case_path.read_text(encoding="utf-8"))
 
 
 def write_real_cases(cases: list[dict[str, Any]], path: str | Path = REAL_CASES_PATH):
-    case_path = Path(path)
+    case_path = _resolve_project_path(path)
     case_path.parent.mkdir(parents=True, exist_ok=True)
     case_path.write_text(
         json.dumps(cases, ensure_ascii=False, indent=2) + "\n",
@@ -90,6 +95,7 @@ def validate_real_case(case: dict[str, Any], existing_cases: list[dict[str, Any]
 
 
 def append_real_case(case: dict[str, Any], path: str | Path = REAL_CASES_PATH) -> dict[str, Any]:
+    case_path = _resolve_project_path(path)
     cases = load_real_cases(path)
     ok, error = validate_real_case(case, cases)
     if not ok:
@@ -107,10 +113,10 @@ def append_real_case(case: dict[str, Any], path: str | Path = REAL_CASES_PATH) -
             "已加入错误案例库。\n\n"
             f"案例 ID: {case['id']}\n"
             f"标题: {case['title']}\n"
-            f"文件: {Path(path)}"
+            f"文件: {case_path}"
         ),
         "case": case,
-        "path": str(path),
+        "path": str(case_path),
     }
 
 
@@ -150,7 +156,8 @@ def build_error_case_draft(
                 "matched_case": matched,
             }
 
-    case = _draft_case_from_log(source_log, diagnoser=diagnoser, existing_cases=load_real_cases(path))
+    case_path = _resolve_project_path(path)
+    case = _draft_case_from_log(source_log, diagnoser=diagnoser, existing_cases=load_real_cases(case_path))
     preview = format_error_case_draft(case, source_log)
     return {
         "success": True,
@@ -161,7 +168,7 @@ def build_error_case_draft(
             "kind": "add_error_case",
             "payload": {
                 "case": case,
-                "path": str(path),
+                "path": str(case_path),
             },
             "description": "错误案例草稿，回复“确认”后写入 data/errors/real_cases.json。",
         },

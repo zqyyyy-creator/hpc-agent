@@ -5,9 +5,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from modules.core.paths import PROJECT_ROOT, SKILLS_DIR
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_SKILLS_DIR = PROJECT_ROOT / "skills"
+DEFAULT_SKILLS_DIR = SKILLS_DIR
 VALID_SKILL_TYPES = {"tool", "prompt", "rule"}
 VALID_RUNTIME_ADAPTERS = {
     "question_to_text",

@@ -5,10 +5,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from modules.core.paths import ENV_PATH
 from modules.core.tool_calling import ToolCall, ToolResult, ensure_allowed_tool
 
 
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+load_dotenv(ENV_PATH)
 
 DEFAULT_TEST_FILE_NAME = "test.py"
 MAX_SLEEP_SECONDS = 24 * 60 * 60

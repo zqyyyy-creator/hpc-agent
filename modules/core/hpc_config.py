@@ -3,8 +3,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from modules.core.paths import ENV_PATH
 
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
+load_dotenv(ENV_PATH)
 
 HOST = os.getenv("HPC_HOST")
 USERNAME = os.getenv("HPC_USERNAME")
@@ -13,14 +15,20 @@ REMOTE_WORKDIR = os.getenv("HPC_REMOTE_WORKDIR")
 
 DEFAULT_PARTITION = os.getenv("HPC_DEFAULT_PARTITION", "")
 VASP_PARTITION = os.getenv("HPC_VASP_PARTITION", DEFAULT_PARTITION)
-VASP_LOCAL_JOBS_DIR = os.getenv(
-    "HPC_LOCAL_VASP_JOBS_INPUT_DIR",
-    os.getenv("HPC_LOCAL_VASP_JOBS_DIR", "~/vasp-jobs-input"),
+VASP_LOCAL_JOBS_DIR = str(
+    Path(
+        os.getenv(
+            "HPC_LOCAL_VASP_JOBS_INPUT_DIR",
+            os.getenv("HPC_LOCAL_VASP_JOBS_DIR", "~/vasp-jobs-input"),
+        )
+    ).expanduser()
 )
-VASP_LOCAL_OUTPUT_DIR = os.getenv("HPC_LOCAL_VASP_JOBS_OUTPUT_DIR", "~/vasp-jobs-output")
+VASP_LOCAL_OUTPUT_DIR = str(
+    Path(os.getenv("HPC_LOCAL_VASP_JOBS_OUTPUT_DIR", "~/vasp-jobs-output")).expanduser()
+)
 
 
-def derive_vasp_remote_dir(kind: str):
+def derive_vasp_remote_dir(kind: str) -> str | None:
     explicit = os.getenv(f"HPC_VASP_REMOTE_{kind.upper()}_DIR")
     if explicit:
         return explicit

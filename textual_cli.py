@@ -35,6 +35,7 @@ from modules.tui.tui_vasp_workflow import (
     update_vasp_workflow_from_snapshot,
 )
 
+logger = logging.getLogger(__name__)
 jieba.setLogLevel(logging.ERROR)
 
 
@@ -507,6 +508,7 @@ def run_textual_cli():
                     intent = fallback.intent
                     answer = fallback.answer
             except Exception as error:
+                logger.exception("TUI request handling failed")
                 answer = f"请求处理失败: {type(error).__name__}: {error}"
 
             result["answer"] = answer
@@ -623,6 +625,7 @@ def run_textual_cli():
             try:
                 validation = validate_monitorable_job(job_id)
             except Exception as error:
+                logger.exception("Failed to validate monitorable job %s", job_id)
                 validation = {
                     "job_id": str(job_id),
                     "monitorable": False,
@@ -634,6 +637,7 @@ def run_textual_cli():
                 try:
                     snapshot = get_job_monitor_snapshot(job_id, lines=50)
                 except Exception:
+                    logger.exception("Failed to fetch initial monitor snapshot for job %s", job_id)
                     snapshot = None
 
             self.call_from_thread(self._apply_monitoring_validation, validation, snapshot)
@@ -730,6 +734,7 @@ def run_textual_cli():
                 try:
                     snapshot = get_job_monitor_snapshot(job_id, lines=50)
                 except Exception as error:
+                    logger.exception("Failed to refresh monitor snapshot for job %s", job_id)
                     snapshot = {
                         "job_id": str(job_id),
                         "squeue_output": "",
@@ -850,6 +855,7 @@ def run_textual_cli():
                     "error": "",
                 }
             except Exception as error:
+                logger.exception("VASP workflow analysis failed for job %s", job_id)
                 result = {
                     "job_id": str(job_id),
                     "success": False,
@@ -1071,6 +1077,7 @@ def run_textual_cli():
                     self._write_system(f"远端重复目录检查有 stderr：{error.strip()}")
                 return status
             except Exception as error:
+                logger.exception("Remote VASP collision check failed")
                 self._write_system(f"远端重复目录检查失败，仅检查本地输出目录：{type(error).__name__}: {error}")
                 return {path: None for path in paths}
 
@@ -1228,6 +1235,7 @@ def run_textual_cli():
                 result = action_result.raw or {}
                 answer = action_result.message
             except Exception as error:
+                logger.exception("Confirmed submission failed")
                 answer = f"作业提交失败: {type(error).__name__}: {error}"
 
             self._write_assistant(answer)
@@ -1323,6 +1331,7 @@ def run_textual_cli():
                     self.copy_to_clipboard(text_to_copy)
                     self._write_system(f"已通过终端剪贴板复制{source}。")
                 except Exception as copy_error:
+                    logger.exception("Clipboard copy failed")
                     self._write_system(
                         "当前环境没有可用剪贴板："
                         f"{error}; terminal clipboard: {type(copy_error).__name__}: {copy_error}"

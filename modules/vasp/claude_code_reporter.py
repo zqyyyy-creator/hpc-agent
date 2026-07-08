@@ -8,10 +8,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from modules.core.paths import ENV_PATH, SKILLS_DIR
 from modules.vasp.vasp_report_context import generate_vasp_report_context
 
 
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+load_dotenv(ENV_PATH)
 
 REPORT_FILES = {
     "report_md": "report.md",
@@ -19,8 +20,7 @@ REPORT_FILES = {
     "paper_results_md": "paper_results.md",
 }
 DEFAULT_TIMEOUT_SECONDS = 1800
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-VASP_REPORT_SKILL_PATH = PROJECT_ROOT / "skills" / "vasp_report" / "SKILL.md"
+VASP_REPORT_SKILL_PATH = SKILLS_DIR / "vasp_report" / "SKILL.md"
 
 
 def _load_vasp_report_skill() -> str:

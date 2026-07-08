@@ -13,14 +13,14 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 
+from modules.core.paths import ENV_PATH
 from modules.core.tool_calling import ToolCall
 
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+load_dotenv(ENV_PATH)
 
 logger = logging.getLogger(__name__)
 

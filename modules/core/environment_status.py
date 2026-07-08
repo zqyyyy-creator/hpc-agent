@@ -9,6 +9,7 @@ from typing import Callable
 
 from dotenv import load_dotenv
 
+from modules.core.paths import ENV_PATH
 from modules.core.hpc_config import (
     DEFAULT_PARTITION,
     HOST,
@@ -23,7 +24,7 @@ from modules.core.hpc_config import (
 )
 
 
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+load_dotenv(ENV_PATH)
 
 
 def _mask_secret(value: str | None) -> str:

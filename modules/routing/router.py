@@ -112,7 +112,7 @@ KEYWORDS: dict[str, list[str]] = {
         "提交脚本", "提交文件", "提交程序",
         "帮我提交", "帮我跑", "帮我运行",
         "跑任务", "运行任务", "运行脚本", "跑脚本", "跑程序",
-        "提交任务", "提交作业", "提交",
+        "提交",
         "submitjob", "submitasbatch", "submittohpc",
         "runonhpc", "launchjob", "startjob",
     ],
@@ -402,6 +402,20 @@ def _normalize_chinese(text: str) -> str:
 
 def _match_any(keywords, q_no_space, q_normalized):
     return any(kw in q_no_space or kw in q_normalized for kw in keywords)
+
+
+def validate_keyword_catalogue() -> list[str]:
+    problems: list[str] = []
+    for intent, keywords in KEYWORDS.items():
+        seen: set[str] = set()
+        for keyword in keywords:
+            if not keyword:
+                problems.append(f"{intent}: empty keyword")
+                continue
+            if keyword in seen:
+                problems.append(f"{intent}: duplicate keyword {keyword!r}")
+            seen.add(keyword)
+    return problems
 
 
 def _is_howto_or_concept_question(q_no_space: str) -> bool:

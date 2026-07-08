@@ -1,9 +1,10 @@
 import json
-from pathlib import Path
 from datetime import datetime, timezone
 
+from modules.core.paths import JOBS_DIR
 
-REGISTRY_PATH = Path(__file__).resolve().parents[2] / "data" / "jobs" / "job_registry.json"
+
+REGISTRY_PATH = JOBS_DIR / "job_registry.json"
 
 
 def _load_registry():

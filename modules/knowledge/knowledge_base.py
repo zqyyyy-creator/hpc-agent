@@ -2,7 +2,6 @@ import os
 import re
 import math
 from collections import Counter
-from pathlib import Path
 
 import jieba
 from dotenv import load_dotenv
@@ -11,6 +10,7 @@ from openai import OpenAI
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+from modules.core.paths import ENV_PATH, HPC_DOCUMENTS_DIR
 
 def _sanitize_text(text: str) -> str:
     """清除 UTF-8 surrogate 字符，防止序列化时报错。
@@ -24,7 +24,7 @@ def _sanitize_text(text: str) -> str:
 
 
 # 加载 .env
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+load_dotenv(ENV_PATH)
 
 
 # 初始化 DeepSeek Client
@@ -576,11 +576,7 @@ def _bm25_scores(query: str, index: dict) -> list[float]:
 # 读取 data 文件夹里的所有 txt 文档
 def load_documents():
 
-    docs_path = (
-        Path(__file__).resolve().parents[2]
-        / "data"
-        / "hpc_documents"
-    )
+    docs_path = HPC_DOCUMENTS_DIR
 
     chunks = []
     sources = []

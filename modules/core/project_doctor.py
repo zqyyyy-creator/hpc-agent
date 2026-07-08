@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+import importlib
+import os
+import tomllib
 from pathlib import Path
 from typing import Callable, Any
 
+from modules.core.paths import DOCS_DIR, ENV_PATH, HPC_DOCUMENTS_DIR, MODULES_DIR, PROJECT_ROOT, SKILLS_DIR
 from modules.core.environment_status import check_hpc_environment
 from modules.knowledge.knowledge_base import load_documents
 from modules.skills.resource_detector import detect_available_resources
 from modules.skills.skill_registry import load_skill_registry
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _ok_item(label: str, detail: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -32,13 +33,82 @@ def _path_status(path: Path, *, must_be_dir: bool = True) -> dict[str, Any]:
 
 def _check_required_project_paths() -> dict[str, Any]:
     paths = [
-        (PROJECT_ROOT / ".env", False),
-        (PROJECT_ROOT / "data" / "hpc_documents", True),
-        (PROJECT_ROOT / "skills", True),
-        (PROJECT_ROOT / "docs", True),
-        (PROJECT_ROOT / "modules", True),
+        (ENV_PATH, False),
+        (HPC_DOCUMENTS_DIR, True),
+        (SKILLS_DIR, True),
+        (DOCS_DIR, True),
+        (MODULES_DIR, True),
     ]
     checks = [_path_status(path, must_be_dir=must_be_dir) for path, must_be_dir in paths]
+    return {
+        "success": all(item["ok"] for item in checks),
+        "checks": checks,
+    }
+
+
+def _check_env_summary() -> dict[str, Any]:
+    required_vars = [
+        "HPC_HOST",
+        "HPC_USERNAME",
+        "HPC_KEY_PATH",
+        "HPC_REMOTE_WORKDIR",
+        "PARATERA_BASE_URL",
+        "PARATERA_API_KEY",
+    ]
+    optional_vars = [
+        "PARATERA_MODEL",
+        "HPC_DEFAULT_PARTITION",
+        "HPC_VASP_PARTITION",
+        "HPC_VASP_COMMAND",
+        "HPC_CLAUDE_CODE_COMMAND",
+    ]
+    missing_required = [name for name in required_vars if not os.getenv(name)]
+    configured_optional = [name for name in optional_vars if os.getenv(name)]
+    checks = [
+        (
+            _warn_item("Required env vars", f"缺少: {', '.join(missing_required)}")
+            if missing_required
+            else _ok_item("Required env vars", "关键变量已配置")
+        ),
+        _ok_item(
+            "Optional env vars",
+            f"已配置 {len(configured_optional)}/{len(optional_vars)}: {', '.join(configured_optional) or '-'}",
+        ),
+    ]
+    return {
+        "success": all(item["ok"] for item in checks),
+        "checks": checks,
+        "missing_required": missing_required,
+        "configured_optional": configured_optional,
+    }
+
+
+def _check_package_entrypoint() -> dict[str, Any]:
+    pyproject_path = PROJECT_ROOT / "pyproject.toml"
+    checks: list[dict[str, Any]] = []
+    try:
+        data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+        scripts = data.get("project", {}).get("scripts", {})
+        entrypoint = scripts.get("hpc-agent")
+        if not entrypoint:
+            checks.append(_warn_item("hpc-agent entrypoint", "pyproject.toml 未声明 project.scripts.hpc-agent"))
+        elif ":" not in entrypoint:
+            checks.append(_warn_item("hpc-agent entrypoint", f"{entrypoint} 不是 module:attr 格式"))
+        else:
+            module_name, attr_name = entrypoint.split(":", 1)
+            module = importlib.import_module(module_name)
+            attr = getattr(module, attr_name)
+            checks.append(
+                _ok_item(
+                    "hpc-agent entrypoint",
+                    f"{entrypoint} 可 import" + ("，可调用" if callable(attr) else "，但不可调用"),
+                )
+            )
+            if not callable(attr):
+                checks[-1] = _warn_item("hpc-agent entrypoint", f"{entrypoint} 存在但不可调用")
+    except Exception as error:
+        checks.append(_warn_item("hpc-agent entrypoint", f"{type(error).__name__}: {error}"))
+
     return {
         "success": all(item["ok"] for item in checks),
         "checks": checks,
@@ -147,6 +217,8 @@ def run_project_doctor(
 ) -> dict[str, Any]:
     sections = {
         "project_paths": _check_required_project_paths(),
+        "env_summary": _check_env_summary(),
+        "entrypoint": _check_package_entrypoint(),
         "hpc_environment": check_hpc_environment(run_remote_command=run_remote_command),
         "rag_documents": _check_rag_documents(documents, sources),
         "skill_registry": _check_skill_registry(),
@@ -181,13 +253,17 @@ def format_project_doctor(result: dict[str, Any]) -> str:
     ]
     lines.extend(_format_section("1. 项目文件", sections.get("project_paths", {})))
     lines.append("")
-    lines.extend(_format_section("2. .env / SSH / 超算配置", sections.get("hpc_environment", {})))
+    lines.extend(_format_section("2. .env 关键变量", sections.get("env_summary", {})))
     lines.append("")
-    lines.extend(_format_section("3. RAG 文档", sections.get("rag_documents", {})))
+    lines.extend(_format_section("3. 包入口", sections.get("entrypoint", {})))
     lines.append("")
-    lines.extend(_format_section("4. Skills Registry", sections.get("skill_registry", {})))
+    lines.extend(_format_section("4. SSH / 超算配置", sections.get("hpc_environment", {})))
     lines.append("")
-    lines.extend(_format_section("5. 本地资源", sections.get("local_resources", {})))
+    lines.extend(_format_section("5. RAG 文档", sections.get("rag_documents", {})))
+    lines.append("")
+    lines.extend(_format_section("6. Skills Registry", sections.get("skill_registry", {})))
+    lines.append("")
+    lines.extend(_format_section("7. 本地资源", sections.get("local_resources", {})))
 
     hpc_suggestions = sections.get("hpc_environment", {}).get("recovery_suggestions") or []
     if hpc_suggestions:

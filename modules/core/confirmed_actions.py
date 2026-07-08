@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from modules.core.conversation_state import GLOBAL_CONVERSATION_STATE, ConversationState
-from modules.knowledge.error_case_manager import append_real_case
+from modules.knowledge.error_case_manager import REAL_CASES_PATH, append_real_case
 from modules.slurm.job_lifecycle import archive_job_records, restore_job_records
 from modules.slurm.job_query import execute_cleanup_remote_jobs
 from modules.slurm.job_submitter import submit_prepared_script, submit_prepared_vasp_script
@@ -138,7 +138,7 @@ def execute_confirmed_action(
         executor = active_executors.get("add_error_case", append_real_case)
         result = executor(
             payload.get("case") or {},
-            path=payload.get("path") or "data/errors/real_cases.json",
+            path=payload.get("path") or REAL_CASES_PATH,
         )
         return ConfirmedActionResult(
             success=bool(result.get("success")),

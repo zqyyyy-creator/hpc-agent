@@ -474,6 +474,8 @@ Agent 会先生成草稿并等待确认，只有回复 `确认` 后才会写入 
 本地检查：
 
 ```bash
+hpc-agent-check
+# 或：
 .venv/bin/python tests/run_all_checks.py
 ```
 
@@ -496,10 +498,12 @@ tests/fixtures/route_cases.json
 真实超算工作流检查：
 
 ```bash
+hpc-agent-check --live-hpc
+# 或：
 .venv/bin/python tests/run_all_checks.py --live-hpc
 ```
 
-`--live-hpc` 会连接超算并提交真实 Slurm 测试作业。
+默认检查只跑本地回归；`--live-hpc` 会额外检查 HPC 配置、连接超算并提交真实 Slurm 测试作业。
 
 ---
 

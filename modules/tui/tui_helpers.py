@@ -7,8 +7,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from modules.core.paths import ENV_PATH
 
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
+load_dotenv(ENV_PATH)
 
 
 SEARCH_EXCLUDED_DIRS = {

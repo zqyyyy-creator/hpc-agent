@@ -2,15 +2,20 @@ import json
 import re
 from pathlib import Path
 
+from modules.core.paths import ERRORS_DIR, resolve_project_path
+
+DEFAULT_ERROR_DB_PATH = ERRORS_DIR / "generic_errors.json"
+DEFAULT_REAL_CASES_PATH = ERRORS_DIR / "real_cases.json"
+
 
 class ErrorDiagnoser:
     def __init__(
         self,
-        db_path: str = "data/errors/generic_errors.json",
-        real_cases_path: str = "data/errors/real_cases.json",
+        db_path: str | Path = DEFAULT_ERROR_DB_PATH,
+        real_cases_path: str | Path = DEFAULT_REAL_CASES_PATH,
     ):
-        self.db_path = Path(db_path)
-        self.real_cases_path = Path(real_cases_path)
+        self.db_path = resolve_project_path(db_path)
+        self.real_cases_path = resolve_project_path(real_cases_path)
         self.error_db = self.load_error_db()
         self.real_cases = self.load_real_cases()
 

@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "hpc-agent"
 version = "0.2.0"
@@ -29,6 +33,7 @@ dependencies = [
 
 [project.scripts]
 hpc-agent = "app:main"
+hpc-agent-check = "modules.core.check_runner:main"
 
 [tool.setuptools]
 py-modules = ["app", "textual_cli"]

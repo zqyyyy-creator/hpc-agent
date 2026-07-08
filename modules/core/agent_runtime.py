@@ -91,6 +91,7 @@ CLEANUP_PENDING_DESCRIPTIONS = {
 
 SUBMIT_PREVIEW_INTENTS = {"submit_job", "submit_vasp_job", "test_hpc_submission"}
 _SKILL_REGISTRY = None
+_SKILL_REGISTRY_ERROR = ""
 
 
 def can_preview_submit_intent(intent: str) -> bool:
@@ -98,13 +99,20 @@ def can_preview_submit_intent(intent: str) -> bool:
 
 
 def _get_skill_registry():
-    global _SKILL_REGISTRY
+    global _SKILL_REGISTRY, _SKILL_REGISTRY_ERROR
     if _SKILL_REGISTRY is None:
         try:
             _SKILL_REGISTRY = load_skill_registry()
-        except Exception:
+            _SKILL_REGISTRY_ERROR = ""
+        except Exception as error:
             _SKILL_REGISTRY = False
+            _SKILL_REGISTRY_ERROR = f"{type(error).__name__}: {error}"
     return _SKILL_REGISTRY or None
+
+
+def get_skill_registry_error() -> str:
+    _get_skill_registry()
+    return _SKILL_REGISTRY_ERROR
 
 
 def _skill_info(skill: SkillDefinition) -> dict[str, Any]:
@@ -372,7 +380,10 @@ def format_shortcut_help(question: str = "") -> str:
             "",
         ]
         if registry is None:
+            error = get_skill_registry_error()
             lines.append("当前 SkillRegistry 加载失败，请运行：.venv/bin/python tools/skill_debug.py --validate")
+            if error:
+                lines.append(f"失败原因: {error}")
             return "\n".join(lines)
 
         lines.append("当前已注册 Skill:")

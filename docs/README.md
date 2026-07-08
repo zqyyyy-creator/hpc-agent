@@ -20,8 +20,8 @@
 ## 常用入口
 
 - 启动 TUI：`.venv/bin/python app.py`
-- 本地全量检查：`.venv/bin/python tests/run_all_checks.py`
-- 真实 HPC 检查：`.venv/bin/python tests/run_all_checks.py --live-hpc`
+- 本地全量检查：`hpc-agent-check`
+- 真实 HPC 检查：`hpc-agent-check --live-hpc`
 - 配置检查：在 TUI 输入 `检查我的超算配置`
 - TUI 快捷帮助：`/help`
 - Job 快捷帮助：`/help job`

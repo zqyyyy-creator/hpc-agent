@@ -295,6 +295,16 @@ def dispatch_classified_intent(
                 needs_confirmation=cleanup_call.needs_confirmation,
                 metadata=cleanup_call.metadata,
             )
+        if handlers and handlers.get("cleanup"):
+            result = handlers["cleanup"](cleanup_call.arguments["original_text"], intent)
+            return DispatchResult(
+                handled=True,
+                intent=intent,
+                success=result.success,
+                message=result.message,
+                data=dict(result.data),
+                tool_result=result,
+            )
         result = execute_cleanup_prepare_tool_call(cleanup_call)
         return DispatchResult(
             handled=True,
