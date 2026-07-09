@@ -15,6 +15,7 @@ wheels/
 data/cli_history.txt
 data/jobs/job_registry.json
 data/jobs/archive/
+REPORT_PLAN.md
 job.sh
 hpc-local-jobs/
 vasp-jobs-input/

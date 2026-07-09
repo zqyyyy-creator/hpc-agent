@@ -110,7 +110,7 @@ def _build_generate_vasp_inputs_pending_action(
             "job_dir": result.get("job_dir"),
             "user_request": context.question,
         },
-        "description": "VASP 输入文件覆盖确认，回复“确认覆盖”或“覆盖已有配置文件”后执行。",
+        "description": "VASP 输入文件覆盖确认，回复“确认覆盖”或“覆盖已有配置文件”后执行；回复“取消覆盖”取消。",
     }
 
 
@@ -135,6 +135,7 @@ def _execute_structured_result(skill: SkillDefinition, context: SkillExecutionCo
         result[message_field] = (
             answer
             + "\n\n如要覆盖并重新生成，请回复：“确认覆盖” 或 “覆盖已有配置文件”。"
+            + "\n如果不想覆盖，请回复：“取消覆盖”。"
         )
         answer = result[message_field]
 

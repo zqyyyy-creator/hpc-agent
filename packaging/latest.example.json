@@ -1,24 +1,24 @@
 {
   "name": "hpc-agent",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "python": ">=3.12",
   "released_at": "2026-07-08",
   "channel": "stable",
   "files": {
     "wheel": {
-      "path": "releases/0.2.3/hpc_agent-0.2.3-py3-none-any.whl",
+      "path": "releases/0.2.4/hpc_agent-0.2.4-py3-none-any.whl",
       "sha256": "REPLACE_WITH_WHEEL_SHA256"
     },
     "sdist": {
-      "path": "releases/0.2.3/hpc_agent-0.2.3.tar.gz",
+      "path": "releases/0.2.4/hpc_agent-0.2.4.tar.gz",
       "sha256": "REPLACE_WITH_SDIST_SHA256"
     },
     "install_script": {
-      "path": "releases/0.2.3/install.sh",
+      "path": "releases/0.2.4/install.sh",
       "sha256": "REPLACE_WITH_INSTALL_SCRIPT_SHA256"
     },
     "release_notes": {
-      "path": "releases/0.2.3/RELEASE_NOTES.md",
+      "path": "releases/0.2.4/RELEASE_NOTES.md",
       "sha256": "REPLACE_WITH_RELEASE_NOTES_SHA256"
     }
   },

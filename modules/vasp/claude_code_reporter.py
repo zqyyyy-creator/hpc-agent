@@ -111,6 +111,18 @@ def _extract_json_object(text: str) -> dict:
     except json.JSONDecodeError:
         pass
 
+    if re.match(r'^"?(?:report_md|paper_methods_md|paper_results_md)"?\s*:', stripped):
+        repaired_body = stripped
+        if not repaired_body.startswith('"'):
+            repaired_body = '"' + repaired_body
+        repaired = "{" + repaired_body
+        if not repaired.rstrip().endswith("}"):
+            repaired += "}"
+        try:
+            return json.loads(repaired)
+        except json.JSONDecodeError:
+            pass
+
     start = stripped.find("{")
     end = stripped.rfind("}")
 

@@ -202,7 +202,7 @@ def generate_vasp_inputs_from_potcar(
                 "没有写入文件，因为作业目录中已经存在 VASP 配置文件。\n\n"
                 f"作业目录: {job_path}\n"
                 f"已存在: {', '.join(existing_files)}\n\n"
-                "如果确认要重新生成并覆盖，请明确说“覆盖已有配置文件”。"
+                "如果不想覆盖，请回复“取消覆盖”。"
             ),
             "job_dir": str(job_path),
             "elements": elements,

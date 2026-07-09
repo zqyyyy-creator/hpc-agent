@@ -1055,10 +1055,7 @@ def sync_vasp_job_output(job_id: str):
         f"- {item['name']} ({item['size_bytes']} bytes)"
         for item in synced_files
     ) or "无"
-    skipped_summary = "\n".join(
-        f"- {item['name']} ({item['size_bytes']} bytes)"
-        for item in skipped_files
-    ) or "无"
+    skipped_summary = _format_vasp_skipped_files(skipped_files)
 
     return (
         "VASP 输出已同步到本地。\n\n"
@@ -1074,6 +1071,41 @@ def sync_vasp_job_output(job_id: str):
         f"{synced_summary}\n\n"
         "已跳过文件:\n"
         f"{skipped_summary}"
+    )
+
+
+def _vasp_skip_reason_text(item: dict) -> str:
+    name = item.get("name", "")
+    reason = item.get("reason", "")
+
+    if reason == "not_regular_file":
+        return "不是普通文件，当前同步只处理文件，不同步目录或特殊文件。"
+
+    if name == "POTCAR":
+        return "按安全策略跳过；POTCAR/赝势文件不复制到本地分析目录。"
+
+    if name in {"WAVECAR", "CHGCAR"} or name.startswith("AECCAR"):
+        return "按排除规则跳过；这是较大的重启/电荷密度类文件，当前报告生成不需要。"
+
+    if name in {"CHG", "PCDAT"}:
+        return "不在当前同步白名单中；当前报告链路不使用该文件。"
+
+    if name in {"DOSCAR", "EIGENVAL", "IBZKPT"}:
+        return "不在当前同步白名单中；当前报告优先使用 OUTCAR、OSZICAR、vasprun.xml 和日志生成基础分析。"
+
+    if reason == "not_in_sync_whitelist_or_excluded":
+        return "不在当前同步白名单中，或命中了排除规则；当前报告生成不需要该文件。"
+
+    return reason or "未同步。"
+
+
+def _format_vasp_skipped_files(skipped_files: list[dict]) -> str:
+    if not skipped_files:
+        return "无"
+
+    return "\n".join(
+        f"- {item['name']} ({item['size_bytes']} bytes): {_vasp_skip_reason_text(item)}"
+        for item in skipped_files
     )
 
 

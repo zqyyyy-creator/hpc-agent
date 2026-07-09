@@ -157,7 +157,11 @@ def format_monitor_snapshot(
         log_text += f"\n\n读取日志错误:\n{log_error}"
 
     compact_dir = _compact_remote_dir(remote_workdir)
-    output_preview = _last_nonempty_lines(log_text, limit=5) or "还没有找到 stdout/stderr 日志。"
+    output_section = ""
+    if log_text:
+        output_preview = _last_nonempty_lines(log_text, limit=5)
+        if output_preview:
+            output_section = f"\n\nLast Output:\n{output_preview}"
     active_text = format_monitor_activity(snapshot["job_id"], monitor_active, vasp_workflows)
     workflow_section = format_workflow_status(snapshot["job_id"], vasp_workflows, now=now)
     vasp_section = format_vasp_diagnosis(snapshot.get("vasp_diagnosis"))
@@ -171,5 +175,5 @@ def format_monitor_snapshot(
         f"{vasp_section}"
         f"{failure_note}"
         f"{error_note}"
-        f"\n\nLast Output:\n{output_preview}"
+        f"{output_section}"
     )

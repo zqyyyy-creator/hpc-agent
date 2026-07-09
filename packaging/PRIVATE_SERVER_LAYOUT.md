@@ -52,7 +52,7 @@ hpc-agent/
 ## File Purpose
 
 - `install.sh`: The one-file installer users download and run.
-- `latest.txt`: The latest stable version, for example `0.2.3`.
+- `latest.txt`: The latest stable version, for example `0.2.4`.
 - `latest.json`: Machine-readable metadata for the latest release. The installer reads `files.wheel.path` from this file.
 - `SHA256SUMS`: Checksums for top-level convenience files.
 - `releases/<version>/`: Immutable files for one exact version.

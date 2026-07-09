@@ -31,6 +31,7 @@ GENERIC_CONFIRMATIONS = {
 }
 GENERIC_CANCELLATIONS = {
     "取消", "取消执行", "取消提交", "取消清理", "不用", "不要", "算了",
+    "取消覆盖",
     "no", "n", "cancel",
 }
 

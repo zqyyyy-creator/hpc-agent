@@ -3,8 +3,8 @@ services:
     build:
       context: .
       args:
-        HPC_AGENT_VERSION: ${HPC_AGENT_VERSION:-0.2.3}
-    image: hpc-agent:${HPC_AGENT_VERSION:-0.2.3}
+        HPC_AGENT_VERSION: ${HPC_AGENT_VERSION:-0.2.4}
+    image: hpc-agent:${HPC_AGENT_VERSION:-0.2.4}
     stdin_open: true
     tty: true
     environment:
