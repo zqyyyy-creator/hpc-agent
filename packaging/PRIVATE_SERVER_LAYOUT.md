@@ -9,15 +9,21 @@ For the simplest working release, publish only:
 ```text
 hpc-agent/
 ├── install.sh
-└── hpc_agent-0.2.0-py3-none-any.whl
+└── hpc_agent-<version>-py3-none-any.whl
 ```
 
 Users install with:
 
 ```bash
 curl -fsSL https://your-private-server/hpc-agent/install.sh -o /tmp/hpc-agent-install.sh
+sh /tmp/hpc-agent-install.sh
+```
 
-HPC_AGENT_WHEEL=https://your-private-server/hpc-agent/hpc_agent-0.2.0-py3-none-any.whl \
+The installer downloads `latest.json`, reads `files.wheel.path`, then downloads the matching wheel automatically. For private repositories, pass credentials with environment variables instead of writing them into the script:
+
+```bash
+HPC_AGENT_REPO_USERNAME="$VOLC_USERNAME" \
+HPC_AGENT_REPO_TOKEN="$VOLC_TOKEN" \
 sh /tmp/hpc-agent-install.sh
 ```
 
@@ -32,22 +38,22 @@ hpc-agent/
 ├── latest.json
 ├── SHA256SUMS
 ├── releases/
-│   └── 0.2.0/
+│   └── <version>/
 │       ├── install.sh
-│       ├── hpc_agent-0.2.0-py3-none-any.whl
-│       ├── hpc_agent-0.2.0.tar.gz
+│       ├── hpc_agent-<version>-py3-none-any.whl
+│       ├── hpc_agent-<version>.tar.gz
 │       ├── SHA256SUMS
 │       └── RELEASE_NOTES.md
 └── stable/
     ├── install.sh
-    └── hpc_agent-0.2.0-py3-none-any.whl
+    └── hpc_agent-<version>-py3-none-any.whl
 ```
 
 ## File Purpose
 
 - `install.sh`: The one-file installer users download and run.
-- `latest.txt`: The latest stable version, for example `0.2.0`.
-- `latest.json`: Machine-readable metadata for the latest release.
+- `latest.txt`: The latest stable version, for example `0.2.3`.
+- `latest.json`: Machine-readable metadata for the latest release. The installer reads `files.wheel.path` from this file.
 - `SHA256SUMS`: Checksums for top-level convenience files.
 - `releases/<version>/`: Immutable files for one exact version.
 - `releases/<version>/install.sh`: Installer snapshot for that version.
@@ -55,6 +61,7 @@ hpc-agent/
 - `releases/<version>/hpc_agent-<version>.tar.gz`: Source distribution for audit and fallback.
 - `releases/<version>/RELEASE_NOTES.md`: Human-readable release notes.
 - `stable/`: Convenience alias for the currently recommended stable release.
+- `stable/install.sh`: Installer that reads `stable/latest.json` to find the current stable wheel.
 
 ## Release Steps
 
@@ -111,8 +118,6 @@ hpc-agent/stable/hpc_agent-<version>-py3-none-any.whl
 
 ```bash
 curl -fsSL https://your-private-server/hpc-agent/install.sh -o /tmp/hpc-agent-install.sh
-
-HPC_AGENT_WHEEL=https://your-private-server/hpc-agent/releases/<version>/hpc_agent-<version>-py3-none-any.whl \
 sh /tmp/hpc-agent-install.sh
 ```
 
@@ -129,7 +134,7 @@ Tell users to run:
 ```bash
 python3 --version
 curl -fsSL https://your-private-server/hpc-agent/install.sh -o /tmp/hpc-agent-install.sh
-HPC_AGENT_WHEEL=https://your-private-server/hpc-agent/stable/hpc_agent-0.2.0-py3-none-any.whl sh /tmp/hpc-agent-install.sh
+HPC_AGENT_REPO_USERNAME="$VOLC_USERNAME" HPC_AGENT_REPO_TOKEN="$VOLC_TOKEN" sh /tmp/hpc-agent-install.sh
 hpc-agent-check
 hpc-agent
 ```

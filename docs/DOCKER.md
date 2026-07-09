@@ -13,11 +13,11 @@ cd ~/projects/hpc-agent
 确认已经有当前版本的 wheel 包：
 
 ```bash
-export HPC_AGENT_VERSION=0.2.2
+export HPC_AGENT_VERSION=0.2.3
 ls -lh "dist/hpc_agent-${HPC_AGENT_VERSION}-py3-none-any.whl"
 ```
 
-预期结果：能看到当前版本的 wheel，例如 `dist/hpc_agent-0.2.2-py3-none-any.whl`。
+预期结果：能看到当前版本的 wheel，例如 `dist/hpc_agent-0.2.3-py3-none-any.whl`。
 
 如果没有，需要先重新打包：
 
@@ -36,7 +36,7 @@ docker build \
   .
 ```
 
-预期结果：构建成功，并生成本地镜像，例如 `hpc-agent:0.2.2`。
+预期结果：构建成功，并生成本地镜像，例如 `hpc-agent:0.2.3`。
 
 检查镜像：
 
@@ -176,7 +176,7 @@ docker compose run --rm hpc-agent
 然后用新版本号重新构建镜像：
 
 ```bash
-export HPC_AGENT_VERSION=0.2.2
+export HPC_AGENT_VERSION=0.2.3
 docker build \
   --build-arg HPC_AGENT_VERSION="$HPC_AGENT_VERSION" \
   -t "hpc-agent:${HPC_AGENT_VERSION}" \
@@ -187,8 +187,8 @@ docker build \
 
 ```yaml
 args:
-  HPC_AGENT_VERSION: ${HPC_AGENT_VERSION:-0.2.2}
-image: hpc-agent:${HPC_AGENT_VERSION:-0.2.2}
+  HPC_AGENT_VERSION: ${HPC_AGENT_VERSION:-0.2.3}
+image: hpc-agent:${HPC_AGENT_VERSION:-0.2.3}
 ```
 
 ## 九、和 install.sh 的关系

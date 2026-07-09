@@ -99,6 +99,13 @@ def test_install_script_supports_wheel_install_and_command_links():
     assert script_path.is_file()
     assert "set -eu" in script
     assert "HPC_AGENT_WHEEL" in script
+    assert "HPC_AGENT_WHEEL_URL" in script
+    assert "HPC_AGENT_LATEST_URL" in script
+    assert "HPC_AGENT_REPO_USERNAME" in script
+    assert "HPC_AGENT_REPO_TOKEN" in script
+    assert "HPC_AGENT_VERSION" in script
+    assert "DEFAULT_LATEST_FILENAME" in script
+    assert "files.wheel.path" in script
     assert "HPC_AGENT_PACKAGE" in script
     assert "HPC_AGENT_PIP_INDEX_URL" in script
     assert "HPC_AGENT_FORCE_REINSTALL" in script
@@ -125,4 +132,4 @@ def test_private_server_release_templates_are_present():
     assert latest["files"]["wheel"]["path"].endswith(".whl")
     assert latest["files"]["wheel"]["sha256"]
     assert latest["files"]["install_script"]["path"].endswith("install.sh")
-    assert latest["commands"]["install"].startswith("HPC_AGENT_WHEEL=")
+    assert latest["commands"]["install"]

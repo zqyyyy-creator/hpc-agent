@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hpc-agent"
-version = "0.2.2"
+version = "0.2.3"
 description = "Conversational HPC and Slurm agent with VASP workflow support."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -66,6 +66,7 @@ include = ["modules*"]
     "data/hpc_documents/vasp_workflow.txt",
 ]
 "share/hpc-agent/docs" = [
+    "docs/DOCKER.md",
     "docs/LIVE_TEST_CHECKLIST.md",
     "docs/README.md",
     "docs/USER_GUIDE.md",

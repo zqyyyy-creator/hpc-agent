@@ -185,7 +185,7 @@
       <h1>HPC Agent 安装与更新说明</h1>
       <p class="lead">本页面用于指导用户从火山私服下载、安装、更新和检查 HPC Agent。安装前只需要本机已有 Python 3.12 或更高版本。</p>
       <div class="meta">
-        <span class="pill">当前版本: 0.2.0</span>
+        <span class="pill">当前版本: 0.2.3</span>
         <span class="pill">Python: 3.12+</span>
         <span class="pill">私服: Volcengine Artifacts</span>
       </div>
@@ -216,24 +216,18 @@ read -s VOLC_TOKEN</code></pre>
 
       <section>
         <h2>三、下载安装文件</h2>
-        <p>先下载安装脚本，再下载 wheel 安装包。由于私服需要认证，推荐先下载到本地，再执行安装。</p>
-        <h3>1. 下载安装脚本</h3>
+        <p>只需要下载安装脚本。安装脚本会自动读取私服 stable/latest.json，找到当前版本 wheel 安装包并下载。</p>
         <pre><code>curl -fL \
   -u "$VOLC_USERNAME:$VOLC_TOKEN" \
   "https://artifacts-cn-beijing.volces.com/repository/agents/models/ai-llm/hpc-agent/stable/install.sh" \
   -o /tmp/hpc-agent-install.sh</code></pre>
-
-        <h3>2. 下载 wheel 安装包</h3>
-        <pre><code>curl -fL \
-  -u "$VOLC_USERNAME:$VOLC_TOKEN" \
-  "https://artifacts-cn-beijing.volces.com/repository/agents/models/ai-llm/hpc-agent/stable/hpc_agent-0.2.0-py3-none-any.whl" \
-  -o /tmp/hpc_agent-0.2.0-py3-none-any.whl</code></pre>
       </section>
 
       <section>
         <h2>四、安装 HPC Agent</h2>
-        <p>执行下面命令安装。安装脚本会创建独立虚拟环境、安装 HPC Agent、创建命令入口、初始化配置文件，并自动运行体检。</p>
-        <pre><code>HPC_AGENT_WHEEL=/tmp/hpc_agent-0.2.0-py3-none-any.whl \
+        <p>执行下面命令安装。安装脚本会读取 latest.json、下载 wheel、创建独立虚拟环境、安装 HPC Agent、创建命令入口、初始化配置文件，并自动运行体检。</p>
+        <pre><code>HPC_AGENT_REPO_USERNAME="$VOLC_USERNAME" \
+HPC_AGENT_REPO_TOKEN="$VOLC_TOKEN" \
 sh /tmp/hpc-agent-install.sh</code></pre>
         <p>如果最后看到下面这行，就说明安装流程完成：</p>
         <pre><code>HPC Agent installation complete.</code></pre>
@@ -300,18 +294,14 @@ HPC_VASP_REPORT_MODEL=DeepSeek-V4-Pro</code></pre>
 
       <section>
         <h2>八、更新 HPC Agent</h2>
-        <p>更新方式和安装类似：重新下载 stable 安装脚本和 wheel，然后执行安装。配置文件默认不会被覆盖。</p>
+        <p>更新方式和安装类似：重新下载 stable 安装脚本，然后执行安装。安装脚本会根据 latest.json 自动下载当前 stable wheel。配置文件默认不会被覆盖。</p>
         <pre><code>curl -fL \
   -u "$VOLC_USERNAME:$VOLC_TOKEN" \
   "https://artifacts-cn-beijing.volces.com/repository/agents/models/ai-llm/hpc-agent/stable/install.sh" \
   -o /tmp/hpc-agent-install.sh
 
-curl -fL \
-  -u "$VOLC_USERNAME:$VOLC_TOKEN" \
-  "https://artifacts-cn-beijing.volces.com/repository/agents/models/ai-llm/hpc-agent/stable/hpc_agent-0.2.0-py3-none-any.whl" \
-  -o /tmp/hpc_agent-0.2.0-py3-none-any.whl
-
-HPC_AGENT_WHEEL=/tmp/hpc_agent-0.2.0-py3-none-any.whl \
+HPC_AGENT_REPO_USERNAME="$VOLC_USERNAME" \
+HPC_AGENT_REPO_TOKEN="$VOLC_TOKEN" \
 HPC_AGENT_FORCE_REINSTALL=1 \
 sh /tmp/hpc-agent-install.sh</code></pre>
       </section>
