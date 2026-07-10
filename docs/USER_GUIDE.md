@@ -154,6 +154,9 @@ HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 * `HPC_CLAUDE_CODE_COMMAND`：Claude Code 命令，默认 `claude`。
 * `HPC_VASP_REPORT_MODEL`：VASP 报告生成使用的模型名；留空时兼容读取旧变量 `HPC_CLAUDE_CODE_MODEL`，Paratera 网关默认回退到 `DeepSeek-V4-Pro`。
 * `HPC_CLAUDE_CODE_TIMEOUT_SECONDS`：Claude Code 报告生成超时时间，默认 1800 秒。
+* `HPC_AGENT_CUSTOM_SKILLS_DIR`：外部只读 Skills 目录，例如 `/home/qyz/customize-skills`。
+* `HPC_AGENT_TRUST_EXTERNAL_PYTHON`：是否允许加载外部 Python handler；默认建议 `false`，确认目录可信后再改为 `true`。
+* `HPC_AGENT_EXTERNAL_PYTHON_TIMEOUT_SECONDS`：外部 Python handler 默认超时时间，默认 10 秒。
 
 Claude Code 报告生成会把 `PARATERA_API_KEY` 同时传给 `ANTHROPIC_API_KEY` 和 `ANTHROPIC_AUTH_TOKEN`，并把 `PARATERA_BASE_URL` 传给 `ANTHROPIC_BASE_URL`。如果报告生成出现认证错误，先检查 key 是否过期、是否支持 `HPC_VASP_REPORT_MODEL`。
 
@@ -170,6 +173,38 @@ mkdir -p /path/to/local/vasp-jobs-input /path/to/local/vasp-jobs-output
 ```
 
 `.env` 不应提交到 Git（已在 `.gitignore` 中排除）。
+
+### 外部 Skills
+
+如果要在不修改源码的情况下扩展 Agent，可以配置外部 Skills 目录：
+
+```env
+HPC_AGENT_CUSTOM_SKILLS_DIR=/home/qyz/customize-skills
+HPC_AGENT_TRUST_EXTERNAL_PYTHON=true
+HPC_AGENT_EXTERNAL_PYTHON_TIMEOUT_SECONDS=10
+```
+
+外部目录结构示例：
+
+```text
+/home/qyz/customize-skills/
+├── local-file-summary/
+│   ├── SKILL.md
+│   └── handler.py
+└── quota-check/
+    ├── SKILL.md
+    └── handler.py
+```
+
+常用调试命令：
+
+```text
+/skill list
+/skill test all "本地文件统计 /home/qyz/projects/hpc-agent"
+/skill test local-file-summary "本地文件统计 /home/qyz/projects/hpc-agent"
+```
+
+完整 `SKILL.md + handler.py` 模板见 [EXTERNAL_SKILLS.md](EXTERNAL_SKILLS.md)。
 
 ---
 

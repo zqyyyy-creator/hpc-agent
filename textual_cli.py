@@ -284,6 +284,17 @@ def run_textual_cli():
         def _write_system(self, text: str):
             self._append_chat(f"[系统] {text}")
 
+        def _write_external_skills_notice(self, external_skills):
+            names = []
+            for skill in external_skills or []:
+                if skill.get("source") != "custom":
+                    continue
+                name = str(skill.get("name", "")).strip()
+                if name and name not in names:
+                    names.append(name)
+            if names:
+                self._write_system(f"已读取外部 Skills：{'、'.join(names)}")
+
         def _append_chat(self, text: str):
             self.chat_transcript.append(text)
             self.query_one("#chat-log", Static).update("\n\n".join(self.chat_transcript))
@@ -459,6 +470,8 @@ def run_textual_cli():
                         "pending_submission": None,
                         "pending_cleanup": None,
                         "pending_action": None,
+                        "prompt_skills": [],
+                        "external_skills": [],
                     }
                 question = plan_step.get("route_text") or plan_step.get("text") or question
             else:
@@ -479,6 +492,8 @@ def run_textual_cli():
                 "pending_submission": None,
                 "pending_cleanup": None,
                 "pending_action": None,
+                "prompt_skills": [],
+                "external_skills": [],
             }
 
             try:
@@ -519,6 +534,9 @@ def run_textual_cli():
                         current_job_id=self.current_job_id,
                     )
                     answer = runtime_result.answer
+                    result["pending_action"] = runtime_result.data.get("pending_action")
+                    result["prompt_skills"] = runtime_result.data.get("prompt_skills", [])
+                    result["external_skills"] = runtime_result.data.get("external_skills", [])
                 elif can_answer_intent(intent) and intent != "rag_qa":
                     runtime_result = execute_answer_intent(
                         question,
@@ -533,6 +551,8 @@ def run_textual_cli():
                     result["job_id"] = runtime_result.data.get("job_id")
                     result["live_log"] = runtime_result.data.get("live_log")
                     result["pending_action"] = runtime_result.data.get("pending_action")
+                    result["prompt_skills"] = runtime_result.data.get("prompt_skills", [])
+                    result["external_skills"] = runtime_result.data.get("external_skills", [])
                 elif can_preview_cleanup_intent(intent):
                     runtime_result = execute_cleanup_preview(
                         question,
@@ -551,6 +571,9 @@ def run_textual_cli():
                     )
                     intent = fallback.intent
                     answer = fallback.answer
+                    result["pending_action"] = fallback.pending_action
+                    result["prompt_skills"] = fallback.prompt_skills
+                    result["external_skills"] = fallback.external_skills
             except Exception as error:
                 logger.exception("TUI request handling failed")
                 answer = f"请求处理失败: {type(error).__name__}: {error}"
@@ -568,6 +591,8 @@ def run_textual_cli():
                     "pending_submission": None,
                     "pending_cleanup": None,
                     "pending_action": None,
+                    "prompt_skills": [],
+                    "external_skills": [],
                 }
 
             if not can_execute_plan_all(plan):
@@ -581,11 +606,15 @@ def run_textual_cli():
                     "pending_submission": None,
                     "pending_cleanup": None,
                     "pending_action": None,
+                    "prompt_skills": [],
+                    "external_skills": [],
                 }
 
             answers = []
             last_job_id = None
             live_log = None
+            prompt_skills = []
+            external_skills = []
             for step in plan.get("steps") or []:
                 step_text = step.get("route_text") or step.get("text") or ""
                 if not step_text:
@@ -597,6 +626,8 @@ def run_textual_cli():
                 )
                 last_job_id = step_result.get("job_id") or last_job_id
                 live_log = step_result.get("live_log") or live_log
+                prompt_skills.extend(step_result.get("prompt_skills") or [])
+                external_skills.extend(step_result.get("external_skills") or [])
 
                 if step_result.get("pending_submission") or step_result.get("pending_cleanup") or step_result.get("pending_action"):
                     return {
@@ -609,6 +640,8 @@ def run_textual_cli():
                         "pending_submission": step_result.get("pending_submission"),
                         "pending_cleanup": step_result.get("pending_cleanup"),
                         "pending_action": step_result.get("pending_action"),
+                        "prompt_skills": prompt_skills,
+                        "external_skills": external_skills,
                     }
 
             return {
@@ -618,6 +651,8 @@ def run_textual_cli():
                 "pending_submission": None,
                 "pending_cleanup": None,
                 "pending_action": None,
+                "prompt_skills": prompt_skills,
+                "external_skills": external_skills,
             }
 
         def _apply_question_result(self, result: dict):
@@ -647,6 +682,9 @@ def run_textual_cli():
 
             answer = result.get("answer", "")
             GLOBAL_CONVERSATION_STATE.remember_turn("assistant", answer)
+            self._write_external_skills_notice(
+                (result.get("prompt_skills") or []) + (result.get("external_skills") or [])
+            )
             self._write_assistant(answer)
             self._select_latest_job_from_answer(answer)
 

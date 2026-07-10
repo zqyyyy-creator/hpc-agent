@@ -6,6 +6,8 @@ from modules.knowledge.error_case_manager import REAL_CASES_PATH, append_real_ca
 from modules.slurm.job_lifecycle import archive_job_records, restore_job_records
 from modules.slurm.job_query import execute_cleanup_remote_jobs
 from modules.slurm.job_submitter import submit_prepared_script, submit_prepared_vasp_script
+from modules.skills.skill_executor import SkillExecutionContext, execute_skill
+from modules.skills.skill_registry import load_skill
 from modules.vasp.vasp_input_generator import generate_vasp_inputs_from_potcar
 
 
@@ -164,6 +166,48 @@ def execute_confirmed_action(
             data={
                 "job_dir": result.get("job_dir"),
                 "written_files": result.get("written_files") or [],
+            },
+            raw=result,
+        )
+
+    if kind == "external_python_skill":
+        try:
+            skill = load_skill(payload.get("skill_path", ""), source="custom")
+            if skill.runtime.get("adapter") != "external_python":
+                return ConfirmedActionResult(
+                    success=False,
+                    message=f"外部 Skill `{skill.name}` 不是 external_python 类型，已拒绝执行。",
+                    kind=kind,
+                )
+
+            context = SkillExecutionContext(
+                question=payload.get("question", ""),
+                intent="rag_qa",
+                state=active_state,
+                current_job_id=payload.get("current_job_id"),
+            )
+            result = execute_skill(skill, context)
+        except Exception as error:
+            return ConfirmedActionResult(
+                success=False,
+                message=f"外部 Python Skill 执行被拒绝或失败: {type(error).__name__}: {error}",
+                kind=kind,
+            )
+        return ConfirmedActionResult(
+            success=result.success,
+            message=result.answer,
+            kind=kind,
+            data={
+                **result.data,
+                "skill": {
+                    "name": skill.name,
+                    "type": skill.type,
+                    "handler": skill.handler,
+                    "path": str(skill.path),
+                    "source": skill.source,
+                    "risk": skill.risk,
+                    "runtime": dict(skill.runtime),
+                },
             },
             raw=result,
         )

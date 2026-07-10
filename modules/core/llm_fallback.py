@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from modules.core.agent_runtime import execute_answer_intent
 from modules.routing.tool_dispatcher import try_llm_dispatch
@@ -10,6 +10,9 @@ class LLMFallbackResult:
     answer: str
     source: str
     success: bool = True
+    prompt_skills: list[dict] = field(default_factory=list)
+    external_skills: list[dict] = field(default_factory=list)
+    pending_action: dict | None = None
 
 
 def answer_redirect_intent(question, intent, documents, sources, diagnoser, state):
@@ -25,6 +28,17 @@ def answer_redirect_intent(question, intent, documents, sources, diagnoser, stat
         return result.answer
 
     return answer_rag_fallback(question, documents, sources, state)
+
+
+def execute_redirect_intent(question, intent, documents, sources, diagnoser, state):
+    return execute_answer_intent(
+        question,
+        intent,
+        documents=documents,
+        sources=sources,
+        diagnoser=diagnoser,
+        state=state,
+    )
 
 
 def answer_rag_fallback(question, documents, sources, state, no_docs_message=None):
@@ -53,18 +67,22 @@ def handle_llm_fallback(
     if llm_result is not None and llm_result.handled:
         if llm_result.data.get("llm_redirect"):
             intent = llm_result.intent
+            runtime_result = execute_redirect_intent(
+                question,
+                intent,
+                documents,
+                sources,
+                diagnoser,
+                state,
+            )
             return LLMFallbackResult(
                 intent=intent,
-                answer=answer_redirect_intent(
-                    question,
-                    intent,
-                    documents,
-                    sources,
-                    diagnoser,
-                    state,
-                ),
+                answer=runtime_result.answer,
                 source="llm_redirect",
-                success=True,
+                success=runtime_result.success,
+                prompt_skills=runtime_result.data.get("prompt_skills", []),
+                external_skills=runtime_result.data.get("external_skills", []),
+                pending_action=runtime_result.data.get("pending_action"),
             )
 
         return LLMFallbackResult(
@@ -74,15 +92,21 @@ def handle_llm_fallback(
             success=llm_result.success,
         )
 
+    runtime_result = execute_answer_intent(
+        question,
+        "rag_qa",
+        documents=documents,
+        sources=sources,
+        diagnoser=diagnoser,
+        state=state,
+        no_docs_message=no_docs_message,
+    )
     return LLMFallbackResult(
         intent="rag_qa",
-        answer=answer_rag_fallback(
-            question,
-            documents,
-            sources,
-            state,
-            no_docs_message=no_docs_message,
-        ),
+        answer=runtime_result.answer,
         source="rag_qa",
-        success=True,
+        success=runtime_result.success,
+        prompt_skills=runtime_result.data.get("prompt_skills", []),
+        external_skills=runtime_result.data.get("external_skills", []),
+        pending_action=runtime_result.data.get("pending_action"),
     )

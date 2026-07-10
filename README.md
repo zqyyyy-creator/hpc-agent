@@ -87,6 +87,7 @@ HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保
 * Skill handler 异常时会自动 fallback：优先切换到 RAG 知识库回答，并在回复中说明原 skill 执行失败
 * 提供 `tools/skill_debug.py` 查看 skill 与 intent 绑定关系，提供 `tools/skill_eval.py` 跑 skill 回归评测
 * 架构说明见 [docs/skills_architecture.md](docs/skills_architecture.md)
+* 支持通过 `HPC_AGENT_CUSTOM_SKILLS_DIR` 加载外部只读 Skills；`SKILL.md + handler.py` 示例和接入步骤见 [docs/EXTERNAL_SKILLS.md](docs/EXTERNAL_SKILLS.md)
 
 ### 项目体检
 * `/doctor` 会一次性检查 `.env`、SSH/超算配置、必要目录、RAG 文档、SkillRegistry 和本地 CPU/内存/磁盘/GPU
@@ -153,6 +154,10 @@ HPC_VASP_MODULE=
 HPC_CLAUDE_CODE_COMMAND=claude
 HPC_VASP_REPORT_MODEL=DeepSeek-V4-Pro
 HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
+
+HPC_AGENT_CUSTOM_SKILLS_DIR=/home/qyz/customize-skills
+HPC_AGENT_TRUST_EXTERNAL_PYTHON=false
+HPC_AGENT_EXTERNAL_PYTHON_TIMEOUT_SECONDS=10
 ```
 
 说明：
@@ -177,6 +182,9 @@ HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 * `HPC_CLAUDE_CODE_COMMAND`：Claude Code 命令，默认 `claude`。
 * `HPC_VASP_REPORT_MODEL`：VASP 报告生成使用的模型名；留空时兼容读取旧变量 `HPC_CLAUDE_CODE_MODEL`，Paratera 网关默认回退到 `DeepSeek-V4-Pro`。
 * `HPC_CLAUDE_CODE_TIMEOUT_SECONDS`：Claude Code 报告生成超时时间，默认 1800 秒。
+* `HPC_AGENT_CUSTOM_SKILLS_DIR`：外部只读 Skills 目录，例如 `/home/qyz/customize-skills`。
+* `HPC_AGENT_TRUST_EXTERNAL_PYTHON`：是否允许加载外部 Python handler；默认建议 `false`，确认为可信目录后再改为 `true`。
+* `HPC_AGENT_EXTERNAL_PYTHON_TIMEOUT_SECONDS`：外部 Python handler 默认超时时间，默认 10 秒。
 
 Claude Code 报告生成会把 `PARATERA_API_KEY` 同时传给 `ANTHROPIC_API_KEY` 和 `ANTHROPIC_AUTH_TOKEN`，并把 `PARATERA_BASE_URL` 传给 `ANTHROPIC_BASE_URL`。如果报告生成报认证错误，优先检查 `.env` 中的 `PARATERA_API_KEY` 是否过期，以及该 key 是否支持 `HPC_VASP_REPORT_MODEL`。
 

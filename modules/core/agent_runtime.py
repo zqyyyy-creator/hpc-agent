@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import shlex
 from typing import Any
 
 from modules.knowledge.error_case_manager import build_error_case_draft
@@ -93,6 +94,25 @@ SUBMIT_PREVIEW_INTENTS = {"submit_job", "submit_vasp_job", "test_hpc_submission"
 _SKILL_REGISTRY = None
 _SKILL_REGISTRY_ERROR = ""
 
+SYSTEM_CONTROL_SHORTCUT_PREFIXES = (
+    "/help",
+    "/doctor",
+    "/config",
+    "/model",
+    "/resources",
+    "/skill",
+)
+
+EXTERNAL_PYTHON_PROTECTED_INTENTS = {
+    "shortcut_help",
+    "project_doctor",
+    "current_config",
+    "prepare_error_case",
+    "preview_archive_job_records",
+    "preview_restore_job_records",
+    "generate_vasp_inputs",
+}
+
 
 def can_preview_submit_intent(intent: str) -> bool:
     return intent in SUBMIT_PREVIEW_INTENTS
@@ -120,10 +140,13 @@ def _skill_info(skill: SkillDefinition) -> dict[str, Any]:
         "name": skill.name,
         "type": skill.type,
         "intents": list(skill.intents),
+        "triggers": list(skill.triggers),
         "handler": skill.handler,
         "runtime": dict(skill.runtime),
         "path": str(skill.path),
         "description": skill.description,
+        "source": skill.source,
+        "risk": skill.risk,
     }
 
 
@@ -136,6 +159,52 @@ def get_skill_info_for_intent(intent: str) -> dict[str, Any] | None:
     if skill is None:
         return None
     return _skill_info(skill)
+
+
+def _prompt_skills_for_question(question: str) -> list[SkillDefinition]:
+    registry = _get_skill_registry()
+    if registry is None:
+        return []
+    return registry.prompt_skills_for_question(question)
+
+
+def _prompt_skill_context_for_question(question: str) -> tuple[list[SkillDefinition], list[dict[str, Any]]]:
+    skills = _prompt_skills_for_question(question)
+    return skills, [_skill_info(skill) for skill in skills]
+
+
+def _external_python_skills_for_question(question: str) -> list[SkillDefinition]:
+    if question.strip().lower().startswith("/skill test"):
+        return []
+    registry = _get_skill_registry()
+    if registry is None:
+        return []
+    return registry.external_python_skills_for_question(question)
+
+
+def _is_system_control_shortcut(question: str) -> bool:
+    stripped = question.strip().lower()
+    return any(
+        stripped == prefix or stripped.startswith(f"{prefix} ")
+        for prefix in SYSTEM_CONTROL_SHORTCUT_PREFIXES
+    )
+
+
+def should_consider_external_python_skill(question: str, intent: str) -> bool:
+    """Fixed priority rule for external read_only Python skills.
+
+    Priority:
+    1. Slash system/control commands stay builtin.
+    2. Confirm-required/destructive/overwrite-style builtin operations stay builtin.
+    3. External read_only Python skills may preempt ordinary answer intents.
+    4. Builtin read-only tools run when no external Python skill matches.
+    5. Prompt-only skills are injected only into the final RAG answer path.
+    """
+    if _is_system_control_shortcut(question):
+        return False
+    if intent in EXTERNAL_PYTHON_PROTECTED_INTENTS:
+        return False
+    return can_answer_intent(intent)
 
 
 @dataclass
@@ -221,6 +290,111 @@ def _execute_registered_skill(
         )
 
 
+def _execute_external_python_skill(
+    question: str,
+    intent: str,
+    *,
+    documents,
+    sources,
+    diagnoser,
+    state,
+    current_job_id: str | None = None,
+    control_question: str | None = None,
+) -> AgentRuntimeResult | None:
+    if not should_consider_external_python_skill(control_question or question, intent):
+        return None
+
+    skills = _external_python_skills_for_question(question)
+    if not skills:
+        return None
+
+    skill = skills[0]
+    skill_info = _skill_info(skill)
+    pending_action = {
+        "kind": "external_python_skill",
+        "payload": {
+            "skill_name": skill.name,
+            "skill_path": str(skill.path),
+            "question": question,
+            "current_job_id": current_job_id,
+        },
+        "description": f"外部 Python Skill `{skill.name}` 执行确认。",
+    }
+
+    return AgentRuntimeResult(
+        True,
+        intent,
+        "\n".join([
+            f"检测到外部 Python Skill：{skill.name}",
+            f"说明：{skill.description}",
+            f"来源：{skill.path.parent}",
+            f"风险等级：{skill.risk or 'unknown'}",
+            "",
+            "该 Skill 将在确认后执行本地 handler.py。",
+            "如要执行，请回复“确认执行”或“确认”。",
+            "如不执行，请回复“取消”。",
+        ]),
+        success=True,
+        data={
+            "skill": skill_info,
+            "external_skills": [skill_info],
+            "pending_action": pending_action,
+        },
+    )
+
+
+def _run_external_python_skill_now(
+    question: str,
+    intent: str,
+    skill: SkillDefinition,
+    *,
+    documents,
+    sources,
+    diagnoser,
+    state,
+    current_job_id: str | None = None,
+) -> AgentRuntimeResult:
+    context = SkillExecutionContext(
+        question=question,
+        intent=intent,
+        state=state,
+        diagnoser=diagnoser,
+        documents=documents,
+        sources=sources,
+        current_job_id=current_job_id,
+    )
+
+    try:
+        result = execute_skill(skill, context)
+    except Exception as error:
+        return AgentRuntimeResult(
+            True,
+            intent,
+            "\n".join([
+                f"外部 Skill `{skill.name}` 执行失败，未执行其它外部代码。",
+                "",
+                f"错误: {type(error).__name__}: {error}",
+            ]),
+            success=False,
+            data={
+                "skill": _skill_info(skill),
+                "external_skills": [_skill_info(skill)],
+                "error": f"{type(error).__name__}: {error}",
+            },
+        )
+
+    data = dict(result.data)
+    data.setdefault("skill", _skill_info(skill))
+    data.setdefault("external_skills", [_skill_info(skill)])
+    return AgentRuntimeResult(
+        True,
+        intent,
+        result.answer,
+        success=result.success,
+        data=data,
+    )
+
+
 def _fallback_after_skill_failure(
     question: str,
     intent: str,
@@ -257,7 +431,15 @@ def _fallback_after_skill_failure(
 
     if docs:
         try:
-            fallback_answer = ask_llm(question, docs, conversation_state=state)
+            prompt_skills, prompt_skill_info = _prompt_skill_context_for_question(question)
+            if prompt_skill_info:
+                data["prompt_skills"] = prompt_skill_info
+            fallback_answer = ask_llm(
+                question,
+                docs,
+                conversation_state=state,
+                prompt_skills=prompt_skills,
+            )
         except Exception as llm_error:
             data["fallback_error"] = f"{type(llm_error).__name__}: {llm_error}"
             return AgentRuntimeResult(
@@ -306,8 +488,180 @@ def can_preview_cleanup_intent(intent: str) -> bool:
     return intent in CLEANUP_PREVIEW_INTENTS
 
 
+def _skill_trigger_matches(skill: SkillDefinition, question: str) -> bool:
+    question_norm = "".join(str(question).lower().split())
+    candidates = list(skill.triggers)
+    candidates.append(skill.name)
+    for candidate in candidates:
+        candidate_norm = "".join(str(candidate).lower().split())
+        if len(candidate_norm) >= 2 and candidate_norm in question_norm:
+            return True
+    return False
+
+
+def _parse_skill_test_command(question: str) -> tuple[str, str] | None:
+    stripped = question.strip()
+    if not stripped.lower().startswith("/skill test"):
+        return None
+    tail = stripped[len("/skill test"):].strip()
+    if not tail:
+        return None
+    try:
+        parts = shlex.split(tail)
+    except ValueError:
+        parts = tail.split(maxsplit=1)
+    if not parts:
+        return None
+    skill_name = parts[0]
+    test_question = " ".join(parts[1:]).strip()
+    return skill_name, test_question
+
+
+def _format_skill_test_loaded_line(skill: SkillDefinition, test_question: str = "") -> str:
+    adapter = skill.runtime.get("adapter", "prompt-only" if skill.type == "prompt" and not skill.handler else "-")
+    trigger_text = ", ".join(skill.triggers) or "-"
+    trigger_match = "-"
+    if test_question:
+        trigger_match = "YES" if _skill_trigger_matches(skill, test_question) else "NO"
+
+    parts = [
+        f"- {skill.name}",
+        f"状态=LOADED",
+        f"type={skill.type}",
+        f"source={skill.source}",
+        f"adapter={adapter}",
+        f"triggers={trigger_text}",
+        f"trigger命中={trigger_match}",
+    ]
+
+    if adapter == "external_python":
+        handler_path = skill.path.parent / "handler.py"
+        parts.extend([
+            f"handler={skill.handler}",
+            f"handler.py={'YES' if handler_path.is_file() else 'NO'}",
+            f"trusted={skill.metadata.get('trusted', 'false')}",
+            f"timeout={skill.runtime.get('timeout_seconds') or 'env/default'}",
+        ])
+    return " | ".join(parts)
+
+
+def _format_skill_test_all(registry, test_question: str = "") -> str:
+    loaded = sorted(registry.all(), key=lambda item: (item.source, item.name))
+    skipped = sorted(registry.skipped(), key=lambda item: item.name or item.path.name)
+    external_python_count = sum(1 for skill in loaded if skill.runtime.get("adapter") == "external_python")
+    prompt_only_count = sum(1 for skill in loaded if skill.source == "custom" and skill.type == "prompt" and not skill.handler)
+
+    lines = [
+        "Skill dry-run 总览",
+        "",
+        f"已加载: {len(loaded)}",
+        f"外部 prompt-only: {prompt_only_count}",
+        f"外部 external_python: {external_python_count}",
+        f"已跳过: {len(skipped)}",
+        f"测试问题: {test_question or '-'}",
+        "",
+        "说明: 这是 dry-run，只检查加载状态、trigger 和 handler 配置，不执行 handler.py。",
+        "",
+        "已加载 Skills:",
+    ]
+    if loaded:
+        lines.extend(_format_skill_test_loaded_line(skill, test_question) for skill in loaded)
+    else:
+        lines.append("- 无")
+
+    lines.append("")
+    lines.append("已跳过 Skills:")
+    if skipped:
+        for item in skipped:
+            lines.append(f"- {item.name or item.path.parent.name}: {item.reason} ({item.path})")
+    else:
+        lines.append("- 无")
+
+    return "\n".join(lines)
+
+
+def _format_skill_test(question: str) -> str:
+    parsed = _parse_skill_test_command(question)
+    if parsed is None:
+        return "用法: /skill test <skill-name> \"测试问题\" 或 /skill test all"
+
+    skill_name, test_question = parsed
+    registry = _get_skill_registry()
+    lines = [
+        "Skill dry-run 测试",
+        "",
+        f"Skill: {skill_name}",
+        f"测试问题: {test_question or '-'}",
+        "",
+    ]
+    if registry is None:
+        lines.append("SkillRegistry 加载失败，无法测试。")
+        error = get_skill_registry_error()
+        if error:
+            lines.append(f"失败原因: {error}")
+        return "\n".join(lines)
+
+    if skill_name.lower() in {"all", "--all", "*"}:
+        return _format_skill_test_all(registry, test_question)
+
+    skipped = next((item for item in registry.skipped() if item.name == skill_name or item.path.parent.name == skill_name), None)
+    skill = registry.get(skill_name)
+
+    if skipped is not None:
+        lines.extend([
+            "状态: SKIPPED",
+            f"路径: {skipped.path}",
+            f"跳过原因: {skipped.reason}",
+        ])
+        return "\n".join(lines)
+
+    if skill is None:
+        lines.append("状态: NOT FOUND")
+        lines.append("提示: 运行 /skill list 查看已加载和已跳过的外部 Skills。")
+        return "\n".join(lines)
+
+    trigger_match = _skill_trigger_matches(skill, test_question) if test_question else False
+    lines.extend([
+        "状态: LOADED",
+        f"类型: {skill.type}",
+        f"来源: {skill.source}",
+        f"路径: {skill.path}",
+        f"风险等级: {skill.risk or '-'}",
+        f"triggers: {', '.join(skill.triggers) or '-'}",
+        f"trigger 命中: {'YES' if trigger_match else 'NO'}",
+    ])
+
+    if skill.runtime.get("adapter") == "external_python":
+        handler_path = skill.path.parent / "handler.py"
+        lines.extend([
+            "adapter: external_python",
+            f"handler: {skill.handler}",
+            f"handler.py 存在: {'YES' if handler_path.is_file() else 'NO'}",
+            f"trusted: {skill.metadata.get('trusted', 'false')}",
+            f"timeout_seconds: {skill.runtime.get('timeout_seconds') or 'env/default'}",
+            "",
+            "dry-run 结果: 仅检查配置和 trigger，不执行 handler.py。",
+        ])
+    elif skill.source == "custom" and skill.type == "prompt" and not skill.handler:
+        body_preview = skill.body[:160].replace("\n", " ")
+        lines.extend([
+            "adapter: prompt-only",
+            f"正文预览: {body_preview}",
+        ])
+    else:
+        lines.extend([
+            f"intents: {', '.join(skill.intents) or '-'}",
+            f"runtime.adapter: {skill.runtime.get('adapter', '-')}",
+        ])
+
+    return "\n".join(lines)
+
+
 def format_shortcut_help(question: str = "") -> str:
     normalized = question.strip().lower().replace(" ", "")
+    if question.strip().lower().startswith("/skill test"):
+        return _format_skill_test(question)
+
     if normalized == "/helpjob":
         return "\n".join([
             "Job 快捷命令",
@@ -377,6 +731,8 @@ def format_shortcut_help(question: str = "") -> str:
             "",
             "/skill list                 查看已注册 Skill",
             "/skill route <question>     查看一句话会被路由到哪个 Skill",
+            "/skill test <name> \"问题\"   dry-run 检查外部 Skill 是否加载、trigger 是否命中",
+            "/skill test all             dry-run 检查所有 Skill",
             "",
         ]
         if registry is None:
@@ -388,7 +744,18 @@ def format_shortcut_help(question: str = "") -> str:
 
         lines.append("当前已注册 Skill:")
         for skill in sorted(registry.all(), key=lambda item: item.name):
-            lines.append(f"- {skill.name}: {', '.join(skill.intents)}")
+            if skill.source == "custom" and skill.runtime.get("adapter") == "external_python":
+                detail = f"external_python triggers={', '.join(skill.triggers)}"
+            elif skill.source == "custom" and skill.type == "prompt" and not skill.handler:
+                detail = f"prompt triggers={', '.join(skill.triggers)}"
+            else:
+                detail = ", ".join(skill.intents)
+            lines.append(f"- {skill.name}: {detail}")
+        skipped_skills = registry.skipped()
+        if skipped_skills:
+            lines.extend(["", "已跳过的外部 Skills:"])
+            for item in skipped_skills:
+                lines.append(f"- {item.name or item.path.name}: {item.reason} ({item.path})")
         lines.extend([
             "",
             "完整校验命令: .venv/bin/python tools/skill_debug.py --validate",
@@ -424,6 +791,8 @@ def format_shortcut_help(question: str = "") -> str:
         "/resources                  检查本机 CPU、内存、磁盘和 GPU",
         "/doctor                     运行项目总体体检",
         "/skill list                 查看已注册 Skill",
+        "/skill test <name> \"问题\"   dry-run 检查外部 Skill",
+        "/skill test all             dry-run 检查所有 Skill",
         "",
         "/config check               检查超算配置",
         "/model                      查看当前模型",
@@ -588,7 +957,11 @@ def execute_answer_intent(
     no_docs_message: str | None = None,
     current_job_id: str | None = None,
 ) -> AgentRuntimeResult:
+    raw_question = question
     question = expand_shortcut_command(question)
+
+    if question.strip().lower().startswith("/skill test"):
+        return AgentRuntimeResult(True, "shortcut_help", format_shortcut_help(question))
 
     if not can_answer_intent(intent):
         return AgentRuntimeResult(handled=False, intent=intent, success=False)
@@ -608,6 +981,19 @@ def execute_answer_intent(
             success=result["success"],
             data=result,
         )
+
+    external_skill_result = _execute_external_python_skill(
+        question,
+        intent,
+        documents=documents,
+        sources=sources,
+        diagnoser=diagnoser,
+        state=state,
+        current_job_id=current_job_id,
+        control_question=raw_question,
+    )
+    if external_skill_result is not None:
+        return external_skill_result
 
     skill_result = _execute_registered_skill(
         question,
@@ -757,8 +1143,10 @@ def execute_answer_intent(
     if not docs and no_docs_message is not None:
         return AgentRuntimeResult(True, intent, no_docs_message, success=False)
 
+    prompt_skills, prompt_skill_info = _prompt_skill_context_for_question(question)
     return AgentRuntimeResult(
         True,
         intent,
-        ask_llm(question, docs, conversation_state=state),
+        ask_llm(question, docs, conversation_state=state, prompt_skills=prompt_skills),
+        data={"prompt_skills": prompt_skill_info} if prompt_skill_info else {},
     )

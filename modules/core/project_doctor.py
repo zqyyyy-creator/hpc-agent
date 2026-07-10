@@ -172,10 +172,38 @@ def _check_skill_registry() -> dict[str, Any]:
         handler_results = registry.validate_handlers()
         failed = [item for item in handler_results if item.get("ok") != "true"]
         skills = registry.all()
+        prompt_only_skills = [
+            skill
+            for skill in skills
+            if skill.type == "prompt" and not skill.handler and skill.source == "custom"
+        ]
+        external_python_skills = [
+            skill
+            for skill in skills
+            if skill.runtime.get("adapter") == "external_python" and skill.source == "custom"
+        ]
+        skipped_skills = registry.skipped()
         checks = [
             _ok_item("Skill count", f"{len(skills)} skills"),
             _ok_item("Skill handlers", "全部 handler 可 import"),
         ]
+        if registry.custom_skills_dir:
+            custom_detail = (
+                (
+                    f"{registry.custom_skills_dir}，"
+                    f"已加载 {len(prompt_only_skills)} 个只读 Prompt Skill、"
+                    f"{len(external_python_skills)} 个外部 Python Skill"
+                )
+                if registry.custom_skills_dir.is_dir()
+                else f"{registry.custom_skills_dir} 不存在，跳过外部只读 Skills"
+            )
+            checks.append(_ok_item("Custom read-only Skills", custom_detail))
+        if skipped_skills:
+            detail = "; ".join(
+                f"{item.name or item.path.name}: {item.reason}"
+                for item in skipped_skills[:5]
+            )
+            checks.append(_warn_item("Skipped external Skills", detail))
         if not skills:
             checks[0] = _warn_item("Skill count", "未注册任何 skill")
         if failed:
@@ -185,6 +213,17 @@ def _check_skill_registry() -> dict[str, Any]:
             "success": all(item["ok"] for item in checks),
             "checks": checks,
             "skills": [skill.name for skill in skills],
+            "custom_prompt_skills": [skill.name for skill in prompt_only_skills],
+            "custom_external_python_skills": [skill.name for skill in external_python_skills],
+            "skipped_skills": [
+                {
+                    "name": item.name,
+                    "path": str(item.path),
+                    "reason": item.reason,
+                    "source": item.source,
+                }
+                for item in skipped_skills
+            ],
             "handler_results": handler_results,
         }
     except Exception as error:
@@ -192,6 +231,9 @@ def _check_skill_registry() -> dict[str, Any]:
             "success": False,
             "checks": [_warn_item("SkillRegistry", f"{type(error).__name__}: {error}")],
             "skills": [],
+            "custom_prompt_skills": [],
+            "custom_external_python_skills": [],
+            "skipped_skills": [],
             "handler_results": [],
         }
 

@@ -1,6 +1,7 @@
 from tests import _bootstrap  # noqa: F401
 
 import tempfile
+import os
 from pathlib import Path
 
 from modules.core.confirmed_actions import execute_confirmed_action
@@ -175,6 +176,112 @@ def test_confirmed_vasp_input_overwrite_generates_files():
     assert "ENCUT =" in incar
 
 
+def test_confirmed_external_python_skill_executes_handler():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        skill_dir = Path(tmpdir) / "local-file-summary"
+        skill_dir.mkdir()
+        skill_path = skill_dir / "SKILL.md"
+        skill_path.write_text(
+            """---
+name: local-file-summary
+description: 本地目录文件统计
+type: tool
+handler: handler.summarize_local_files
+triggers: [本地文件统计]
+risk: read_only
+trusted: true
+runtime:
+  adapter: external_python
+---
+统计本地目录。
+""",
+            encoding="utf-8",
+        )
+        (skill_dir / "handler.py").write_text(
+            "def summarize_local_files(context):\n"
+            "    return {\n"
+            "        'success': True,\n"
+            "        'message': 'confirmed external handler: ' + context['question'],\n"
+            "        'data': {'skill_name': context['skill_name']},\n"
+            "    }\n",
+            encoding="utf-8",
+        )
+
+        original_trust = os.environ.get("HPC_AGENT_TRUST_EXTERNAL_PYTHON")
+        try:
+            os.environ["HPC_AGENT_TRUST_EXTERNAL_PYTHON"] = "true"
+            result = execute_confirmed_action(
+                "external_python_skill",
+                {
+                    "skill_name": "local-file-summary",
+                    "skill_path": str(skill_path),
+                    "question": "本地文件统计 /tmp",
+                },
+            )
+        finally:
+            if original_trust is None:
+                os.environ.pop("HPC_AGENT_TRUST_EXTERNAL_PYTHON", None)
+            else:
+                os.environ["HPC_AGENT_TRUST_EXTERNAL_PYTHON"] = original_trust
+
+    assert result.success
+    assert result.message == "confirmed external handler: 本地文件统计 /tmp"
+    assert result.data["skill"]["name"] == "local-file-summary"
+    assert result.data["runtime"]["adapter"] == "external_python"
+
+
+def test_confirmed_external_python_skill_times_out():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        skill_dir = Path(tmpdir) / "slow-skill"
+        skill_dir.mkdir()
+        skill_path = skill_dir / "SKILL.md"
+        skill_path.write_text(
+            """---
+name: slow-skill
+description: 慢速外部 Skill
+type: tool
+handler: handler.run_slow
+triggers: [慢速测试]
+risk: read_only
+trusted: true
+runtime:
+  adapter: external_python
+  timeout_seconds: 0.2
+---
+测试超时。
+""",
+            encoding="utf-8",
+        )
+        (skill_dir / "handler.py").write_text(
+            "import time\n\n"
+            "def run_slow(context):\n"
+            "    time.sleep(2)\n"
+            "    return 'should not finish'\n",
+            encoding="utf-8",
+        )
+
+        original_trust = os.environ.get("HPC_AGENT_TRUST_EXTERNAL_PYTHON")
+        try:
+            os.environ["HPC_AGENT_TRUST_EXTERNAL_PYTHON"] = "true"
+            result = execute_confirmed_action(
+                "external_python_skill",
+                {
+                    "skill_name": "slow-skill",
+                    "skill_path": str(skill_path),
+                    "question": "慢速测试",
+                },
+            )
+        finally:
+            if original_trust is None:
+                os.environ.pop("HPC_AGENT_TRUST_EXTERNAL_PYTHON", None)
+            else:
+                os.environ["HPC_AGENT_TRUST_EXTERNAL_PYTHON"] = original_trust
+
+    assert not result.success
+    assert "TimeoutError" in result.message
+    assert "timed out" in result.message
+
+
 def test_unknown_confirmed_action_is_rejected():
     result = execute_confirmed_action("unknown", {})
 
@@ -190,5 +297,7 @@ if __name__ == "__main__":
     test_confirmed_restore_job_records_returns_restore_result()
     test_confirmed_add_error_case_writes_case()
     test_confirmed_vasp_input_overwrite_generates_files()
+    test_confirmed_external_python_skill_executes_handler()
+    test_confirmed_external_python_skill_times_out()
     test_unknown_confirmed_action_is_rejected()
     print("All confirmed action checks passed.")

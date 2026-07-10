@@ -67,6 +67,7 @@ include = ["modules*"]
 ]
 "share/hpc-agent/docs" = [
     "docs/DOCKER.md",
+    "docs/EXTERNAL_SKILLS.md",
     "docs/LIVE_TEST_CHECKLIST.md",
     "docs/README.md",
     "docs/USER_GUIDE.md",

@@ -40,6 +40,34 @@ def test_build_ask_llm_messages_includes_conversation_context():
     assert "sbatch 用于提交 Slurm 作业" in user_content
 
 
+def test_build_ask_llm_messages_includes_prompt_skills():
+    docs = [
+        {
+            "source": "vasp.txt#chunk0",
+            "score": 0.8,
+            "content": "INCAR 控制 VASP 计算参数。",
+        }
+    ]
+    prompt_skills = [
+        {
+            "name": "vasp-style",
+            "description": "VASP 回答风格",
+            "triggers": ["VASP", "INCAR"],
+            "body": "回答 VASP 问题时先解释关键 INCAR 参数。",
+            "path": "/tmp/custom-skills/vasp-style/SKILL.md",
+        }
+    ]
+
+    messages = build_ask_llm_messages("VASP INCAR 怎么设置", docs, prompt_skills=prompt_skills)
+    system_content = messages[0]["content"]
+    user_content = messages[1]["content"]
+
+    assert "用户自定义只读 Skills" in user_content
+    assert "vasp-style" in user_content
+    assert "回答 VASP 问题时先解释关键 INCAR 参数" in user_content
+    assert "不能执行命令、不能调用 Python" in system_content
+
+
 def test_load_documents_preserves_document_context_in_chunks():
     docs, sources = load_documents()
 
@@ -111,6 +139,7 @@ def test_rag_cases_hit_expected_sources():
 
 if __name__ == "__main__":
     test_build_ask_llm_messages_includes_conversation_context()
+    test_build_ask_llm_messages_includes_prompt_skills()
     test_load_documents_preserves_document_context_in_chunks()
     test_retrieve_cluster_partition_snapshot()
     test_retrieve_pending_prefers_pending_knowledge()

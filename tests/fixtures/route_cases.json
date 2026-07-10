@@ -94,6 +94,8 @@
   {"text": "把 VASP 作业 11817144 的结果拿回本地", "intent": "sync_vasp_output"},
   {"text": "帮我分析 VASP 作业 11817144", "intent": "analyze_vasp_job"},
   {"text": "把 VASP 作业 11817144 整理成论文格式", "intent": "generate_vasp_report"},
+  {"text": "帮我解释 VASP 分析报告应该包含什么", "intent": "rag_qa"},
+  {"text": "VASP 分析报告的内容结构一般包括哪些部分？", "intent": "rag_qa"},
   {"text": "远端 VASP 目录有什么", "intent": "list_remote_vasp_jobs"},
   {"text": "列出远端 VASP input 和 output 目录", "intent": "list_remote_vasp_jobs"},
   {"text": "列出 VASP 作业", "intent": "list_local_vasp_jobs"},

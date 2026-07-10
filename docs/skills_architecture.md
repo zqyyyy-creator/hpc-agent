@@ -152,6 +152,13 @@ pending_action: generate_vasp_inputs_overwrite
 
 ## 6. 外部 Skill 集成
 
+不修改源码的外部只读 Skills 接入方式见 [EXTERNAL_SKILLS.md](EXTERNAL_SKILLS.md)。该文档包含：
+
+- `HPC_AGENT_CUSTOM_SKILLS_DIR` 配置。
+- prompt-only Skill 和 `SKILL.md + handler.py` external_python Skill 的区别。
+- `local-file-summary`、`quota-check` 两个完整模板。
+- `/skill list`、`/skill test all`、`/skill test <name>` 调试方法。
+
 项目已迁移的第一个外部 Skill 来自：
 
 ```text

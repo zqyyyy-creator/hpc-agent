@@ -125,8 +125,18 @@ def run_agent_runtime_checks():
 
     for check in [
         checks.test_can_answer_intent_marks_only_answer_intents,
+        checks.test_execute_shortcut_help_returns_static_help,
+        checks.test_skill_test_reports_loaded_external_python_skill_dry_run,
+        checks.test_skill_test_dry_run_takes_priority_over_external_python_match,
+        checks.test_skill_test_all_reports_loaded_and_skipped_skills,
+        checks.test_skill_test_reports_skipped_external_python_skill,
+        checks.test_external_python_priority_rules_are_fixed,
         checks.test_execute_registered_skill_intent_exposes_skill_metadata,
         checks.test_skill_registry_load_error_is_exposed_for_diagnostics,
+        checks.test_execute_registered_skill_falls_back_to_rag_when_handler_fails,
+        checks.test_execute_rag_intent_passes_matched_prompt_skills_to_llm,
+        checks.test_execute_rag_intent_requests_confirmation_for_custom_external_python_skill,
+        checks.test_custom_external_python_skill_overrides_builtin_answer_intent_when_triggered,
         checks.test_execute_tool_dispatch_skill_uses_dispatch_adapter,
         checks.test_can_preview_cleanup_intent_marks_cleanup_intents,
         checks.test_can_preview_submit_intent_marks_submit_intents,
@@ -208,6 +218,8 @@ def run_confirmed_action_checks():
     checks.test_confirmed_restore_job_records_returns_restore_result()
     checks.test_confirmed_add_error_case_writes_case()
     checks.test_confirmed_vasp_input_overwrite_generates_files()
+    checks.test_confirmed_external_python_skill_executes_handler()
+    checks.test_confirmed_external_python_skill_times_out()
     checks.test_unknown_confirmed_action_is_rejected()
 
     print("OK confirmed action checks passed")
@@ -232,6 +244,7 @@ def run_knowledge_base_context_checks():
     from tests.knowledge import test_knowledge_base_context as checks
 
     checks.test_build_ask_llm_messages_includes_conversation_context()
+    checks.test_build_ask_llm_messages_includes_prompt_skills()
     checks.test_load_documents_preserves_document_context_in_chunks()
     checks.test_retrieve_cluster_partition_snapshot()
     checks.test_retrieve_pending_prefers_pending_knowledge()
@@ -255,6 +268,12 @@ def run_skill_registry_checks():
     checks.test_skill_registry_loads_expected_skills()
     checks.test_skill_registry_maps_intents()
     checks.test_skill_handlers_are_importable()
+    checks.test_custom_read_only_prompt_skill_loads_without_handler()
+    checks.test_custom_prompt_skill_matches_question_by_trigger()
+    checks.test_custom_external_python_skill_loads_and_matches_question()
+    checks.test_untrusted_custom_external_python_skill_is_skipped()
+    checks.test_custom_external_python_skill_is_skipped_when_global_trust_disabled()
+    checks.test_custom_non_external_python_handler_is_rejected()
 
     print("OK skill registry checks passed")
 
@@ -403,6 +422,7 @@ def run_vasp_assistant_checks():
     checks.test_claude_reporter_loads_vasp_report_skill()
     checks.test_vasp_input_path_maps_to_local_output_dir_for_reports()
     checks.test_generate_vasp_report_intent_prefers_report_over_script_generation()
+    checks.test_vasp_report_explanation_stays_rag_question()
     checks.test_analyze_vasp_job_intent()
     checks.test_vasp_report_selector_uses_last_vasp_job_reference()
     monitor_checks.test_potcar_input_conversion_is_error()

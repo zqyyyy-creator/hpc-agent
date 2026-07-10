@@ -742,10 +742,48 @@ def _cluster_partition_qa_request(ctx: RouteContext) -> bool:
     )
 
 
+def _vasp_report_explanation_request(ctx: RouteContext) -> bool:
+    if not ctx.is_vasp_request or not ctx.match_any(KEYWORDS["vasp_report"]):
+        return False
+
+    explanation_terms = [
+        "解释", "说明", "介绍", "是什么", "什么是",
+        "包含什么", "包括什么", "有哪些", "应该包含",
+        "应该包括", "怎么写", "如何写", "怎么组织",
+        "内容结构", "结构一般", "一般包括",
+    ]
+    return ctx.match_any(explanation_terms)
+
+
+def _vasp_report_generation_request(ctx: RouteContext) -> bool:
+    if not ctx.is_vasp_request or not ctx.match_any(KEYWORDS["vasp_report"]):
+        return False
+    if _vasp_report_explanation_request(ctx):
+        return False
+    if ctx.has_job_id or _last_job_reference(ctx):
+        return True
+
+    action_terms = [
+        "生成报告", "生成分析报告", "生成论文报告",
+        "写报告", "整理报告", "整理成论文格式",
+        "生成论文", "论文格式", "report",
+    ]
+    job_terms = ["作业", "任务", "计算", "job"]
+    split_action_terms = ["生成", "写", "整理"]
+    report_artifact_terms = ["report.md", "methods", "results", "方法部分", "结果部分"]
+    if ctx.match_any(report_artifact_terms) and ctx.match_any(split_action_terms):
+        return True
+    return (
+        ctx.match_any(action_terms)
+        or ctx.match_any(split_action_terms)
+    ) and ctx.match_any(job_terms)
+
+
 ROUTE_RULES: tuple[RouteRule, ...] = (
     RouteRule("negated_cleanup_howto", "rag_qa", lambda ctx: ctx.negated_cleanup and ctx.is_howto_or_concept),
     RouteRule("resource_howto", "rag_qa", lambda ctx: ctx.is_howto_or_concept and ctx.match_any(KEYWORDS["params"])),
     RouteRule("cluster_partition_qa", "rag_qa", _cluster_partition_qa_request),
+    RouteRule("vasp_report_howto", "rag_qa", _vasp_report_explanation_request),
     RouteRule("vasp_howto_or_concept", "rag_qa", lambda ctx: ctx.is_vasp_request and ctx.is_howto_or_concept and not ctx.match_any(KEYWORDS["params"])),
     RouteRule("vasp_file_catalog_howto", "rag_qa", lambda ctx: ctx.is_vasp_request and "有哪些" in ctx.q_no_space and not ctx.match_any(["远端", "远程", "目录"])),
     RouteRule("check_local_resources", "check_local_resources", _local_resource_check_request),
@@ -775,7 +813,7 @@ ROUTE_RULES: tuple[RouteRule, ...] = (
     RouteRule("cleanup_single", "cleanup_remote_job", lambda ctx: ctx.match_any(KEYWORDS["cleanup"]) and ctx.has_job_id),
     RouteRule("list_remote", "list_remote_jobs", lambda ctx: ctx.match_any(KEYWORDS["list_remote_job"])),
     RouteRule("register_vasp_job", "register_vasp_job", lambda ctx: ctx.is_vasp_request and (ctx.match_any(KEYWORDS["register_vasp"]) or (ctx.has_job_id and ctx.match_any(KEYWORDS["register_vasp_loose"])))),
-    RouteRule("generate_vasp_report", "generate_vasp_report", lambda ctx: ctx.is_vasp_request and ctx.match_any(KEYWORDS["vasp_report"])),
+    RouteRule("generate_vasp_report", "generate_vasp_report", _vasp_report_generation_request),
     RouteRule("generate_vasp_inputs", "generate_vasp_inputs", _vasp_input_generation_request),
     RouteRule("generate_vasp_job_explicit", "generate_vasp_job", _explicit_vasp_job_generation_request),
     RouteRule("submit_vasp_job", "submit_vasp_job", lambda ctx: ctx.is_vasp_request and ctx.match_any(KEYWORDS["submit"])),
@@ -831,6 +869,8 @@ def _shortcut_help_request(ctx: RouteContext) -> bool:
         stripped in {"/help", "/help job", "/help vasp", "/help cleanup", "/help config", "/help skill"}
         or compact in {"/helpjob", "/helpvasp", "/helpcleanup", "/helpconfig", "/helpskill", "/skilllist"}
         or stripped.startswith("/skill route ")
+        or stripped == "/skill test"
+        or stripped.startswith("/skill test ")
         or compact in {"帮助", "快捷命令", "命令帮助"}
     )
 

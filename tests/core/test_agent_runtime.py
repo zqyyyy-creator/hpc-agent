@@ -1,4 +1,6 @@
 from tests import _bootstrap  # noqa: F401
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from modules.core import agent_runtime
 from modules.skills import skill_executor
@@ -52,6 +54,261 @@ def test_execute_shortcut_help_returns_static_help():
     assert "POTCAR" in result.answer
 
 
+def test_skill_test_reports_loaded_external_python_skill_dry_run():
+    original_registry = agent_runtime._SKILL_REGISTRY
+    original_error = agent_runtime._SKILL_REGISTRY_ERROR
+
+    with TemporaryDirectory() as temp_root:
+        custom_dir = Path(temp_root) / "custom-skills"
+        skill_dir = custom_dir / "local-file-summary"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            """---
+name: local-file-summary
+description: 本地目录文件统计
+type: tool
+handler: handler.summarize_local_files
+triggers: [本地文件统计]
+risk: read_only
+trusted: true
+runtime:
+  adapter: external_python
+  timeout_seconds: 3
+---
+统计本地目录。
+""",
+            encoding="utf-8",
+        )
+        (skill_dir / "handler.py").write_text(
+            "def summarize_local_files(context):\n"
+            "    return 'ok'\n",
+            encoding="utf-8",
+        )
+
+        try:
+            agent_runtime._SKILL_REGISTRY = agent_runtime.load_skill_registry(
+                custom_skills_dir=custom_dir,
+                trust_external_python=True,
+            )
+            agent_runtime._SKILL_REGISTRY_ERROR = ""
+            result = execute_answer_intent(
+                '/skill test local-file-summary "本地文件统计 /tmp"',
+                "shortcut_help",
+                documents=[],
+                sources=[],
+                diagnoser=DummyDiagnoser(),
+                state=None,
+            )
+        finally:
+            agent_runtime._SKILL_REGISTRY = original_registry
+            agent_runtime._SKILL_REGISTRY_ERROR = original_error
+
+    assert result.handled
+    assert "Skill dry-run 测试" in result.answer
+    assert "状态: LOADED" in result.answer
+    assert "trigger 命中: YES" in result.answer
+    assert "handler.py 存在: YES" in result.answer
+    assert "dry-run 结果" in result.answer
+
+
+def test_skill_test_dry_run_takes_priority_over_external_python_match():
+    original_registry = agent_runtime._SKILL_REGISTRY
+    original_error = agent_runtime._SKILL_REGISTRY_ERROR
+
+    with TemporaryDirectory() as temp_root:
+        custom_dir = Path(temp_root) / "custom-skills"
+        skill_dir = custom_dir / "local-file-summary"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            """---
+name: local-file-summary
+description: 本地目录文件统计
+type: tool
+handler: handler.summarize_local_files
+triggers: [本地文件统计]
+risk: read_only
+trusted: true
+runtime:
+  adapter: external_python
+---
+统计本地目录。
+""",
+            encoding="utf-8",
+        )
+        (skill_dir / "handler.py").write_text(
+            "def summarize_local_files(context):\n"
+            "    return 'should not run'\n",
+            encoding="utf-8",
+        )
+
+        try:
+            agent_runtime._SKILL_REGISTRY = agent_runtime.load_skill_registry(
+                custom_skills_dir=custom_dir,
+                trust_external_python=True,
+            )
+            agent_runtime._SKILL_REGISTRY_ERROR = ""
+            result = execute_answer_intent(
+                '/skill test local-file-summary "本地文件统计 /tmp"',
+                "rag_qa",
+                documents=[],
+                sources=[],
+                diagnoser=DummyDiagnoser(),
+                state=None,
+            )
+        finally:
+            agent_runtime._SKILL_REGISTRY = original_registry
+            agent_runtime._SKILL_REGISTRY_ERROR = original_error
+
+    assert result.handled
+    assert result.intent == "shortcut_help"
+    assert "Skill dry-run 测试" in result.answer
+    assert "dry-run 结果" in result.answer
+    assert "确认后执行" not in result.answer
+
+
+def test_skill_test_all_reports_loaded_and_skipped_skills():
+    original_registry = agent_runtime._SKILL_REGISTRY
+    original_error = agent_runtime._SKILL_REGISTRY_ERROR
+
+    with TemporaryDirectory() as temp_root:
+        custom_dir = Path(temp_root) / "custom-skills"
+        loaded_dir = custom_dir / "local-file-summary"
+        skipped_dir = custom_dir / "quota-check"
+        loaded_dir.mkdir(parents=True)
+        skipped_dir.mkdir(parents=True)
+        (loaded_dir / "SKILL.md").write_text(
+            """---
+name: local-file-summary
+description: 本地目录文件统计
+type: tool
+handler: handler.summarize_local_files
+triggers: [本地文件统计]
+risk: read_only
+trusted: true
+runtime:
+  adapter: external_python
+---
+统计本地目录。
+""",
+            encoding="utf-8",
+        )
+        (loaded_dir / "handler.py").write_text(
+            "def summarize_local_files(context):\n"
+            "    return 'ok'\n",
+            encoding="utf-8",
+        )
+        (skipped_dir / "SKILL.md").write_text(
+            """---
+name: quota-check
+description: 外部 quota 检查工具
+type: tool
+handler: handler.check_quota
+triggers: [quota]
+risk: read_only
+runtime:
+  adapter: external_python
+---
+检查 quota。
+""",
+            encoding="utf-8",
+        )
+        (skipped_dir / "handler.py").write_text(
+            "def check_quota(context):\n"
+            "    return 'ok'\n",
+            encoding="utf-8",
+        )
+
+        try:
+            agent_runtime._SKILL_REGISTRY = agent_runtime.load_skill_registry(
+                custom_skills_dir=custom_dir,
+                trust_external_python=True,
+            )
+            agent_runtime._SKILL_REGISTRY_ERROR = ""
+            result = execute_answer_intent(
+                '/skill test all "本地文件统计 /tmp"',
+                "rag_qa",
+                documents=[],
+                sources=[],
+                diagnoser=DummyDiagnoser(),
+                state=None,
+            )
+        finally:
+            agent_runtime._SKILL_REGISTRY = original_registry
+            agent_runtime._SKILL_REGISTRY_ERROR = original_error
+
+    assert result.handled
+    assert result.intent == "shortcut_help"
+    assert "Skill dry-run 总览" in result.answer
+    assert "local-file-summary" in result.answer
+    assert "trigger命中=YES" in result.answer
+    assert "quota-check" in result.answer
+    assert "trusted: true" in result.answer
+    assert "不执行 handler.py" in result.answer
+
+
+def test_skill_test_reports_skipped_external_python_skill():
+    original_registry = agent_runtime._SKILL_REGISTRY
+    original_error = agent_runtime._SKILL_REGISTRY_ERROR
+
+    with TemporaryDirectory() as temp_root:
+        custom_dir = Path(temp_root) / "custom-skills"
+        skill_dir = custom_dir / "quota-check"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            """---
+name: quota-check
+description: 外部 quota 检查工具
+type: tool
+handler: handler.check_quota
+triggers: [quota]
+risk: read_only
+runtime:
+  adapter: external_python
+---
+检查 quota。
+""",
+            encoding="utf-8",
+        )
+        (skill_dir / "handler.py").write_text(
+            "def check_quota(context):\n"
+            "    return 'ok'\n",
+            encoding="utf-8",
+        )
+
+        try:
+            agent_runtime._SKILL_REGISTRY = agent_runtime.load_skill_registry(
+                custom_skills_dir=custom_dir,
+                trust_external_python=True,
+            )
+            agent_runtime._SKILL_REGISTRY_ERROR = ""
+            result = execute_answer_intent(
+                '/skill test quota-check "quota"',
+                "shortcut_help",
+                documents=[],
+                sources=[],
+                diagnoser=DummyDiagnoser(),
+                state=None,
+            )
+        finally:
+            agent_runtime._SKILL_REGISTRY = original_registry
+            agent_runtime._SKILL_REGISTRY_ERROR = original_error
+
+    assert result.handled
+    assert "状态: SKIPPED" in result.answer
+    assert "trusted: true" in result.answer
+
+
+def test_external_python_priority_rules_are_fixed():
+    assert not agent_runtime.should_consider_external_python_skill("/help skill", "shortcut_help")
+    assert not agent_runtime.should_consider_external_python_skill("/doctor", "project_doctor")
+    assert not agent_runtime.should_consider_external_python_skill("/config check", "check_hpc_config")
+    assert not agent_runtime.should_consider_external_python_skill("帮我覆盖生成 VASP 输入", "generate_vasp_inputs")
+    assert not agent_runtime.should_consider_external_python_skill("加入错误案例库", "prepare_error_case")
+
+    assert agent_runtime.should_consider_external_python_skill("本地文件统计 /tmp", "check_hpc_config")
+    assert agent_runtime.should_consider_external_python_skill("帮我查一下 quota", "rag_qa")
+
+
 def test_execute_registered_skill_intent_exposes_skill_metadata():
     result = execute_answer_intent(
         "生成一个 sbatch 脚本运行 python train.py",
@@ -100,7 +357,7 @@ def test_execute_registered_skill_falls_back_to_rag_when_handler_fails():
 
     try:
         agent_runtime.execute_skill = failing_execute_skill
-        agent_runtime.ask_llm = lambda question, docs, conversation_state=None: "fallback answer"
+        agent_runtime.ask_llm = lambda question, docs, conversation_state=None, prompt_skills=None: "fallback answer"
         result = execute_answer_intent(
             "amd_test 能跑多久",
             "generate_sbatch",
@@ -119,6 +376,166 @@ def test_execute_registered_skill_falls_back_to_rag_when_handler_fails():
     assert result.data["failed_skill"]["name"] == "generate-sbatch"
     assert "已切换到知识库回答" in result.answer
     assert "fallback answer" in result.answer
+
+
+def test_execute_rag_intent_passes_matched_prompt_skills_to_llm():
+    original_prompt_skills = agent_runtime._prompt_skills_for_question
+    original_ask_llm = agent_runtime.ask_llm
+    captured = {}
+
+    class PromptSkill:
+        name = "vasp-style"
+        type = "prompt"
+        intents = ()
+        triggers = ("VASP",)
+        handler = ""
+        runtime = {}
+        path = "/tmp/custom-skills/vasp-style/SKILL.md"
+        description = "VASP 回答风格"
+        source = "custom"
+        risk = "read_only"
+
+    def fake_ask_llm(question, docs, conversation_state=None, prompt_skills=None):
+        captured["prompt_skills"] = prompt_skills
+        return "rag answer"
+
+    try:
+        agent_runtime._prompt_skills_for_question = lambda question: [PromptSkill()]
+        agent_runtime.ask_llm = fake_ask_llm
+        result = execute_answer_intent(
+            "VASP INCAR 怎么设置",
+            "rag_qa",
+            documents=["INCAR 控制 VASP 参数"],
+            sources=["vasp.txt#chunk0"],
+            diagnoser=DummyDiagnoser(),
+            state=None,
+        )
+    finally:
+        agent_runtime._prompt_skills_for_question = original_prompt_skills
+        agent_runtime.ask_llm = original_ask_llm
+
+    assert result.handled
+    assert result.answer == "rag answer"
+    assert captured["prompt_skills"][0].name == "vasp-style"
+    assert result.data["prompt_skills"][0]["name"] == "vasp-style"
+
+
+def test_execute_rag_intent_requests_confirmation_for_custom_external_python_skill():
+    original_registry = agent_runtime._SKILL_REGISTRY
+    original_error = agent_runtime._SKILL_REGISTRY_ERROR
+
+    with TemporaryDirectory() as temp_root:
+        custom_dir = Path(temp_root) / "custom-skills"
+        skill_dir = custom_dir / "quota-check"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            """---
+name: quota-check
+description: 外部 quota 检查工具
+type: tool
+handler: handler.check_quota
+triggers: [quota, 查配额]
+risk: read_only
+trusted: true
+runtime:
+  adapter: external_python
+---
+检查 quota。
+""",
+            encoding="utf-8",
+        )
+        (skill_dir / "handler.py").write_text(
+            "def check_quota(context):\n"
+            "    return {\n"
+            "        'success': True,\n"
+            "        'message': '外部 quota handler 已执行: ' + context['question'],\n"
+            "        'data': {'skill_dir': context['skill_dir']},\n"
+            "    }\n",
+            encoding="utf-8",
+        )
+
+        try:
+            agent_runtime._SKILL_REGISTRY = agent_runtime.load_skill_registry(
+                custom_skills_dir=custom_dir,
+                trust_external_python=True,
+            )
+            agent_runtime._SKILL_REGISTRY_ERROR = ""
+            result = execute_answer_intent(
+                "帮我查一下 quota",
+                "rag_qa",
+                documents=[],
+                sources=[],
+                diagnoser=DummyDiagnoser(),
+                state=None,
+            )
+        finally:
+            agent_runtime._SKILL_REGISTRY = original_registry
+            agent_runtime._SKILL_REGISTRY_ERROR = original_error
+
+    assert result.handled
+    assert result.success
+    assert "检测到外部 Python Skill：quota-check" in result.answer
+    assert "确认执行" in result.answer
+    assert result.data["skill"]["name"] == "quota-check"
+    assert result.data["external_skills"][0]["source"] == "custom"
+    assert result.data["pending_action"]["kind"] == "external_python_skill"
+    assert result.data["pending_action"]["payload"]["skill_name"] == "quota-check"
+
+
+def test_custom_external_python_skill_overrides_builtin_answer_intent_when_triggered():
+    original_registry = agent_runtime._SKILL_REGISTRY
+    original_error = agent_runtime._SKILL_REGISTRY_ERROR
+
+    with TemporaryDirectory() as temp_root:
+        custom_dir = Path(temp_root) / "custom-skills"
+        skill_dir = custom_dir / "local-file-summary"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            """---
+name: local-file-summary
+description: 本地目录文件统计
+type: tool
+handler: handler.summarize_local_files
+triggers: [本地文件统计, 目录统计]
+risk: read_only
+trusted: true
+runtime:
+  adapter: external_python
+---
+统计本地目录。
+""",
+            encoding="utf-8",
+        )
+        (skill_dir / "handler.py").write_text(
+            "def summarize_local_files(context):\n"
+            "    return '外部本地文件统计 handler 已执行: ' + context['question']\n",
+            encoding="utf-8",
+        )
+
+        try:
+            agent_runtime._SKILL_REGISTRY = agent_runtime.load_skill_registry(
+                custom_skills_dir=custom_dir,
+                trust_external_python=True,
+            )
+            agent_runtime._SKILL_REGISTRY_ERROR = ""
+            result = execute_answer_intent(
+                "本地文件统计 /home/qyz/projects/hpc-agent",
+                "check_hpc_config",
+                documents=[],
+                sources=[],
+                diagnoser=DummyDiagnoser(),
+                state=None,
+            )
+        finally:
+            agent_runtime._SKILL_REGISTRY = original_registry
+            agent_runtime._SKILL_REGISTRY_ERROR = original_error
+
+    assert result.handled
+    assert result.success
+    assert "检测到外部 Python Skill：local-file-summary" in result.answer
+    assert result.data["skill"]["name"] == "local-file-summary"
+    assert result.data["external_skills"][0]["name"] == "local-file-summary"
+    assert result.data["pending_action"]["kind"] == "external_python_skill"
 
 
 def test_execute_tool_dispatch_skill_uses_dispatch_adapter():
@@ -546,6 +963,12 @@ def test_execute_vasp_input_existing_files_returns_overwrite_pending_action():
 
 if __name__ == "__main__":
     test_can_answer_intent_marks_only_answer_intents()
+    test_execute_shortcut_help_returns_static_help()
+    test_skill_test_reports_loaded_external_python_skill_dry_run()
+    test_skill_test_dry_run_takes_priority_over_external_python_match()
+    test_skill_test_all_reports_loaded_and_skipped_skills()
+    test_skill_test_reports_skipped_external_python_skill()
+    test_external_python_priority_rules_are_fixed()
     test_execute_registered_skill_intent_exposes_skill_metadata()
     test_skill_registry_load_error_is_exposed_for_diagnostics()
     test_execute_tool_dispatch_skill_uses_dispatch_adapter()

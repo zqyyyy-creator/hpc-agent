@@ -813,6 +813,12 @@ def test_generate_vasp_report_intent_prefers_report_over_script_generation():
         raise AssertionError(f"Expected generate_vasp_report intent for {request!r}")
 
 
+def test_vasp_report_explanation_stays_rag_question():
+    request = "帮我解释 VASP 分析报告应该包含什么"
+    if detect_intent(request) != "rag_qa":
+        raise AssertionError(f"Expected rag_qa intent for {request!r}")
+
+
 def test_analyze_vasp_job_intent():
     request = "一键分析 VASP 作业 si_static_test"
     if detect_intent(request) != "analyze_vasp_job":
@@ -980,6 +986,7 @@ if __name__ == "__main__":
     test_register_existing_vasp_job_from_text_writes_registry()
     test_sync_vasp_output_intent_requires_vasp_and_job_id()
     test_generate_vasp_report_intent_prefers_report_over_script_generation()
+    test_vasp_report_explanation_stays_rag_question()
     test_analyze_vasp_job_intent()
     test_vasp_report_selector_uses_last_vasp_job_reference()
     test_outcar_parser_extracts_deterministic_energies()
