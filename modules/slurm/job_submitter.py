@@ -16,6 +16,8 @@ from modules.slurm.slurm_assistant import (
     extract_cpu_count,
     extract_gpu_count,
     extract_memory,
+    extract_node_count,
+    extract_partition,
     extract_time_limit,
     generate_sbatch_script,
 )
@@ -63,10 +65,11 @@ def make_slurm_prepare_tool_call(user_request: str) -> ToolCall:
             "user_request": user_request,
             "command": extract_command(user_request),
             "cpus": extract_cpu_count(user_request),
+            "nodes": extract_node_count(user_request),
             "time": extract_time_limit(user_request),
             "memory": extract_memory(user_request),
             "gpu": extract_gpu_count(user_request),
-            "partition": DEFAULT_PARTITION or None,
+            "partition": extract_partition(user_request) or DEFAULT_PARTITION or None,
         },
         source="rules",
         confidence=1.0,
@@ -84,12 +87,18 @@ def validate_slurm_tool_call(tool_call: dict | ToolCall) -> ToolCall:
             raise ValueError("普通 Slurm 作业请求不能为空。")
 
         arguments["user_request"] = user_request
-        arguments.setdefault("command", extract_command(user_request))
-        arguments.setdefault("cpus", extract_cpu_count(user_request))
-        arguments.setdefault("time", extract_time_limit(user_request))
-        arguments.setdefault("memory", extract_memory(user_request))
-        arguments.setdefault("gpu", extract_gpu_count(user_request))
-        arguments.setdefault("partition", DEFAULT_PARTITION or None)
+        arguments["command"] = arguments.get("command") or extract_command(user_request)
+        arguments["cpus"] = arguments.get("cpus") or extract_cpu_count(user_request)
+        arguments["nodes"] = arguments.get("nodes") or extract_node_count(user_request)
+        arguments["time"] = arguments.get("time") or extract_time_limit(user_request)
+        arguments["memory"] = arguments.get("memory") or extract_memory(user_request)
+        arguments["gpu"] = arguments.get("gpu") or extract_gpu_count(user_request)
+        arguments["partition"] = (
+            arguments.get("partition")
+            or extract_partition(user_request)
+            or DEFAULT_PARTITION
+            or None
+        )
 
         return ToolCall(
             tool=call.tool,

@@ -19,13 +19,7 @@ curl -fsSL https://your-private-server/hpc-agent/install.sh -o /tmp/hpc-agent-in
 sh /tmp/hpc-agent-install.sh
 ```
 
-The installer downloads `latest.json`, reads `files.wheel.path`, then downloads the matching wheel automatically. For private repositories, pass credentials with environment variables instead of writing them into the script:
-
-```bash
-HPC_AGENT_REPO_USERNAME="$VOLC_USERNAME" \
-HPC_AGENT_REPO_TOKEN="$VOLC_TOKEN" \
-sh /tmp/hpc-agent-install.sh
-```
+The installer downloads `latest.json`, reads `files.wheel.path`, then downloads the matching wheel automatically. For public repositories, users do not need a username, password, token, or `-u` curl option.
 
 ## Recommended Layout
 
@@ -52,7 +46,7 @@ hpc-agent/
 ## File Purpose
 
 - `install.sh`: The one-file installer users download and run.
-- `latest.txt`: The latest stable version, for example `0.2.4`.
+- `latest.txt`: The latest stable version, for example `0.2.5`.
 - `latest.json`: Machine-readable metadata for the latest release. The installer reads `files.wheel.path` from this file.
 - `SHA256SUMS`: Checksums for top-level convenience files.
 - `releases/<version>/`: Immutable files for one exact version.
@@ -134,7 +128,7 @@ Tell users to run:
 ```bash
 python3 --version
 curl -fsSL https://your-private-server/hpc-agent/install.sh -o /tmp/hpc-agent-install.sh
-HPC_AGENT_REPO_USERNAME="$VOLC_USERNAME" HPC_AGENT_REPO_TOKEN="$VOLC_TOKEN" sh /tmp/hpc-agent-install.sh
+sh /tmp/hpc-agent-install.sh
 hpc-agent-check
 hpc-agent
 ```

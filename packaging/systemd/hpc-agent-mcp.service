@@ -1,0 +1,25 @@
+[Unit]
+Description=HPC Agent MCP Streamable HTTP Server
+Documentation=file:%h/projects/hpc-agent/docs/mcp_docs/MCP.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/projects/hpc-agent
+Environment=HPC_AGENT_PROJECT_DIR=%h/projects/hpc-agent
+Environment=HPC_AGENT_MCP_HOST=127.0.0.1
+Environment=HPC_AGENT_MCP_PORT=8000
+Environment=HPC_AGENT_MCP_PATH=/mcp
+Environment=HPC_AGENT_LOG_DIR=%h/.local/share/hpc-agent/logs
+Environment=HPC_AGENT_MCP_AUDIT_LOG=%h/.local/share/hpc-agent/mcp_audit.jsonl
+# Set this to the tunnel or fixed domain host, without https:// and without /mcp.
+# Example: hpc-agent.example.com
+# Environment=HPC_AGENT_MCP_ALLOWED_HOST=
+ExecStart=%h/projects/hpc-agent/scripts/start_mcp_http.sh
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+
+[Install]
+WantedBy=default.target

@@ -32,6 +32,7 @@ def test_console_script_points_to_app_main():
     assert pyproject["project"]["scripts"]["hpc-agent"] == "app:main"
     assert pyproject["project"]["scripts"]["hpc-agent-check"] == "modules.core.check_runner:main"
     assert pyproject["project"]["scripts"]["hpc-agent-init"] == "modules.core.initializer:main"
+    assert pyproject["project"]["scripts"]["hpc-agent-mcp"] == "modules.mcp.server:main"
     app = importlib.import_module("app")
     assert callable(app.main)
     check_runner = importlib.import_module("modules.core.check_runner")
@@ -39,6 +40,8 @@ def test_console_script_points_to_app_main():
     assert callable(check_runner._run_installed_checks)
     initializer = importlib.import_module("modules.core.initializer")
     assert callable(initializer.main)
+    mcp_server = importlib.import_module("modules.mcp.server")
+    assert callable(mcp_server.main)
 
 
 def test_project_paths_are_rooted_and_resolve_relative_paths():
@@ -74,6 +77,8 @@ def test_wheel_data_files_include_read_only_resources_only():
         "data/errors/README.md",
         "data/errors/generic_errors.json",
         "data/errors/real_cases.json",
+        "packaging/systemd/hpc-agent-mcp.service",
+        "scripts/start_mcp_http.sh",
         *[
             str(path.relative_to(_bootstrap.PROJECT_ROOT))
             for path in (_bootstrap.PROJECT_ROOT / "data" / "hpc_documents").glob("*.txt")
@@ -115,6 +120,30 @@ def test_install_script_supports_wheel_install_and_command_links():
     assert "hpc-agent-init" in script
     assert "hpc-agent-check" in script
     assert "hpc-agent" in script
+
+
+def test_mcp_deployment_assets_are_present():
+    start_script_path = _bootstrap.PROJECT_ROOT / "scripts" / "start_mcp_http.sh"
+    service_path = _bootstrap.PROJECT_ROOT / "packaging" / "systemd" / "hpc-agent-mcp.service"
+    deployment_doc_path = _bootstrap.PROJECT_ROOT / "docs" / "mcp_docs" / "MCP_DEPLOYMENT.md"
+
+    start_script = start_script_path.read_text(encoding="utf-8")
+    service = service_path.read_text(encoding="utf-8")
+    deployment_doc = deployment_doc_path.read_text(encoding="utf-8")
+
+    assert start_script_path.is_file()
+    assert "HPC_AGENT_MCP_HOST" in start_script
+    assert "HPC_AGENT_MCP_ALLOWED_HOST" in start_script
+    assert "HPC_AGENT_MCP_AUDIT_LOG" in start_script
+    assert "hpc-agent-mcp" in start_script
+    assert "mcp-http.log" in start_script
+
+    assert service_path.is_file()
+    assert "ExecStart=%h/projects/hpc-agent/scripts/start_mcp_http.sh" in service
+    assert "Restart=on-failure" in service
+
+    assert "curl http://127.0.0.1:8000/health" in deployment_doc
+    assert "systemctl --user enable --now hpc-agent-mcp.service" in deployment_doc
 
 
 def test_private_server_release_templates_are_present():

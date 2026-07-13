@@ -65,6 +65,23 @@ def test_hpc_submission_smoke_test_generates_hostname_script():
     assert_not_contains(answer, "请告诉我要运行的命令")
 
 
+def test_structured_mcp_style_request_generates_hostname_script():
+    request = """使用 HPC Agent 生成 Slurm 脚本预览:
+command: hostname
+nodes: 1
+time: 00:05:00
+partition: amd_test
+"""
+    answer = generate_sbatch_script(request, allow_llm_fallback=False)
+
+    assert_contains(answer, "#!/bin/bash")
+    assert_contains(answer, "#SBATCH --nodes=1")
+    assert_contains(answer, "#SBATCH --time=00:05:00")
+    assert_contains(answer, "#SBATCH --partition=amd_test")
+    assert_contains(answer, "\nhostname\n")
+    assert_not_contains(answer, "请告诉我要运行的命令")
+
+
 def test_dangerous_command_is_rejected():
     request = "帮我生成脚本运行 rm -rf /tmp/data"
     answer = generate_sbatch_script(request)
@@ -83,6 +100,7 @@ if __name__ == "__main__":
     test_memory_shell_script()
     test_missing_command_still_generates()
     test_hpc_submission_smoke_test_generates_hostname_script()
+    test_structured_mcp_style_request_generates_hostname_script()
     test_dangerous_command_is_rejected()
     test_resource_question_is_not_treated_as_submission()
     print("All slurm assistant skill checks passed.")

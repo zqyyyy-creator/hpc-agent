@@ -65,10 +65,31 @@ def test_bare_python_file_command_uses_python3():
     assert "python3 test.py" in prepared["script"]
 
 
+def test_structured_mcp_style_request_is_ready():
+    prepared = prepare_submit_script(
+        """使用 HPC Agent 生成 Slurm 脚本预览:
+command: hostname
+nodes: 1
+time: 00:05:00
+partition: amd_test
+"""
+    )
+
+    assert prepared["ready"]
+    assert "#SBATCH --nodes=1" in prepared["script"]
+    assert "#SBATCH --time=00:05:00" in prepared["script"]
+    assert "#SBATCH --partition=amd_test" in prepared["script"]
+    assert "\nhostname\n" in prepared["script"]
+    assert prepared["tool_call"]["arguments"]["command"] == "hostname"
+    assert prepared["tool_call"]["arguments"]["nodes"] == 1
+    assert prepared["tool_call"]["arguments"]["partition"] == "amd_test"
+
+
 if __name__ == "__main__":
     test_prepare_slurm_job_tool_call_extracts_arguments()
     test_execute_prepare_slurm_job_tool_call_returns_preview_result()
     test_prepare_submit_script_keeps_existing_response_shape()
     test_prepare_slurm_job_tool_call_missing_command_matches_existing_message()
     test_bare_python_file_command_uses_python3()
+    test_structured_mcp_style_request_is_ready()
     print("All Slurm tool calling checks passed.")

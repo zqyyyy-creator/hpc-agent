@@ -1,10 +1,10 @@
 # HPC Agent
 
-HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保留 **Textual TUI**（终端全屏界面）作为统一交互入口。
+HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保留 **Textual TUI**（终端全屏界面）作为主要交互入口，并在 0.2.5 起提供通用 **MCP 服务** 供外部 AI/MCP 客户端接入。
 
-核心功能覆盖 Slurm 知识问答、sbatch 脚本生成、普通作业提交/查询/清理、VASP 固定目录作业提交、VASP 输出同步与报告生成，以及基于 Claude Code 的 VASP 计算结果分析。
+核心功能覆盖 Slurm 知识问答、sbatch 脚本生成、普通作业提交/查询/清理、VASP 固定目录作业提交、VASP 输出同步与报告生成、基于 Claude Code 的 VASP 计算结果分析，以及 MCP 方式的外部工具调用。
 
-文档入口请看 [docs/README.md](docs/README.md)，详细操作请看 [docs/USER_GUIDE.md](docs/USER_GUIDE.md)。Docker 可选部署方式见 [docs/DOCKER.md](docs/DOCKER.md)。
+文档入口请看 [docs/README.md](docs/README.md)，详细操作请看 [docs/USER_GUIDE.md](docs/USER_GUIDE.md)。MCP 接入说明见 [docs/mcp_docs/MCP.md](docs/mcp_docs/MCP.md)，Docker 可选部署方式见 [docs/DOCKER.md](docs/DOCKER.md)。
 
 ---
 
@@ -71,6 +71,17 @@ HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保
 * Chat 结果区支持鼠标选择文本；`Ctrl+Y` 会优先复制选中文本，没有选中文本时复制上一条 Agent 回复
 * 支持 `/help`、`/help job`、`/help vasp`、`/clear`、`/clear all`、`/exit` 等快捷入口
 
+### MCP 外部客户端接入
+* 提供 `hpc-agent-mcp` 命令，可作为标准 MCP 服务运行
+* 支持 STDIO 和 Streamable HTTP 两种传输方式
+* 支持浏览器客户端通过 Cloudflare Tunnel、ngrok 或固定 HTTPS 域名接入
+* 提供 `/health` 健康检查接口
+* 提供 `hpc_agent_chat` 自然语言入口，外部客户端可像 TUI 一样对话
+* 提供结构化工具：Slurm 脚本预览、VASP 作业预览、VASP 输入生成、VASP 本地结果分析、作业查询、VASP 输出同步和清理预览
+* 提供 MCP resources：能力说明、工具 schema、安全策略、示例、部署状态、最近作业、配置状态、skills 和集群知识
+* 真实提交、同步和远端清理默认受安全开关保护，需要 `confirm=true` 和服务端环境变量共同满足
+* MCP 文档见 [docs/mcp_docs/MCP.md](docs/mcp_docs/MCP.md)
+
 ### Claude Code 集成
 * 通过 `skills/vasp_report/SKILL.md` 定义分析 Skill
 * 调用 Claude Code CLI 生成 VASP 计算报告
@@ -110,6 +121,32 @@ HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保
 
 ## 快速开始
 
+### 免密安装 0.2.5
+
+普通用户推荐从发布仓库安装：
+
+```bash
+curl -fL \
+  "https://artifacts-cn-beijing.volces.com/repository/agents/models/ai-llm/hpc-agent/stable/install.sh" \
+  -o /tmp/hpc-agent-install.sh
+
+sh /tmp/hpc-agent-install.sh
+```
+
+安装后确认版本：
+
+```bash
+"$HOME/.local/share/hpc-agent/.venv/bin/python" -c "import importlib.metadata as m; print(m.version('hpc-agent'))"
+```
+
+预期输出：
+
+```text
+0.2.5
+```
+
+### 源码开发启动
+
 安装依赖：
 
 ```bash
@@ -123,6 +160,24 @@ python app.py
 ```
 
 启动后会直接进入 Textual TUI。
+
+安装版也可以直接运行：
+
+```bash
+hpc-agent
+```
+
+启动 MCP HTTP：
+
+```bash
+hpc-agent-mcp --transport streamable-http --host 127.0.0.1 --port 8000 --path /mcp
+```
+
+另开终端做健康检查：
+
+```bash
+curl http://127.0.0.1:8000/health
+```
 
 ---
 
@@ -158,6 +213,17 @@ HPC_CLAUDE_CODE_TIMEOUT_SECONDS=1800
 HPC_AGENT_CUSTOM_SKILLS_DIR=/home/qyz/customize-skills
 HPC_AGENT_TRUST_EXTERNAL_PYTHON=false
 HPC_AGENT_EXTERNAL_PYTHON_TIMEOUT_SECONDS=10
+
+# MCP 服务
+HPC_AGENT_MCP_HOST=127.0.0.1
+HPC_AGENT_MCP_PORT=8000
+HPC_AGENT_MCP_PATH=/mcp
+HPC_AGENT_MCP_ALLOWED_HOST=
+HPC_AGENT_MCP_ALLOWED_ORIGIN=
+HPC_AGENT_LOG_DIR=/home/qyz/.local/share/hpc-agent/logs
+HPC_AGENT_MCP_AUDIT_LOG=/home/qyz/.local/share/hpc-agent/mcp_audit.jsonl
+HPC_AGENT_MCP_ENABLE_WRITE=0
+HPC_AGENT_MCP_ENABLE_DESTRUCTIVE=0
 ```
 
 说明：
@@ -185,6 +251,13 @@ HPC_AGENT_EXTERNAL_PYTHON_TIMEOUT_SECONDS=10
 * `HPC_AGENT_CUSTOM_SKILLS_DIR`：外部只读 Skills 目录，例如 `/home/qyz/customize-skills`。
 * `HPC_AGENT_TRUST_EXTERNAL_PYTHON`：是否允许加载外部 Python handler；默认建议 `false`，确认为可信目录后再改为 `true`。
 * `HPC_AGENT_EXTERNAL_PYTHON_TIMEOUT_SECONDS`：外部 Python handler 默认超时时间，默认 10 秒。
+* `HPC_AGENT_MCP_HOST` / `HPC_AGENT_MCP_PORT` / `HPC_AGENT_MCP_PATH`：MCP HTTP 服务监听地址、端口和路径。
+* `HPC_AGENT_MCP_ALLOWED_HOST`：公网 tunnel 或固定域名的 Host，供浏览器客户端接入时放行。
+* `HPC_AGENT_MCP_ALLOWED_ORIGIN`：可选 Origin 放行配置。
+* `HPC_AGENT_LOG_DIR`：MCP HTTP 启动脚本使用的日志目录。
+* `HPC_AGENT_MCP_AUDIT_LOG`：MCP 写入、执行和危险操作审计日志路径。
+* `HPC_AGENT_MCP_ENABLE_WRITE`：是否允许 MCP 真实提交作业或同步 VASP 输出；默认 `0`。
+* `HPC_AGENT_MCP_ENABLE_DESTRUCTIVE`：是否允许 MCP 执行远端清理；默认 `0`。
 
 Claude Code 报告生成会把 `PARATERA_API_KEY` 同时传给 `ANTHROPIC_API_KEY` 和 `ANTHROPIC_AUTH_TOKEN`，并把 `PARATERA_BASE_URL` 传给 `ANTHROPIC_BASE_URL`。如果报告生成报认证错误，优先检查 `.env` 中的 `PARATERA_API_KEY` 是否过期，以及该 key 是否支持 `HPC_VASP_REPORT_MODEL`。
 

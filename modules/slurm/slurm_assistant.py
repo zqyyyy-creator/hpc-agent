@@ -16,11 +16,53 @@ DANGEROUS_COMMAND_PATTERNS = [
 ]
 
 
+def _extract_labeled_value(text: str, labels: list[str]) -> str | None:
+    label_pattern = "|".join(re.escape(label) for label in labels)
+    next_field = (
+        r"command|cmd|命令|运行命令|nodes?|节点数?|time|时间|运行时间|"
+        r"partition|分区|cpus?|cpu|核数|memory|mem|内存|gpu"
+    )
+    match = re.search(
+        rf"(?:^|\n|\r|\s|[，。；;：:])(?:{label_pattern})\s*[:：=]\s*(.+?)"
+        rf"(?=\s*(?:\n|\r|$|(?:{next_field})\s*[:：=]))",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        match = re.search(
+            rf"(?:^|\n|\r|\s|[，。；;：:])(?:{label_pattern})\s*(?:为|是|is)\s*(.+?)"
+            rf"(?=\s*(?:\n|\r|$|(?:{next_field})\s*(?:[:：=]|为|是|is)))",
+            text,
+            re.IGNORECASE | re.DOTALL,
+        )
+    if not match:
+        return None
+
+    value = match.group(1).strip()
+    return value or None
+
+
 def extract_cpu_count(text: str) -> int:
+    labeled = _extract_labeled_value(text, ["cpus", "cpu", "cores", "核数"])
+    if labeled and re.fullmatch(r"\d+", labeled):
+        return int(labeled)
+
     match = re.search(r"(\d+)\s*(核|cpu|CPU|core|cores)", text)
     if match:
         return int(match.group(1))
     return 1
+
+
+def extract_node_count(text: str) -> int | None:
+    labeled = _extract_labeled_value(text, ["nodes", "node", "节点", "节点数"])
+    if labeled and re.fullmatch(r"\d+", labeled):
+        return int(labeled)
+
+    match = re.search(r"(\d+)\s*(个)?\s*(节点|node|nodes)\b", text, re.IGNORECASE)
+    if match:
+        return int(match.group(1))
+
+    return None
 
 
 def has_cpu_count(text: str) -> bool:
@@ -28,6 +70,12 @@ def has_cpu_count(text: str) -> bool:
 
 
 def extract_time_limit(text: str) -> str:
+    labeled = _extract_labeled_value(text, ["time", "运行时间", "时间"])
+    if labeled:
+        match = re.search(r"\b(\d{1,2}:\d{2}:\d{2})\b", labeled)
+        if match:
+            return match.group(1)
+
     match = re.search(r"\b(\d{1,2}:\d{2}:\d{2})\b", text)
     if match:
         return match.group(1)
@@ -56,6 +104,19 @@ def has_time_limit(text: str) -> bool:
 
 
 def extract_memory(text: str):
+    labeled = _extract_labeled_value(text, ["memory", "mem", "内存"])
+    if labeled:
+        match = re.search(r"(\d+)\s*(gb|g|mb|m|吉)?\b", labeled, re.IGNORECASE)
+        if match:
+            unit = (match.group(2) or "G").upper()
+            if unit == "GB":
+                unit = "G"
+            if unit == "MB":
+                unit = "M"
+            if unit == "吉":
+                unit = "G"
+            return f"{match.group(1)}{unit}"
+
     match = re.search(r"(\d+)\s*(gb|g|GB|G|吉)\b", text)
     if match:
         return f"{match.group(1)}G"
@@ -80,6 +141,10 @@ def has_memory(text: str) -> bool:
 
 
 def extract_gpu_count(text: str):
+    labeled = _extract_labeled_value(text, ["gpu", "gpus"])
+    if labeled and re.fullmatch(r"\d+", labeled):
+        return int(labeled)
+
     match = re.search(r"gpu\s*[:=]\s*(\d+)", text, re.IGNORECASE)
     if match:
         return int(match.group(1))
@@ -211,7 +276,33 @@ def extract_job_name(text: str) -> str:
     return DEFAULT_JOB_NAME
 
 
+def extract_partition(text: str) -> str | None:
+    labeled = _extract_labeled_value(text, ["partition", "分区"])
+    if labeled:
+        match = re.search(r"([A-Za-z0-9_.-]+)", labeled)
+        if match:
+            return match.group(1)
+
+    match = re.search(r"(?:partition|分区)\s*(?:使用|为|是)?\s*([A-Za-z0-9_.-]+)", text, re.IGNORECASE)
+    if match:
+        return match.group(1)
+
+    return None
+
+
 def extract_command(text: str):
+    labeled = _extract_labeled_value(text, ["command", "cmd", "运行命令", "命令"])
+    if labeled:
+        return labeled
+
+    match = re.search(
+        r"(?:运行命令|执行命令|命令|command|cmd)\s*(?:为|是|is)\s*([^\n\r，。；;]+)",
+        text,
+        re.IGNORECASE,
+    )
+    if match:
+        return match.group(1).strip()
+
     match = re.search(r"(python(?:3)?\s+\S+\.py)", text)
     if match:
         return match.group(1)
@@ -227,6 +318,14 @@ def extract_command(text: str):
     match = re.search(r"(?:跑|运行|执行|提交|run|submit)\s*([A-Za-z0-9_./-]+\.sh)", text, re.IGNORECASE)
     if match:
         return f"bash {Path(match.group(1)).name}"
+
+    match = re.search(r"(?:跑|运行|执行|run)\s+([A-Za-z0-9_./-]+)(?:\s+命令)?", text, re.IGNORECASE)
+    if match:
+        return match.group(1)
+
+    match = re.search(r"(?:跑|运行|执行)\s*([A-Za-z0-9_./-]+)\s*命令", text)
+    if match:
+        return match.group(1)
 
     match = re.search(r"(\./[A-Za-z0-9_./-]+)", text)
     if match:
@@ -331,9 +430,11 @@ def generate_sbatch_script(user_request: str, *, allow_llm_fallback: bool = True
 
     job_name = extract_job_name(user_request)
     cpus = extract_cpu_count(user_request)
+    nodes = extract_node_count(user_request)
     memory = extract_memory(user_request)
     time_limit = extract_time_limit(user_request)
     gpu_count = extract_gpu_count(user_request)
+    partition = extract_partition(user_request)
     command = extract_command(user_request)
 
     if command:
@@ -348,6 +449,12 @@ def generate_sbatch_script(user_request: str, *, allow_llm_fallback: bool = True
             f"#SBATCH --output={DEFAULT_OUTPUT_FILE}",
             f"#SBATCH --error={DEFAULT_ERROR_FILE}",
         ]
+
+        if nodes:
+            directives.append(f"#SBATCH --nodes={nodes}")
+
+        if partition:
+            directives.append(f"#SBATCH --partition={partition}")
 
         if memory:
             directives.append(f"#SBATCH --mem={memory}")

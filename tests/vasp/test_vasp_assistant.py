@@ -373,6 +373,37 @@ def test_generate_vasp_report_context_under_analysis():
         assert_contains(context, "Analysis directory")
 
 
+def test_generate_vasp_report_context_accepts_raw_output_dir():
+    with TemporaryDirectory() as tmpdir:
+        job_dir = _bootstrap.Path(tmpdir) / "job-raw"
+        raw_output_dir = job_dir / "raw_output"
+        raw_output_dir.mkdir(parents=True)
+        (raw_output_dir / "OUTCAR").write_text("short\n", encoding="utf-8")
+
+        result = generate_vasp_report_context(raw_output_dir)
+
+        if result["local_job_dir"] != str(job_dir):
+            raise AssertionError(f"Expected parent job dir, got {result['local_job_dir']}")
+        if result["raw_output_dir"] != str(raw_output_dir):
+            raise AssertionError(f"Expected raw_output dir, got {result['raw_output_dir']}")
+
+
+def test_generate_vasp_report_context_accepts_direct_output_dir():
+    with TemporaryDirectory() as tmpdir:
+        output_dir = _bootstrap.Path(tmpdir) / "direct-output"
+        output_dir.mkdir()
+        (output_dir / "OUTCAR").write_text("short\n", encoding="utf-8")
+
+        result = generate_vasp_report_context(output_dir)
+
+        if result["local_job_dir"] != str(output_dir):
+            raise AssertionError(f"Expected direct output dir, got {result['local_job_dir']}")
+        if result["raw_output_dir"] != str(output_dir):
+            raise AssertionError(f"Expected direct raw output dir, got {result['raw_output_dir']}")
+        if result["analysis_dir"] != str(output_dir / "analysis"):
+            raise AssertionError(f"Expected analysis under direct dir, got {result['analysis_dir']}")
+
+
 def test_generate_vasp_figures_from_raw_output():
     from modules.vasp.vasp_figures import generate_vasp_figures
 
@@ -969,6 +1000,8 @@ if __name__ == "__main__":
     test_vasp_local_output_uses_raw_output_subdirectory()
     test_vasp_input_path_maps_to_local_output_dir_for_reports()
     test_generate_vasp_report_context_under_analysis()
+    test_generate_vasp_report_context_accepts_raw_output_dir()
+    test_generate_vasp_report_context_accepts_direct_output_dir()
     test_generate_vasp_figures_from_raw_output()
     test_report_context_lists_raw_output_figures()
     test_generate_report_with_claude_writes_three_markdown_files()

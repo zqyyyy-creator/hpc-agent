@@ -7,6 +7,10 @@
 | 文档 | 用途 |
 | --- | --- |
 | [USER_GUIDE.md](USER_GUIDE.md) | 配置、启动、日常使用、普通 Slurm 作业、VASP 作业、错误诊断、快捷命令和 TUI 操作说明 |
+| [mcp_docs/MCP.md](mcp_docs/MCP.md) | MCP 服务总说明，包含工具、资源、结构化参数、安全开关和冒烟测试 |
+| [mcp_docs/MCP_CLIENTS.md](mcp_docs/MCP_CLIENTS.md) | 通用 MCP 客户端接入说明，适用于 ChatGPT、Claude Desktop、Cursor、Codex 等客户端 |
+| [mcp_docs/MCP_CHATGPT_WEB.md](mcp_docs/MCP_CHATGPT_WEB.md) | ChatGPT Web 通过 HTTPS tunnel 接入 MCP 的具体步骤 |
+| [mcp_docs/MCP_DEPLOYMENT.md](mcp_docs/MCP_DEPLOYMENT.md) | MCP HTTP 服务、健康检查、systemd、日志和审计部署说明 |
 | [EXTERNAL_SKILLS.md](EXTERNAL_SKILLS.md) | 外部只读 Skills 接入方式，包含 `SKILL.md + handler.py` 模板和调试命令 |
 | [LIVE_TEST_CHECKLIST.md](LIVE_TEST_CHECKLIST.md) | 真实超算环境验收清单，记录 Slurm / VASP 提交、监控、同步、分析结果 |
 | [VASP_TEST_TEMPLATES.md](VASP_TEST_TEMPLATES.md) | 推荐 VASP 测试体系、输入文件模板、资源建议和通过标准 |
@@ -18,10 +22,15 @@
 2. 配置好 `.env` 后，按 [LIVE_TEST_CHECKLIST.md](LIVE_TEST_CHECKLIST.md) 做真实环境验收。
 3. 需要准备 VASP smoke test 时，参考 [VASP_TEST_TEMPLATES.md](VASP_TEST_TEMPLATES.md)。
 4. 需要接入本地自定义 Skills 时，参考 [EXTERNAL_SKILLS.md](EXTERNAL_SKILLS.md)。
+5. 需要接入外部 AI/MCP 客户端时，先看 [mcp_docs/MCP.md](mcp_docs/MCP.md)，再按客户端类型看对应专项文档。
 
 ## 常用入口
 
 - 启动 TUI：`.venv/bin/python app.py`
+- 安装版启动 TUI：`hpc-agent`
+- 启动 MCP STDIO：`hpc-agent-mcp`
+- 启动 MCP HTTP：`hpc-agent-mcp --transport streamable-http --host 127.0.0.1 --port 8000 --path /mcp`
+- MCP 健康检查：`curl http://127.0.0.1:8000/health`
 - 本地全量检查：`hpc-agent-check`
 - 真实 HPC 检查：`hpc-agent-check --live-hpc`
 - 配置检查：在 TUI 输入 `检查我的超算配置`

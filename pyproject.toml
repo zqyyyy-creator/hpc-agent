@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hpc-agent"
-version = "0.2.4"
+version = "0.2.5"
 description = "Conversational HPC and Slurm agent with VASP workflow support."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -21,6 +21,7 @@ classifiers = [
 dependencies = [
     "anthropic>=0.105.2",
     "jieba>=0.42.1",
+    "mcp[cli]>=1.2.0",
     "openai>=2.40.0",
     "paramiko>=5.0.0",
     "python-dotenv>=1.2.2",
@@ -35,6 +36,7 @@ dependencies = [
 hpc-agent = "app:main"
 hpc-agent-check = "modules.core.check_runner:main"
 hpc-agent-init = "modules.core.initializer:main"
+hpc-agent-mcp = "modules.mcp.server:main"
 
 [tool.setuptools]
 py-modules = ["app", "textual_cli"]
@@ -73,6 +75,19 @@ include = ["modules*"]
     "docs/USER_GUIDE.md",
     "docs/VASP_TEST_TEMPLATES.md",
     "docs/skills_architecture.md",
+]
+"share/hpc-agent/docs/mcp_docs" = [
+    "docs/mcp_docs/MCP.md",
+    "docs/mcp_docs/MCP_CHATGPT_APP_METADATA.md",
+    "docs/mcp_docs/MCP_CHATGPT_WEB.md",
+    "docs/mcp_docs/MCP_CLIENTS.md",
+    "docs/mcp_docs/MCP_DEPLOYMENT.md",
+]
+"share/hpc-agent/systemd" = [
+    "packaging/systemd/hpc-agent-mcp.service",
+]
+"share/hpc-agent/scripts" = [
+    "scripts/start_mcp_http.sh",
 ]
 "share/hpc-agent/skills/diagnose_error" = ["skills/diagnose_error/SKILL.md"]
 "share/hpc-agent/skills/generate_sbatch" = ["skills/generate_sbatch/SKILL.md"]

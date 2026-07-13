@@ -6,6 +6,16 @@ from pathlib import Path
 MAX_TEXT_CHARS = 12000
 LOG_SNIPPET_CHARS = 4000
 REPORT_CONTEXT_NAME = "report_context.md"
+VASP_OUTPUT_FILES = {
+    "OUTCAR",
+    "OSZICAR",
+    "vasprun.xml",
+    "CONTCAR",
+    "XDATCAR",
+    "INCAR",
+    "KPOINTS",
+    "POSCAR",
+}
 
 
 def _read_text_limited(path: Path, max_chars: int = MAX_TEXT_CHARS) -> str:
@@ -60,6 +70,29 @@ def _file_inventory(raw_output_dir: Path) -> list[dict]:
         })
 
     return files
+
+
+def _contains_vasp_files(directory: Path) -> bool:
+    if not directory.is_dir():
+        return False
+
+    return any((directory / name).is_file() for name in VASP_OUTPUT_FILES)
+
+
+def _resolve_vasp_dirs(local_job_dir: str | Path) -> tuple[Path, Path, Path]:
+    requested_dir = Path(local_job_dir).expanduser().resolve()
+
+    if requested_dir.name == "raw_output":
+        return requested_dir.parent, requested_dir, requested_dir.parent / "analysis"
+
+    raw_output_dir = requested_dir / "raw_output"
+    if raw_output_dir.is_dir():
+        return requested_dir, raw_output_dir, requested_dir / "analysis"
+
+    if _contains_vasp_files(requested_dir):
+        return requested_dir, requested_dir, requested_dir / "analysis"
+
+    return requested_dir, raw_output_dir, requested_dir / "analysis"
 
 
 def _parse_incar(raw_output_dir: Path) -> dict:
@@ -272,9 +305,7 @@ def _format_figure_manifest(figures_result: dict) -> str:
 
 
 def generate_vasp_report_context(local_job_dir: str | Path) -> dict:
-    job_dir = Path(local_job_dir).expanduser().resolve()
-    raw_output_dir = job_dir / "raw_output"
-    analysis_dir = job_dir / "analysis"
+    job_dir, raw_output_dir, analysis_dir = _resolve_vasp_dirs(local_job_dir)
     analysis_dir.mkdir(parents=True, exist_ok=True)
 
     manifest = _load_manifest(analysis_dir)

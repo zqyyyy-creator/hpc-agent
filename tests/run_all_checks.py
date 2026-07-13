@@ -1,6 +1,7 @@
 import argparse
 import importlib.util
 import py_compile
+from pathlib import Path
 
 import _bootstrap
 
@@ -26,6 +27,13 @@ PYTHON_FILES = [
     "modules/knowledge/error_case_manager.py",
     "modules/knowledge/error_diagnoser.py",
     "modules/knowledge/knowledge_base.py",
+    "modules/mcp/__init__.py",
+    "modules/mcp/audit.py",
+    "modules/mcp/formatters.py",
+    "modules/mcp/prompts.py",
+    "modules/mcp/resources.py",
+    "modules/mcp/server.py",
+    "modules/mcp/tools.py",
     "modules/routing/intent_classifier.py",
     "modules/routing/router.py",
     "modules/routing/tool_dispatcher.py",
@@ -69,6 +77,7 @@ PYTHON_FILES = [
     "tests/core/test_tool_calling.py",
     "tests/knowledge/test_error_diagnoser_skill.py",
     "tests/knowledge/test_knowledge_base_context.py",
+    "tests/mcp/test_mcp_tools.py",
     "tests/routing/test_route_planner.py",
     "tests/routing/test_route_cases_fixture.py",
     "tests/routing/test_router_negative.py",
@@ -193,6 +202,43 @@ def run_tool_calling_checks():
     print("OK tool calling framework checks passed")
 
 
+def run_mcp_checks():
+    from tests.mcp import test_mcp_tools as checks
+
+    checks.test_generate_sbatch_returns_preview_only()
+    checks.test_generate_sbatch_accepts_structured_mcp_request()
+    checks.test_generate_sbatch_structured_returns_stable_preview()
+    checks.test_agent_chat_routes_natural_language_sbatch_preview()
+    checks.test_agent_chat_keeps_pending_submission_and_requires_confirm()
+    checks.test_agent_chat_submits_pending_submission_with_confirm()
+    checks.test_query_job_wraps_tool_result()
+    checks.test_query_job_structured_preserves_arguments()
+    checks.test_scrub_secrets_masks_sensitive_keys()
+    checks.test_text_payload_has_stable_response_envelope()
+    checks.test_prepare_vasp_job_returns_preview_only()
+    checks.test_prepare_vasp_job_structured_returns_preview_only()
+    checks.test_generate_vasp_inputs_wraps_result()
+    checks.test_generate_vasp_inputs_structured_wraps_result()
+    checks.test_analyze_vasp_local_result_wraps_context()
+    checks.test_analyze_vasp_local_result_structured_wraps_context()
+    checks.test_analyze_vasp_local_result_lists_collection_candidates()
+    checks.test_submit_prepared_job_requires_write_enable()
+    checks.test_submit_prepared_job_requires_confirm()
+    checks.test_sync_vasp_output_requires_write_enable()
+    checks.test_sync_vasp_output_structured_requires_write_enable()
+    checks.test_prepare_cleanup_structured_wraps_preview()
+    checks.test_execute_cleanup_requires_destructive_enable()
+    checks.test_get_cluster_info_wraps_retrieval()
+    checks.test_list_skills_wraps_registry()
+    checks.test_discovery_resources_describe_capabilities_and_schema()
+    checks.test_generic_prompts_are_available()
+    checks.test_audit_log_records_sanitized_payload(Path("/tmp/hpc-agent-mcp-test"))
+    checks.test_prompt_templates_include_safe_workflow_steps()
+    checks.test_resources_return_expected_shapes()
+
+    print("OK MCP tool checks passed")
+
+
 def run_packaging_checks():
     from tests.core import test_packaging as checks
     from tests.core import test_initializer as initializer_checks
@@ -202,6 +248,7 @@ def run_packaging_checks():
     checks.test_user_paths_are_available_without_changing_source_checkout_defaults()
     checks.test_wheel_data_files_include_read_only_resources_only()
     checks.test_install_script_supports_wheel_install_and_command_links()
+    checks.test_mcp_deployment_assets_are_present()
     initializer_checks.test_initializer_creates_user_env_from_template()
     initializer_checks.test_initializer_does_not_overwrite_existing_env_by_default()
 
@@ -659,6 +706,7 @@ CHECKS = [
     ("2b. Agent runtime checks", run_agent_runtime_checks),
     ("3. HPC test file checks", run_hpc_test_file_checks),
     ("4. Tool calling framework checks", run_tool_calling_checks),
+    ("4a. MCP tool checks", run_mcp_checks),
     ("4b. Packaging checks", run_packaging_checks),
     ("5. Confirmed action checks", run_confirmed_action_checks),
     ("6. Conversation state checks", run_conversation_state_checks),

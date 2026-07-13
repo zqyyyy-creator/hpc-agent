@@ -189,9 +189,10 @@ KEYWORDS: dict[str, list[str]] = {
     "sbatch": [
         "生成脚本", "写脚本", "写一个sbatch",
         "帮我写sbatch", "sbatch脚本",
+        "slurm脚本", "slurm作业脚本", "slurm脚本预览",
         "作业脚本", "帮我生成",
         "我想提交", "先生成脚本", "只生成脚本",
-        "给我脚本", "预览脚本",
+        "给我脚本", "预览脚本", "脚本预览",
         "写sbatch", "生成sbatch", "创建脚本", "创建sbatch",
         "帮我写", "给写", "给生成",
         "createansbatch", "generateansbatch",
@@ -586,6 +587,20 @@ def _explicit_sbatch_request(ctx: RouteContext) -> bool:
     return ctx.match_any([kw for kw in KEYWORDS["sbatch"] if kw != "我想提交"])
 
 
+def _explicit_slurm_sbatch_request(ctx: RouteContext) -> bool:
+    return ctx.match_any([
+        "sbatch",
+        "slurm",
+        "slurm脚本",
+        "slurm作业脚本",
+        "slurm脚本预览",
+        "脚本预览",
+        "预览脚本",
+        "只生成脚本",
+        "先生成脚本",
+    ])
+
+
 def _explicit_vasp_job_generation_request(ctx: RouteContext) -> bool:
     if not ctx.is_vasp_request:
         return False
@@ -822,12 +837,12 @@ ROUTE_RULES: tuple[RouteRule, ...] = (
     RouteRule("generate_vasp_job", "generate_vasp_job", lambda ctx: ctx.is_vasp_request and ctx.match_any(KEYWORDS["sbatch"])),
     RouteRule("vasp_fallback", "generate_vasp_job", lambda ctx: ctx.is_vasp_request),
     RouteRule("troubleshoot_job", "troubleshoot_job", lambda ctx: ctx.match_any(KEYWORDS["troubleshoot"])),
-    RouteRule("suggest_params", "suggest_params", lambda ctx: ctx.match_any(KEYWORDS["params"])),
+    RouteRule("suggest_params", "suggest_params", lambda ctx: ctx.match_any(KEYWORDS["params"]) and not _explicit_slurm_sbatch_request(ctx) and not _preview_only_submit_request(ctx)),
     RouteRule("howto_or_concept", "rag_qa", lambda ctx: ctx.is_howto_or_concept),
     RouteRule("negated_submit_howto", "rag_qa", lambda ctx: ctx.negated_submit and ctx.is_howto_or_concept),
     RouteRule("preview_only_submit", "generate_sbatch", _preview_only_submit_request),
     RouteRule("file_submit", "submit_job", _file_submit_request),
-    RouteRule("generate_test_file", "generate_test_file", lambda ctx: is_test_file_request(ctx.question)),
+    RouteRule("generate_test_file", "generate_test_file", lambda ctx: is_test_file_request(ctx.question) and not _explicit_slurm_sbatch_request(ctx) and not _preview_only_submit_request(ctx)),
     RouteRule("generate_sbatch", "generate_sbatch", _explicit_sbatch_request),
     RouteRule("submit_job", "submit_job", lambda ctx: ctx.match_any(KEYWORDS["submit"])),
     RouteRule("explicit_job_output", "job_output", lambda ctx: ctx.match_any(["作业输出", "作业结果"])),

@@ -183,9 +183,9 @@
   <div class="page">
     <header>
       <h1>HPC Agent 安装与更新说明</h1>
-      <p class="lead">本页面用于指导用户从火山私服下载、安装、更新和检查 HPC Agent。安装前只需要本机已有 Python 3.12 或更高版本。</p>
+      <p class="lead">本页面用于指导用户从火山私服免密下载、安装、更新和检查 HPC Agent。安装前只需要本机已有 Python 3.12 或更高版本。</p>
       <div class="meta">
-        <span class="pill">当前版本: 0.2.4</span>
+        <span class="pill">当前版本: 0.2.5</span>
         <span class="pill">Python: 3.12+</span>
         <span class="pill">私服: Volcengine Artifacts</span>
       </div>
@@ -204,13 +204,10 @@
       </section>
 
       <section>
-        <h2>二、准备私服认证信息</h2>
-        <p>私服下载需要用户名和 token。用户名可以写入终端，token 不要写到网页、文档或截图里。</p>
-        <pre><code>read -p "请输入私服用户名: " VOLC_USERNAME
-read -s VOLC_TOKEN</code></pre>
-        <p>先输入自己的私服用户名并按回车。执行 <code>read -s VOLC_TOKEN</code> 后，粘贴自己的 token 并按回车。终端不会显示 token，这是正常现象。</p>
-        <div class="notice warning">
-          请不要把用户名或 token 明文写进 HTML、脚本、聊天记录或公开文档。这个页面不会保存任何账号信息。
+        <h2>二、确认免密下载方式</h2>
+        <p>当前发布仓库已设置为公开下载，安装 hpc-agent 0.2.5 不需要用户名、密码或 token。下载命令里不要添加 <code>-u</code>，安装命令里也不要设置 <code>HPC_AGENT_REPO_USERNAME</code> 或 <code>HPC_AGENT_REPO_TOKEN</code>。</p>
+        <div class="notice">
+          安装脚本下载到 <code>/tmp/hpc-agent-install.sh</code>，wheel 临时下载目录默认是 <code>/tmp/hpc-agent-install</code>，最终安装目录默认是 <code>~/.local/share/hpc-agent</code>。
         </div>
       </section>
 
@@ -218,17 +215,16 @@ read -s VOLC_TOKEN</code></pre>
         <h2>三、下载安装文件</h2>
         <p>只需要下载安装脚本。安装脚本会自动读取私服 stable/latest.json，找到当前版本 wheel 安装包并下载。</p>
         <pre><code>curl -fL \
-  -u "$VOLC_USERNAME:$VOLC_TOKEN" \
   "https://artifacts-cn-beijing.volces.com/repository/agents/models/ai-llm/hpc-agent/stable/install.sh" \
-  -o /tmp/hpc-agent-install.sh</code></pre>
+  -o /tmp/hpc-agent-install.sh
+
+ls -lh /tmp/hpc-agent-install.sh</code></pre>
       </section>
 
       <section>
         <h2>四、安装 HPC Agent</h2>
         <p>执行下面命令安装。安装脚本会读取 latest.json、下载 wheel、创建独立虚拟环境、安装 HPC Agent、创建命令入口、初始化配置文件，并自动运行体检。</p>
-        <pre><code>HPC_AGENT_REPO_USERNAME="$VOLC_USERNAME" \
-HPC_AGENT_REPO_TOKEN="$VOLC_TOKEN" \
-sh /tmp/hpc-agent-install.sh</code></pre>
+        <pre><code>sh /tmp/hpc-agent-install.sh</code></pre>
         <p>如果最后看到下面这行，就说明安装流程完成：</p>
         <pre><code>HPC Agent installation complete.</code></pre>
       </section>
@@ -250,6 +246,8 @@ hpc-agent-check</code></pre>
         <div class="notice">
           第一次安装后出现 <code>.env</code>、SSH key、HPC 路径相关 WARN 是正常的，说明还没有填写真实配置，不代表安装失败。
         </div>
+        <p>确认当前安装版本是 0.2.5：</p>
+        <pre><code>"$HOME/.local/share/hpc-agent/.venv/bin/python" -c "import importlib.metadata as m; print(m.version('hpc-agent'))"</code></pre>
       </section>
 
       <section>
@@ -296,23 +294,54 @@ HPC_VASP_REPORT_MODEL=DeepSeek-V4-Pro</code></pre>
         <h2>八、更新 HPC Agent</h2>
         <p>更新方式和安装类似：重新下载 stable 安装脚本，然后执行安装。安装脚本会根据 latest.json 自动下载当前 stable wheel。配置文件默认不会被覆盖。</p>
         <pre><code>curl -fL \
-  -u "$VOLC_USERNAME:$VOLC_TOKEN" \
   "https://artifacts-cn-beijing.volces.com/repository/agents/models/ai-llm/hpc-agent/stable/install.sh" \
   -o /tmp/hpc-agent-install.sh
 
-HPC_AGENT_REPO_USERNAME="$VOLC_USERNAME" \
-HPC_AGENT_REPO_TOKEN="$VOLC_TOKEN" \
 HPC_AGENT_FORCE_REINSTALL=1 \
 sh /tmp/hpc-agent-install.sh</code></pre>
       </section>
 
       <section>
-        <h2>九、常见问题</h2>
+        <h2>九、MCP 外部客户端接入</h2>
+        <p>0.2.5 新增通用 MCP Server，不是 ChatGPT 专用接口。支持 ChatGPT Web、Claude Desktop、Cursor、Codex 或其他兼容 MCP 的客户端。</p>
+        <p>本地启动 Streamable HTTP MCP 服务：</p>
+        <pre><code>hpc-agent-mcp --transport streamable-http --host 127.0.0.1 --port 8000 --path /mcp</code></pre>
+        <p>健康检查：</p>
+        <pre><code>curl http://127.0.0.1:8000/health</code></pre>
+        <p>如果通过 Cloudflare Tunnel、ngrok 或固定域名给浏览器客户端连接，需要把公开域名加入允许 Host：</p>
+        <pre><code>hpc-agent-mcp \
+  --transport streamable-http \
+  --host 127.0.0.1 \
+  --port 8000 \
+  --path /mcp \
+  --allowed-host YOUR-TUNNEL-HOST</code></pre>
+        <p>也可以使用一键启动脚本，相关环境变量写在 <code>~/.config/hpc-agent/.env</code> 中：</p>
+        <pre><code>scripts/start_mcp_http.sh</code></pre>
+        <div class="notice">
+          MCP 默认只允许预览和只读操作。真实提交或同步需要 <code>confirm=true</code> 且服务端设置 <code>HPC_AGENT_MCP_ENABLE_WRITE=1</code>；远端清理还需要 <code>HPC_AGENT_MCP_ENABLE_DESTRUCTIVE=1</code>。
+        </div>
+      </section>
+
+      <section>
+        <h2>十、0.2.5 主要更新</h2>
+        <ul>
+          <li>新增 <code>hpc-agent-mcp</code>，支持 STDIO 和 Streamable HTTP MCP 接入。</li>
+          <li>新增 <code>hpc_agent_chat</code> 自然语言入口，外部 AI 可以像 TUI 一样和 Agent 对话。</li>
+          <li>新增结构化 MCP tools：Slurm 预览、VASP 作业预览、VASP 输入生成、VASP 结果分析、作业查询、输出同步和清理预览。</li>
+          <li>新增 MCP 发现资源、工具 schema、prompt 模板、安全策略、审计日志和部署文档。</li>
+          <li>优化 Slurm 参数解析，支持 <code>command:</code>、<code>nodes:</code>、<code>time:</code>、<code>partition:</code> 等结构化文本。</li>
+          <li>优化 VASP 本地结果分析目录兼容性。</li>
+          <li>安装方式改为免密匿名下载，不再需要私服用户名或 token。</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>十一、常见问题</h2>
         <h3>curl 返回 401 或 403</h3>
-        <p>通常是用户名或 token 不正确，重新执行认证步骤并确认 token 没有复制多余空格。</p>
+        <p>通常是发布仓库权限还没有生效，或当前网络不能访问公开仓库。请联系管理员确认仓库权限范围是否为公开，并允许用户匿名下载制品。</p>
 
         <h3>curl 提示 URL rejected 或 No host part</h3>
-        <p>通常是命令里的 URL 没复制完整，或变量没有设置。建议直接复制本页面里的完整命令。</p>
+        <p>通常是命令里的 URL 没复制完整，或多复制了换行符、引号。建议直接复制本页面里的完整命令。</p>
 
         <h3>hpc-agent-check 显示 WARN</h3>
         <p>如果 WARN 是 <code>.env</code>、SSH key、HPC 路径、远端目录相关，通常只是配置还没填好。安装包本身仍然可以是正常的。</p>
@@ -328,7 +357,7 @@ sh /tmp/hpc-agent-install.sh</code></pre>
 
     <footer>
       <p>发布文件路径：Volcengine Artifacts / models / ai-llm / hpc-agent / stable</p>
-      <p>本页面不包含 token。请从安全渠道获取 token，并只在自己的终端中输入。</p>
+      <p>当前下载方式为免密匿名下载，不需要在终端输入私服 token。</p>
     </footer>
   </div>
 </body>
