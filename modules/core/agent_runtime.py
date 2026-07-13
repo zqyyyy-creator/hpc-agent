@@ -10,6 +10,7 @@ from modules.core.environment_status import (
     format_hpc_environment_check,
 )
 from modules.core.project_doctor import format_project_doctor, run_project_doctor
+from modules.mcp_client.injection import maybe_execute_external_mcp_tool
 from modules.routing.router import expand_shortcut_command, get_clarification
 from modules.slurm.slurm_assistant import generate_sbatch_script, suggest_slurm_parameters
 from modules.routing.tool_dispatcher import dispatch_tool_request
@@ -1137,6 +1138,16 @@ def execute_answer_intent(
             dispatch_result.message,
             success=dispatch_result.success,
             data=data,
+        )
+
+    external_mcp_result = maybe_execute_external_mcp_tool(question)
+    if external_mcp_result is not None:
+        return AgentRuntimeResult(
+            True,
+            "external_mcp_tool",
+            external_mcp_result.message,
+            success=external_mcp_result.success,
+            data=external_mcp_result.data,
         )
 
     docs = retrieve(question, documents, sources)

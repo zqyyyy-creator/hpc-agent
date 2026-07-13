@@ -33,6 +33,7 @@ def test_console_script_points_to_app_main():
     assert pyproject["project"]["scripts"]["hpc-agent-check"] == "modules.core.check_runner:main"
     assert pyproject["project"]["scripts"]["hpc-agent-init"] == "modules.core.initializer:main"
     assert pyproject["project"]["scripts"]["hpc-agent-mcp"] == "modules.mcp.server:main"
+    assert pyproject["project"]["scripts"]["hpc-agent-mcp-client"] == "modules.mcp_client.cli:main"
     app = importlib.import_module("app")
     assert callable(app.main)
     check_runner = importlib.import_module("modules.core.check_runner")
@@ -42,6 +43,8 @@ def test_console_script_points_to_app_main():
     assert callable(initializer.main)
     mcp_server = importlib.import_module("modules.mcp.server")
     assert callable(mcp_server.main)
+    mcp_client = importlib.import_module("modules.mcp_client.cli")
+    assert callable(mcp_client.main)
 
 
 def test_project_paths_are_rooted_and_resolve_relative_paths():
@@ -74,6 +77,7 @@ def test_wheel_data_files_include_read_only_resources_only():
 
     expected_files = {
         ".env.example",
+        "config/external_mcp_servers.yaml",
         "data/errors/README.md",
         "data/errors/generic_errors.json",
         "data/errors/real_cases.json",
@@ -119,6 +123,7 @@ def test_install_script_supports_wheel_install_and_command_links():
     assert "--no-deps" in script
     assert "hpc-agent-init" in script
     assert "hpc-agent-check" in script
+    assert "hpc-agent-mcp-client" in script
     assert "hpc-agent" in script
 
 

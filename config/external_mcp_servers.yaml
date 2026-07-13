@@ -1,0 +1,24 @@
+# HPC Agent 外部 MCP tools 注入配置。
+#
+# 默认不启用任何外部 MCP Server，避免安装后自动启动第三方进程。
+# 复制并修改下面的示例后，可通过 CLI 验证：
+#
+#   hpc-agent-mcp-client doctor
+#   hpc-agent-mcp-client list-tools
+#
+# servers:
+#   filesystem:
+#     enabled: true
+#     transport: stdio
+#     command: npx
+#     args:
+#       - -y
+#       - "@modelcontextprotocol/server-filesystem"
+#       - /home/qyz/projects/hpc-agent
+#     timeout_seconds: 20
+#     risk_level: read_only
+#     allowed_tools:
+#       - read_file
+#       - list_directory
+
+servers: {}

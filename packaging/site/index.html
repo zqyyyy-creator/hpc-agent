@@ -185,7 +185,7 @@
       <h1>HPC Agent 安装与更新说明</h1>
       <p class="lead">本页面用于指导用户从火山私服免密下载、安装、更新和检查 HPC Agent。安装前只需要本机已有 Python 3.12 或更高版本。</p>
       <div class="meta">
-        <span class="pill">当前版本: 0.2.5</span>
+        <span class="pill">当前版本: 0.2.6</span>
         <span class="pill">Python: 3.12+</span>
         <span class="pill">私服: Volcengine Artifacts</span>
       </div>
@@ -205,7 +205,7 @@
 
       <section>
         <h2>二、确认免密下载方式</h2>
-        <p>当前发布仓库已设置为公开下载，安装 hpc-agent 0.2.5 不需要用户名、密码或 token。下载命令里不要添加 <code>-u</code>，安装命令里也不要设置 <code>HPC_AGENT_REPO_USERNAME</code> 或 <code>HPC_AGENT_REPO_TOKEN</code>。</p>
+        <p>当前发布仓库已设置为公开下载，安装 hpc-agent 0.2.6 不需要用户名、密码或 token。下载命令里不要添加 <code>-u</code>，安装命令里也不要设置 <code>HPC_AGENT_REPO_USERNAME</code> 或 <code>HPC_AGENT_REPO_TOKEN</code>。</p>
         <div class="notice">
           安装脚本下载到 <code>/tmp/hpc-agent-install.sh</code>，wheel 临时下载目录默认是 <code>/tmp/hpc-agent-install</code>，最终安装目录默认是 <code>~/.local/share/hpc-agent</code>。
         </div>
@@ -246,7 +246,7 @@ hpc-agent-check</code></pre>
         <div class="notice">
           第一次安装后出现 <code>.env</code>、SSH key、HPC 路径相关 WARN 是正常的，说明还没有填写真实配置，不代表安装失败。
         </div>
-        <p>确认当前安装版本是 0.2.5：</p>
+        <p>确认当前安装版本是 0.2.6：</p>
         <pre><code>"$HOME/.local/share/hpc-agent/.venv/bin/python" -c "import importlib.metadata as m; print(m.version('hpc-agent'))"</code></pre>
       </section>
 
@@ -303,7 +303,7 @@ sh /tmp/hpc-agent-install.sh</code></pre>
 
       <section>
         <h2>九、MCP 外部客户端接入</h2>
-        <p>0.2.5 新增通用 MCP Server，不是 ChatGPT 专用接口。支持 ChatGPT Web、Claude Desktop、Cursor、Codex 或其他兼容 MCP 的客户端。</p>
+        <p>0.2.6 继续提供通用 MCP Server，不是 ChatGPT 专用接口。支持 ChatGPT Web、Claude Desktop、Cursor、Codex 或其他兼容 MCP 的客户端。</p>
         <p>本地启动 Streamable HTTP MCP 服务：</p>
         <pre><code>hpc-agent-mcp --transport streamable-http --host 127.0.0.1 --port 8000 --path /mcp</code></pre>
         <p>健康检查：</p>
@@ -320,11 +320,19 @@ sh /tmp/hpc-agent-install.sh</code></pre>
         <div class="notice">
           MCP 默认只允许预览和只读操作。真实提交或同步需要 <code>confirm=true</code> 且服务端设置 <code>HPC_AGENT_MCP_ENABLE_WRITE=1</code>；远端清理还需要 <code>HPC_AGENT_MCP_ENABLE_DESTRUCTIVE=1</code>。
         </div>
+        <h3>外部 MCP tools 注入</h3>
+        <p>0.2.6 新增 <code>hpc-agent-mcp-client</code>，HPC Agent 可以作为 MCP Client 接入第三方 MCP Server，并把白名单工具注入为 <code>external_&lt;server&gt;_&lt;tool&gt;</code>。</p>
+        <pre><code>hpc-agent-mcp-client doctor
+hpc-agent-mcp-client list-tools
+hpc-agent-mcp-client call external_filesystem_read_file '{"path":"README.md"}'</code></pre>
       </section>
 
       <section>
-        <h2>十、0.2.5 主要更新</h2>
+        <h2>十、0.2.6 主要更新</h2>
         <ul>
+          <li>新增 <code>hpc-agent-mcp-client</code>，支持外部 MCP Server 连接、诊断、工具发现和工具调用。</li>
+          <li>新增外部 MCP tools 注入能力，可通过 <code>allowed_tools</code> 白名单注入为 <code>external_&lt;server&gt;_&lt;tool&gt;</code>。</li>
+          <li>新增外部 MCP 调用审计日志和中文使用文档。</li>
           <li>新增 <code>hpc-agent-mcp</code>，支持 STDIO 和 Streamable HTTP MCP 接入。</li>
           <li>新增 <code>hpc_agent_chat</code> 自然语言入口，外部 AI 可以像 TUI 一样和 Agent 对话。</li>
           <li>新增结构化 MCP tools：Slurm 预览、VASP 作业预览、VASP 输入生成、VASP 结果分析、作业查询、输出同步和清理预览。</li>

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hpc-agent"
-version = "0.2.5"
+version = "0.2.6"
 description = "Conversational HPC and Slurm agent with VASP workflow support."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -37,6 +37,7 @@ hpc-agent = "app:main"
 hpc-agent-check = "modules.core.check_runner:main"
 hpc-agent-init = "modules.core.initializer:main"
 hpc-agent-mcp = "modules.mcp.server:main"
+hpc-agent-mcp-client = "modules.mcp_client.cli:main"
 
 [tool.setuptools]
 py-modules = ["app", "textual_cli"]
@@ -46,6 +47,9 @@ include = ["modules*"]
 
 [tool.setuptools.data-files]
 "share/hpc-agent" = [".env.example"]
+"share/hpc-agent/config" = [
+    "config/external_mcp_servers.yaml",
+]
 "share/hpc-agent/data/errors" = [
     "data/errors/README.md",
     "data/errors/generic_errors.json",
@@ -82,6 +86,7 @@ include = ["modules*"]
     "docs/mcp_docs/MCP_CHATGPT_WEB.md",
     "docs/mcp_docs/MCP_CLIENTS.md",
     "docs/mcp_docs/MCP_DEPLOYMENT.md",
+    "docs/mcp_docs/EXTERNAL_MCP_INJECTION.md",
 ]
 "share/hpc-agent/systemd" = [
     "packaging/systemd/hpc-agent-mcp.service",

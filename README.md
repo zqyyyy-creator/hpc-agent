@@ -1,6 +1,6 @@
 # HPC Agent
 
-HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保留 **Textual TUI**（终端全屏界面）作为主要交互入口，并在 0.2.5 起提供通用 **MCP 服务** 供外部 AI/MCP 客户端接入。
+HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保留 **Textual TUI**（终端全屏界面）作为主要交互入口，并提供通用 **MCP 服务** 供外部 AI/MCP 客户端接入。
 
 核心功能覆盖 Slurm 知识问答、sbatch 脚本生成、普通作业提交/查询/清理、VASP 固定目录作业提交、VASP 输出同步与报告生成、基于 Claude Code 的 VASP 计算结果分析，以及 MCP 方式的外部工具调用。
 
@@ -73,6 +73,7 @@ HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保
 
 ### MCP 外部客户端接入
 * 提供 `hpc-agent-mcp` 命令，可作为标准 MCP 服务运行
+* 提供 `hpc-agent-mcp-client` 命令，可让 HPC Agent 作为 MCP Client 连接外部 MCP Server，并把白名单 tools 注入为 `external_<server>_<tool>`
 * 支持 STDIO 和 Streamable HTTP 两种传输方式
 * 支持浏览器客户端通过 Cloudflare Tunnel、ngrok 或固定 HTTPS 域名接入
 * 提供 `/health` 健康检查接口
@@ -81,6 +82,7 @@ HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保
 * 提供 MCP resources：能力说明、工具 schema、安全策略、示例、部署状态、最近作业、配置状态、skills 和集群知识
 * 真实提交、同步和远端清理默认受安全开关保护，需要 `confirm=true` 和服务端环境变量共同满足
 * MCP 文档见 [docs/mcp_docs/MCP.md](docs/mcp_docs/MCP.md)
+* 外部 MCP tools 注入见 [docs/mcp_docs/EXTERNAL_MCP_INJECTION.md](docs/mcp_docs/EXTERNAL_MCP_INJECTION.md)
 
 ### Claude Code 集成
 * 通过 `skills/vasp_report/SKILL.md` 定义分析 Skill
@@ -121,7 +123,7 @@ HPC Agent 是一个面向 HPC / Slurm 超算环境的对话式助手，当前保
 
 ## 快速开始
 
-### 免密安装 0.2.5
+### 免密安装 0.2.6
 
 普通用户推荐从发布仓库安装：
 
@@ -142,7 +144,7 @@ sh /tmp/hpc-agent-install.sh
 预期输出：
 
 ```text
-0.2.5
+0.2.6
 ```
 
 ### 源码开发启动

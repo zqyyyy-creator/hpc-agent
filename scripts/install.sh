@@ -214,7 +214,7 @@ pip_install() {
 
 create_links() {
     mkdir -p "$BIN_DIR"
-    for command_name in hpc-agent hpc-agent-check hpc-agent-init hpc-agent-mcp; do
+    for command_name in hpc-agent hpc-agent-check hpc-agent-init hpc-agent-mcp hpc-agent-mcp-client; do
         if [ -x "$VENV_DIR/bin/$command_name" ]; then
             ln -sfn "$VENV_DIR/bin/$command_name" "$BIN_DIR/$command_name"
         fi

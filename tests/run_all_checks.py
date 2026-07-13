@@ -34,6 +34,14 @@ PYTHON_FILES = [
     "modules/mcp/resources.py",
     "modules/mcp/server.py",
     "modules/mcp/tools.py",
+    "modules/mcp_client/__init__.py",
+    "modules/mcp_client/audit.py",
+    "modules/mcp_client/cli.py",
+    "modules/mcp_client/client_manager.py",
+    "modules/mcp_client/config.py",
+    "modules/mcp_client/formatters.py",
+    "modules/mcp_client/injection.py",
+    "modules/mcp_client/tool_registry.py",
     "modules/routing/intent_classifier.py",
     "modules/routing/router.py",
     "modules/routing/tool_dispatcher.py",
@@ -78,6 +86,7 @@ PYTHON_FILES = [
     "tests/knowledge/test_error_diagnoser_skill.py",
     "tests/knowledge/test_knowledge_base_context.py",
     "tests/mcp/test_mcp_tools.py",
+    "tests/mcp/test_external_mcp_client.py",
     "tests/routing/test_route_planner.py",
     "tests/routing/test_route_cases_fixture.py",
     "tests/routing/test_router_negative.py",
@@ -237,6 +246,47 @@ def run_mcp_checks():
     checks.test_resources_return_expected_shapes()
 
     print("OK MCP tool checks passed")
+
+
+def run_external_mcp_client_checks():
+    import os
+    from tempfile import TemporaryDirectory
+
+    from tests.mcp import test_external_mcp_client as checks
+
+    for check in [
+        checks.test_load_external_mcp_config,
+        checks.test_list_tools_filters_allowed_tools,
+        checks.test_call_external_tool,
+        checks.test_doctor_external_mcp,
+        checks.test_agent_runtime_uses_external_mcp_tool,
+    ]:
+        with TemporaryDirectory(prefix="hpc-agent-external-mcp-test-") as tmp:
+            tmp_path = Path(tmp)
+
+            class MonkeyPatch:
+                def __init__(self):
+                    self._original = {}
+
+                def setenv(self, name, value):
+                    if name not in self._original:
+                        self._original[name] = os.environ.get(name)
+                    os.environ[name] = str(value)
+
+                def undo(self):
+                    for name, value in self._original.items():
+                        if value is None:
+                            os.environ.pop(name, None)
+                        else:
+                            os.environ[name] = value
+
+            monkeypatch = MonkeyPatch()
+            try:
+                check(tmp_path, monkeypatch) if "monkeypatch" in check.__code__.co_varnames else check(tmp_path)
+            finally:
+                monkeypatch.undo()
+
+    print("OK external MCP client checks passed")
 
 
 def run_packaging_checks():
@@ -707,7 +757,8 @@ CHECKS = [
     ("3. HPC test file checks", run_hpc_test_file_checks),
     ("4. Tool calling framework checks", run_tool_calling_checks),
     ("4a. MCP tool checks", run_mcp_checks),
-    ("4b. Packaging checks", run_packaging_checks),
+    ("4b. External MCP client checks", run_external_mcp_client_checks),
+    ("4c. Packaging checks", run_packaging_checks),
     ("5. Confirmed action checks", run_confirmed_action_checks),
     ("6. Conversation state checks", run_conversation_state_checks),
     ("6b. Knowledge base context checks", run_knowledge_base_context_checks),

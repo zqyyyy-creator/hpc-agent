@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.6 - 2026-07-13
+
+- Added external MCP tools injection so HPC Agent can act as an MCP Client.
+- Added `hpc-agent-mcp-client` CLI with `doctor`, `list-tools`, and `call` commands.
+- Added `config/external_mcp_servers.yaml` for external MCP Server configuration.
+- Added `allowed_tools` whitelist filtering and `external_<server>_<tool>` injected tool naming.
+- Added external MCP audit log support.
+- Added natural-language use of injected external MCP tools through TUI / `hpc_agent_chat`.
+- Added external MCP injection docs and regression tests.
+- Updated package version to `0.2.6`.
+
 ## 0.2.5 - 2026-07-13
 
 ### Added

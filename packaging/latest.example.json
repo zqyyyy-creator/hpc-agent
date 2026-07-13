@@ -1,24 +1,24 @@
 {
   "name": "hpc-agent",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "python": ">=3.12",
   "released_at": "2026-07-13",
   "channel": "stable",
   "files": {
     "wheel": {
-      "path": "0.2.5/hpc_agent-0.2.5-py3-none-any.whl",
+      "path": "0.2.6/hpc_agent-0.2.6-py3-none-any.whl",
       "sha256": "REPLACE_WITH_WHEEL_SHA256"
     },
     "sdist": {
-      "path": "0.2.5/hpc_agent-0.2.5.tar.gz",
+      "path": "0.2.6/hpc_agent-0.2.6.tar.gz",
       "sha256": "REPLACE_WITH_SDIST_SHA256"
     },
     "install_script": {
-      "path": "0.2.5/install.sh",
+      "path": "0.2.6/install.sh",
       "sha256": "REPLACE_WITH_INSTALL_SCRIPT_SHA256"
     },
     "release_notes": {
-      "path": "0.2.5/RELEASE_NOTES.md",
+      "path": "0.2.6/RELEASE_NOTES.md",
       "sha256": "REPLACE_WITH_RELEASE_NOTES_SHA256"
     }
   },
@@ -29,6 +29,10 @@
   "notes": [
     "Copy this file to latest.json when publishing a real release.",
     "Replace every REPLACE_WITH_* value with the sha256sum of the published file.",
-    "Use relative paths from the model root, for example 0.2.5/hpc_agent-0.2.5-py3-none-any.whl."
+    "Use relative paths from the model root, for example 0.2.6/hpc_agent-0.2.6-py3-none-any.whl."
+  ],
+  "highlights": [
+    "0.2.6 adds external MCP tools injection so HPC Agent can act as an MCP Client.",
+    "Injected tools are filtered by allowed_tools and exposed as external_<server>_<tool>."
   ]
 }
